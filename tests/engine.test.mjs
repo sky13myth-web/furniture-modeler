@@ -4,6 +4,7 @@ import { createDefaultProject, createCabinet, generateParts, getFrontLayout, get
 
 const cabinetProject = overrides => {
   const project = createDefaultProject();
+  project.settings.deductEdge = false;
   delete project.room.outline;
   delete project.room.installationClearance;
   // These tests model an explicitly saved workshop stock, not new catalog
@@ -227,7 +228,7 @@ test('wardrobe has independent top doors, middle drawers and bottom doors with r
   const drawerBottom = parts.find(item => item.sectionId === 'section-middle' && item.name.endsWith('Ящик 1 · дно'));
   assert.deepEqual([drawerBottom.width, drawerBottom.height, drawerBottom.thickness], [1138, 577, 8]);
   const drawerSide = parts.find(item => item.sectionId === 'section-middle' && item.name.endsWith('Ящик 1 · боковина левая'));
-  assert.deepEqual([drawerSide.width, drawerSide.height], [577, 199]);
+  assert.deepEqual([drawerSide.width, drawerSide.height, drawerSide.finishedHeight], [577, 198, 199]);
   assert.equal(parts.filter(item => item.sectionId === 'section-middle').length, 12);
 });
 
@@ -710,11 +711,15 @@ test('new floor-length outer sides retain the raised bottom, plinth front and se
   const parts = generateParts(project);
   const sideParts = parts.filter(item => item.name.startsWith('Боковина'));
   assert.deepEqual(sideParts.map(item => [item.height, item.position.y]), [[2200, -100], [2200, -100]]);
-  const retained = parts.filter(item => !item.name.startsWith('Боковина'));
+  const retained = parts.filter(item => !item.name.startsWith('Боковина') && item.role !== 'plinth');
+  const plinth = parts.find(item => item.role === 'plinth');
   cabinet.sidesToFloor = false;
   const shorter = generateParts(project);
   assert.deepEqual(shorter.filter(item => item.name.startsWith('Боковина')).map(item => [item.height, item.position.y]), [[2100, 0], [2100, 0]]);
-  assert.deepEqual(shorter.filter(item => !item.name.startsWith('Боковина')), retained);
+  assert.deepEqual(shorter.filter(item => !item.name.startsWith('Боковина') && item.role !== 'plinth'), retained);
+  const exposedPlinth = shorter.find(item => item.role === 'plinth');
+  assert.deepEqual([exposedPlinth.position, exposedPlinth.finishedWidth, exposedPlinth.finishedHeight], [plinth.position, plinth.finishedWidth, plinth.finishedHeight]);
+  assert.equal(plinth.edges.left, 0); assert.equal(exposedPlinth.edges.left, 1);
   assert.deepEqual(getCabinetLayout(cabinet, project), layout);
   assert.equal(shorter.find(item => item.name === 'Дно корпуса').position.y, 0);
   assert.equal(shorter.find(item => item.role === 'plinth').position.y, -100);
@@ -803,7 +808,7 @@ test('a 900 mm standalone drawer cabinet distinguishes facade, opening and outer
   const bottom = parts.find(item => item.name.endsWith('Ящик 1 · дно'));
   const wall = parts.find(item => item.name.endsWith('Ящик 1 · передняя стенка'));
   const side = parts.find(item => item.name.endsWith('Ящик 1 · боковина левая'));
-  assert.deepEqual([facade.width, bottom.width, wall.width, side.thickness], [896, 838, 802, 18]);
+  assert.deepEqual([facade.finishedWidth, bottom.width, wall.width, side.thickness], [896, 838, 802, 18]);
   assert.deepEqual([bottom.height, bottom.thickness], [537, 8]);
   assert.equal(wall.width + 2 * side.thickness, bottom.width);
   assert.deepEqual(validateProject(project), []);
@@ -815,7 +820,7 @@ test('a 900 mm standalone drawer cabinet distinguishes facade, opening and outer
   assert.equal(neighbor.x + otherFront.x - cabinet.x - fronts[0].x - fronts[0].width, 4);
   cabinet.drawerSlideGap = 13.5;
   parts = generateParts(project).filter(item => item.cabinetId === cabinet.id);
-  assert.equal(parts.find(item => item.name.endsWith('Фасад ящика 1')).width, 896);
+  assert.equal(parts.find(item => item.name.endsWith('Фасад ящика 1')).finishedWidth, 896);
   assert.equal(parts.find(item => item.name.endsWith('Ящик 1 · дно')).width, 837);
 });
 
@@ -1028,7 +1033,8 @@ test('internal drawers remain behind outer doors and produce real inset fronts p
   assert.equal(parts.length, originalParts.length + 12);
   assert.equal(innerParts.every(part => part.sectionId === 'behind-doors' && part.position && part.orientation), true);
   const frontPart = innerParts.find(part => part.internalDrawerIndex === 0 && part.component === 'internal-drawer-front');
-  assert.deepEqual([frontPart.width, frontPart.height, frontPart.thickness, frontPart.position.z], [820, 334, 18, 544]);
+  assert.deepEqual([frontPart.finishedWidth, frontPart.finishedHeight, frontPart.thickness, frontPart.position.z], [820, 334, 18, 544]);
+  assert.deepEqual([frontPart.width, frontPart.height], [818, 332]);
   assert.equal(frontPart.position.z + frontPart.thickness + inside[0].handleProjection + cabinet.gap, cabinet.depth);
   assert.equal(innerParts.find(part => part.internalDrawerIndex === 0 && part.name.endsWith('передняя стенка')).width, 762);
   const bottom = innerParts.find(part => part.internalDrawerIndex === 0 && part.name.endsWith('дно'));

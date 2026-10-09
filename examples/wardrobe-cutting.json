@@ -13,52 +13,52 @@
           "label": "Ortada çekmeceli dolap · Боковина левая",
           "x": 10,
           "y": 10,
-          "width": 617,
+          "width": 616,
           "height": 2200,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-2",
           "label": "Ortada çekmeceli dolap · Боковина правая",
-          "x": 630,
+          "x": 629,
           "y": 10,
-          "width": 617,
+          "width": 616,
           "height": 2200,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-3",
           "label": "Ortada çekmeceli dolap · Крышка",
-          "x": 1250,
+          "x": 1248,
           "y": 10,
-          "width": 617,
+          "width": 616,
           "height": 1164,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-4",
           "label": "Ortada çekmeceli dolap · Дно корпуса",
-          "x": 1250,
+          "x": 1248,
           "y": 1177,
-          "width": 617,
+          "width": 616,
           "height": 1164,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-14",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · передняя стенка",
-          "x": 1870,
+          "x": 1867,
           "y": 10,
-          "width": 199,
+          "width": 198,
           "height": 1102,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-15",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · задняя стенка",
-          "x": 1870,
+          "x": 1867,
           "y": 1115,
-          "width": 199,
+          "width": 198,
           "height": 1102,
           "rotated": true
         },
@@ -68,16 +68,16 @@
           "x": 10,
           "y": 2213,
           "width": 1102,
-          "height": 199,
+          "height": 198,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-21",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · задняя стенка",
           "x": 10,
-          "y": 2415,
+          "y": 2414,
           "width": 1102,
-          "height": 199,
+          "height": 198,
           "rotated": false
         },
         {
@@ -86,20 +86,20 @@
           "x": 1115,
           "y": 2344,
           "width": 577,
-          "height": 199,
+          "height": 198,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-13",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · боковина правая",
           "x": 1115,
-          "y": 2546,
+          "y": 2545,
           "width": 577,
-          "height": 199,
+          "height": 198,
           "rotated": false
         }
       ],
-      "usedArea": 5258014
+      "usedArea": 5245724
     },
     {
       "id": "sheet-2",
@@ -115,7 +115,7 @@
           "x": 10,
           "y": 10,
           "width": 1164,
-          "height": 617,
+          "height": 616,
           "rotated": false
         },
         {
@@ -123,39 +123,39 @@
           "label": "Ortada çekmeceli dolap · Горизонтальная перегородка 2",
           "x": 1177,
           "y": 10,
-          "width": 617,
+          "width": 616,
           "height": 1164,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-18",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · боковина левая",
-          "x": 1797,
+          "x": 1796,
           "y": 10,
-          "width": 199,
+          "width": 198,
           "height": 577,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-19",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · боковина правая",
-          "x": 1797,
+          "x": 1796,
           "y": 590,
-          "width": 199,
+          "width": 198,
           "height": 577,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-8",
           "label": "Ortada çekmeceli dolap · Цокольная планка",
-          "x": 1999,
+          "x": 1997,
           "y": 10,
-          "width": 90,
+          "width": 89,
           "height": 1196,
           "rotated": true
         }
       ],
-      "usedArea": 1773662
+      "usedArea": 1768984
     },
     {
       "id": "sheet-3",
@@ -190,57 +190,57 @@
           "label": "Ortada çekmeceli dolap · Секция 1 · Üst bölme · Дверь 2",
           "x": 10,
           "y": 10,
-          "width": 597,
-          "height": 924,
+          "width": 595,
+          "height": 922,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-9",
           "label": "Ortada çekmeceli dolap · Секция 1 · Üst bölme · Дверь 1",
-          "x": 610,
+          "x": 608,
           "y": 10,
-          "width": 597,
-          "height": 924,
+          "width": 595,
+          "height": 922,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-23",
           "label": "Ortada çekmeceli dolap · Секция 3 · Alt bölme · Дверь 1",
-          "x": 1210,
+          "x": 1206,
           "y": 10,
-          "width": 597,
-          "height": 672,
+          "width": 595,
+          "height": 670,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-24",
           "label": "Ortada çekmeceli dolap · Секция 3 · Alt bölme · Дверь 2",
-          "x": 1210,
-          "y": 685,
-          "width": 597,
-          "height": 672,
+          "x": 1206,
+          "y": 683,
+          "width": 595,
+          "height": 670,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-11",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Фасад ящика 1",
           "x": 10,
-          "y": 937,
-          "width": 1196,
-          "height": 247,
+          "y": 1356,
+          "width": 1194,
+          "height": 245,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-17",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Фасад ящика 2",
           "x": 10,
-          "y": 1187,
-          "width": 1196,
-          "height": 247,
+          "y": 1604,
+          "width": 1194,
+          "height": 245,
           "rotated": false
         }
       ],
-      "usedArea": 2496448
+      "usedArea": 2479540
     },
     {
       "id": "sheet-5",
@@ -276,8 +276,8 @@
   "totalSheets": 5,
   "totalParts": 24,
   "placedParts": 24,
-  "utilization": 45.447,
-  "wasteArea": 16038624,
-  "usedArea": 13361376,
+  "utilization": 45.332,
+  "wasteArea": 16072500,
+  "usedArea": 13327500,
   "stockArea": 29400000
 }

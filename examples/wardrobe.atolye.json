@@ -249,7 +249,7 @@
       "kerf": 3,
       "margin": 10,
       "allowRotate": true,
-      "deductEdge": false,
+      "deductEdge": true,
       "printLanguage": "tr"
     }
   }

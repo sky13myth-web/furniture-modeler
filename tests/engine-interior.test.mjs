@@ -189,7 +189,8 @@ test('an extreme internal divider request uses its before-child size and stops a
   const result = resizeConstrainedInteriorDivider(c, 'outer', 'three-rows-divider-0', 'horizontal', 100000, project);
   assert.equal(result.possible, true); assert.equal(result.clamped, true); assert.equal(result.fits, true);
   const sections = getCabinetLayout(result.cabinet, project).internalSections;
-  assert.ok(sections[1].height > 152); assert.ok(sections[1].height < 152.01);
+  // Two applied upper bands need 2 mm more than the previous unedged blanks.
+  assert.ok(sections[1].height > 154); assert.ok(sections[1].height < 154.01);
   assert.equal(sections[2].height, 328); assert.ok(Math.abs(sections[2].y - 18) < 1e-10);
   assert.deepEqual(errors({ ...project, cabinets: [result.cabinet] }), []);
   assert.equal(generateParts({ ...project, cabinets: [result.cabinet] }).filter(p => p.internalDrawerIndex !== undefined).length, 12);

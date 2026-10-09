@@ -176,6 +176,14 @@ add(`
 Поворот без текстуры|Desensiz parçaları döndür|Rotate parts without grain
 Разрешает поворачивать детали на листе на 90°, чтобы уменьшить отходы. Детали с направлением текстуры не поворачиваются.|Fireyi azaltmak için parçaların levha üzerinde 90° döndürülmesine izin verir. Doku yönü belirlenmiş parçalar döndürülmez.|Allows parts to rotate by 90° on the sheet to reduce waste. Parts with a grain direction are not rotated.
 Вычитать толщину кромки|Kenar bandı kalınlığını düş|Deduct edge band thickness
+В чертежах указан готовый размер. В раскрое толщина кромки вычитается только с оклеиваемых сторон.|Çizimler bitmiş ölçüyü gösterir. Kesim ölçüsünde kenar bandı kalınlığı yalnızca bantlanan kenarlardan düşülür.|Drawings show finished sizes. Cutting sizes deduct edge band thickness only from the banded edges.
+В чертежах сборки указан готовый размер. В раскрое толщина кромки вычитается только с оклеиваемых сторон.|Montaj çizimleri bitmiş ölçüyü gösterir. Kesim ölçüsünde kenar bandı kalınlığı yalnızca bantlanan kenarlardan düşülür.|Assembly drawings show finished sizes. Cutting sizes deduct edge band thickness only from the banded edges.
+У обычных полок кромка только спереди. На скрытых стыках кромка не нужна.|Sabit raflarda yalnızca ön kenar bantlanır. Gizli birleşim kenarlarının bantlanması gerekmez.|Regular shelves have edge bands only at the front. Hidden joint edges do not need banding.
+Кромить торцы|Kenarları bantla|Band edges
+Заготовка без кромки|Kenar bandı hariç kesim ölçüsü|Cut blank without edge bands
+Заготовка без кромки, мм|Kenar bandı hariç kesim ölçüsü, mm|Cut blank without edge bands, mm
+Готовый размер с кромкой|Kenar bandı dahil bitmiş ölçü|Finished size including edge bands
+Оклеиваемые торцы выделены цветом.|Bantlanacak kenarlar renkle gösterilir.|Edges to be banded are highlighted in colour.
 Размеры листов и материалы|Levha ölçüleri ve malzemeler|Sheet sizes and materials
 Инструменты секции|Bölme araçları|Section tools
 Инструменты помещения|Oda araçları|Room tools
@@ -418,9 +426,16 @@ Beko: пример инструкции сушильной машины|Beko: ö
 Готовая ширина мм|Bitmiş genişlik mm|Finished width mm
 Готовая высота мм|Bitmiş yükseklik mm|Finished height mm
 Кромка сверху|Üst kenar bandı|Top edge band
+Кромка сверху, мм|Üst kenar bandı, mm|Top edge band, mm
 Кромка снизу|Alt kenar bandı|Bottom edge band
+Кромка снизу, мм|Alt kenar bandı, mm|Bottom edge band, mm
 Кромка слева|Sol kenar bandı|Left edge band
+Кромка слева, мм|Sol kenar bandı, mm|Left edge band, mm
 Кромка справа|Sağ kenar bandı|Right edge band
+Кромка справа, мм|Sağ kenar bandı, mm|Right edge band, mm
+Кромка, мм|Kenar bandı, mm|Edge band, mm
+Нет кромки|Kenar bandı yok|No edge band
+Снизу|Alt|Bottom
 Сохранить чертёж детали|Parça çizimini kaydet|Save part drawing
 Глубина корпуса в мм|Gövde derinliği mm|Carcass depth in mm
 фасад добавляется снаружи|ön panel dışa eklenir|the front is added outside

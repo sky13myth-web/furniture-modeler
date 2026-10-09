@@ -3,7 +3,7 @@
  * from the project; it never mutates the user's model.
  */
 
-import { getRoomOutline, polygonIsSimple, polygonContained, polygonBoundaryDistance, polygonsOverlap, polygonArea, roomBounds, wallLength, cabinetFootprint, getCabinetFootprint as localFootprint } from './room-geometry.js';
+import { getRoomOutline, polygonIsSimple, pointInPolygon, polygonContained, polygonBoundaryDistance, polygonsOverlap, polygonArea, roomBounds, wallLength, cabinetFootprint, getCabinetFootprint as localFootprint } from './room-geometry.js';
 import { validateLayoutSchema, validateDoorOpenings } from './project-io.js';
 import { MATERIAL_PRESETS, THIN_BACK_PRESET } from './standards.js';
 import { defaultName, localizeMaterialPreset } from './i18n.js';
@@ -553,7 +553,7 @@ export function createDefaultProject(language = 'tr') {
       return [...MATERIAL_PRESETS.map(material => ({ ...localizeMaterialPreset(material, namingLanguage), id: aliases[material.id] ?? material.id })), { ...THIN_BACK_PRESET, name: defaultName('thinBack', namingLanguage), type: defaultName('thinBackType', namingLanguage) }];
     })(),
     cabinets: [],
-    settings: { kerf: 3, margin: 10, allowRotate: true, deductEdge: false, printLanguage: 'tr' }
+    settings: { kerf: 3, margin: 10, allowRotate: true, deductEdge: true, printLanguage: 'tr' }
   };
   const common = {
     materialId: 'mdf-white', backMaterialId: 'thin-back-3', drawerMaterialId: 'mdf-white', drawerBottomMaterialId: 'hdf-back',
@@ -724,6 +724,7 @@ export function getInternalDrawerLayout(cabinet, project = { materials: [] }) {
 export function generateParts(project) {
   const parts = [];
   for (const cabinet of project?.cabinets ?? []) {
+    const firstPart = parts.length;
     const width = number(cabinet.width);
     const bodyHeight = number(cabinet.height) - number(cabinet.plinth);
     const thickness = bodyThickness(cabinet, project);
@@ -737,13 +738,9 @@ export function generateParts(project) {
       const edges = Object.fromEntries(['top', 'bottom', 'left', 'right'].map(edge => [edge, edgeNames.includes(edge) ? edgeSize : 0]));
       const finishedWidth = panelWidth;
       const finishedHeight = panelHeight;
-      if (project.settings?.deductEdge) {
-        panelWidth -= edges.left + edges.right;
-        panelHeight -= edges.top + edges.bottom;
-      }
       sequence++;
       if (![panelWidth, panelHeight, panelThickness].every(value => Number.isFinite(value) && value > 0)) return;
-      const outline = extras.outline?.map(point => ({ x: Math.max(0, Math.min(panelWidth, point.x - (project.settings?.deductEdge ? edges.left : 0))), y: Math.max(0, Math.min(panelHeight, point.y - (project.settings?.deductEdge ? edges.top : 0))) }));
+      const outline = extras.outline?.map(point => ({ ...point }));
       parts.push({
         id: `${cabinet.id}-part-${sequence}`, cabinetId: cabinet.id, cabinetName: cabinet.name,
         name, width: round(panelWidth), height: round(panelHeight), thickness: panelThickness,
@@ -872,8 +869,109 @@ export function generateParts(project) {
       addPart(prefix + 'задняя стенка', box.width - 2 * box.panelThickness, box.height, box.panelThickness, panelMaterialId, ['top'], { ...extras, position: { x: box.x + box.panelThickness, y: box.y + box.bottomThickness, z: box.z }, orientation: 'vertical-width' });
       addPart(prefix + 'дно', box.width, box.depth, box.bottomThickness, cabinet.drawerBottomMaterialId ?? cabinet.backMaterialId, [], { ...extras, position: { x: box.x, y: box.y, z: box.z }, orientation: 'horizontal' });
     }
+    const cabinetParts = parts.slice(firstPart);
+    assignContactEdgeBands(cabinetParts);
+    for (const part of cabinetParts) finishCutBlank(part, project.settings?.deductEdge === true);
   }
   return parts;
+}
+
+function finishedPanelBounds(part) {
+  const p = part.position;
+  if (!p || !part.orientation) return null;
+  const width = part.finishedWidth, height = part.finishedHeight;
+  return { x: p.x, y: p.y, z: p.z,
+    width: part.orientation === 'vertical-depth' ? part.thickness : width,
+    height: part.orientation === 'horizontal' ? part.thickness : height,
+    depth: part.orientation === 'horizontal' ? height : part.orientation === 'vertical-depth' ? width : part.thickness };
+}
+
+function finishedHorizontalPolygon(part) {
+  if (part.orientation !== 'horizontal' || !part.position) return null;
+  const p = part.position, outline = part.finishedOutline ?? part.outline ?? [
+    { x: 0, y: 0 }, { x: part.finishedWidth, y: 0 },
+    { x: part.finishedWidth, y: part.finishedHeight }, { x: 0, y: part.finishedHeight }
+  ];
+  return outline.map(point => ({ x: p.x + point.x, z: p.z + point.y }));
+}
+
+function intervalsCover(start, length, intervals) {
+  let cursor = start;
+  const end = start + length;
+  for (const [low, high] of intervals.sort((a, b) => a[0] - b[0])) {
+    if (high < cursor - EPSILON) continue;
+    if (low > cursor + EPSILON) return false;
+    cursor = Math.max(cursor, high);
+    if (cursor >= end - EPSILON) return true;
+  }
+  return false;
+}
+
+/** Contacts use finished assembly geometry. Door closure does not hide an
+ * accessible edge; only structural joints cover plinth/brace/return ends.
+ * A partly exposed edge keeps a continuous band, rather than a stepped blank. */
+function assignContactEdgeBands(parts) {
+  const structural = parts.filter(part => part.position && part.orientation &&
+    part.role !== 'plinth' && !part.role?.startsWith('internal-drawer') &&
+    !/(?:Дверь \d+|Фасад ящика \d+)$/.test(part.name));
+  for (const part of parts) {
+    const bounds = finishedPanelBounds(part);
+    if (!bounds) continue;
+    if (part.role === 'plinth') {
+      for (const edge of ['left', 'right']) {
+        const x = bounds.x + (edge === 'right' ? bounds.width : 0), covered = [];
+        for (const other of structural) {
+          const b = finishedPanelBounds(other);
+          if (other.orientation === 'horizontal') {
+            const polygon = finishedHorizontalPolygon(other);
+            // Generated horizontal contours are rectangles or rear L-notches;
+            // an axis-aligned line is contained when both ends are contained.
+            if (pointInPolygon({ x, z: bounds.z }, polygon) && pointInPolygon({ x, z: bounds.z + bounds.depth }, polygon)) covered.push([b.y, b.y + b.height]);
+          } else if (x >= b.x - EPSILON && x <= b.x + b.width + EPSILON && bounds.z >= b.z - EPSILON && bounds.z + bounds.depth <= b.z + b.depth + EPSILON) covered.push([b.y, b.y + b.height]);
+        }
+        if (intervalsCover(bounds.y, bounds.height, covered)) part.edges[edge] = 0;
+      }
+    } else if (part.role === 'brace') {
+      const rectangle = [{ x: bounds.x, z: bounds.z }, { x: bounds.x + bounds.width, z: bounds.z },
+        { x: bounds.x + bounds.width, z: bounds.z + bounds.depth }, { x: bounds.x, z: bounds.z + bounds.depth }];
+      for (const edge of ['top', 'bottom']) {
+        const y = bounds.y + (edge === 'top' ? bounds.height : 0);
+        const covered = structural.some(other => {
+          if (other === part || other.orientation !== 'horizontal') return false;
+          const b = finishedPanelBounds(other), surface = edge === 'top' ? b.y : b.y + b.height;
+          return Math.abs(surface - y) <= EPSILON && polygonContained(rectangle, finishedHorizontalPolygon(other));
+        });
+        if (covered) part.edges[edge] = 0;
+      }
+    } else if (part.name === 'Возвратная боковина выреза') {
+      // For vertical-depth panels the existing part convention names the
+      // front long edge "left". A rear return ends at the recessed rear wall.
+      const z = bounds.z + bounds.depth, covered = [];
+      for (const other of structural) {
+        if (other === part) continue;
+        const b = finishedPanelBounds(other);
+        if (['back', 'section-back'].includes(other.role) && Math.abs(b.z - z) <= EPSILON && b.x <= bounds.x + EPSILON && b.x + b.width >= bounds.x + bounds.width - EPSILON) covered.push([b.y, b.y + b.height]);
+        else if (other.orientation === 'horizontal') {
+          const polygon = finishedHorizontalPolygon(other);
+          if (pointInPolygon({ x: bounds.x, z }, polygon) && pointInPolygon({ x: bounds.x + bounds.width, z }, polygon)) covered.push([b.y, b.y + b.height]);
+        }
+      }
+      if (intervalsCover(bounds.y, bounds.height, covered)) part.edges.left = 0;
+    }
+  }
+}
+
+function finishCutBlank(part, deductEdge) {
+  const left = deductEdge ? part.edges.left : 0, right = deductEdge ? part.edges.right : 0;
+  const top = deductEdge ? part.edges.top : 0, bottom = deductEdge ? part.edges.bottom : 0;
+  part.width = round(part.finishedWidth - left - right);
+  part.height = round(part.finishedHeight - top - bottom);
+  if (part.finishedOutline) {
+    // Only selected exterior bounds move inward. Internal rear-notch
+    // coordinates stay unchanged apart from the blank's translated origin.
+    part.outline = part.finishedOutline.map(point => ({ x: Math.max(0, Math.min(part.width, point.x - left)), y: Math.max(0, Math.min(part.height, point.y - top)) }));
+    part.area = contourArea(part.outline);
+  } else part.area = Math.max(0, part.width) * Math.max(0, part.height);
 }
 
 function contourArea(outline) {
@@ -1161,6 +1259,7 @@ export function validateProject(project) {
       const bottomStock = stockById(project ?? {}, cabinet.drawerBottomMaterialId ?? cabinet.backMaterialId);
       if (bottomStock && Math.abs(number(bottomStock.thickness) - bottomThickness(cabinet, project ?? {})) > EPSILON) warn('толщина дна ящика отличается от выбранного материала; потребуется отдельный лист этой толщины.');
     }
+    if (project?.settings?.deductEdge && generateParts({ ...project, cabinets: [cabinet] }).some(part => !positive(part.width) || !positive(part.height))) error('для такой толщины материала недостаточно внутреннего пространства.');
   }
   for (let index = 0; index < cabinets.length; index++) {
     for (let next = index + 1; next < cabinets.length; next++) {

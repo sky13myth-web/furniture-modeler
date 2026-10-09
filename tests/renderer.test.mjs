@@ -9,6 +9,7 @@ import { MATERIAL_PRESETS } from '../src/standards.js';
 
 function legacyProject() {
   const project = createDefaultProject();
+  project.settings.deductEdge = false;
   project.room = { width: 4200, depth: 3400, height: 2700, wallThickness: 150, windows: [] };
   const baseStock = { sheetWidth:2100,sheetHeight:2800,grain:false,edgeBand:1 };
   project.materials = project.materials.filter(material=>!['mdf-drawer','hdf-bottom'].includes(material.id));
@@ -233,7 +234,7 @@ test('selected-cabinet exports include readable facade sizes, clean section open
   const html = generateDrawingHTML(project, { cabinetId: cabinet.id, language: 'ru' }).replace(/[\u00a0\u202f]/g, ' ');
   assert.equal((html.match(/<svg /g) || []).length, 6);
   assert.match(html, /детали и короба ящиков/);
-  assert.match(html, /577 × 199/);
+  assert.match(html, /577 × 198/);
   assert.match(html, /1 138 × 577/);
   assert.match(html, /Полезная глубина/);
 });
@@ -375,7 +376,9 @@ test('the laundry pull-out shelf is one actual thin panel that slides independen
   const drawing = createDrawingSvg(project, 'interior', { cabinetId: cabinet.id });
   assert.match(drawing, /data-component="pull-out-shelf"/);
   assert.match(generateDrawingHTML(project, { cabinetId: cabinet.id, language: 'ru' }), /выдвижная полка/);
-  assert.match(createPartSvg(part, project), /Раскрой 902 × 610 мм/);
+  const partSvg = createPartSvg(part, project);
+  assert.match(partSvg, /Заготовка без кромки: 900 × 609 мм/);
+  assert.match(partSvg, /Готовый размер с кромкой: 902 × 610 мм/);
 });
 
 test('a doorway cuts the wall down to zero without a window sill or glazed mullion', () => {
@@ -1030,7 +1033,7 @@ test('production printing reports each real edge-band length and grouped materia
   const project=createDefaultProject(),cabinet=project.cabinets[0],parts=generateParts(project),summary=getEdgeBandingSummary(parts);
   const before=structuredClone(project), sides=parts.filter(part=>/^Боковина/.test(part.name));
   assert.equal(getPartEdgeBanding(sides[0]).lengthMeters,2.2);
-  assert.equal(summary.lengthMeters,34.08);
+  assert.equal(summary.lengthMeters,33.9);
   const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.match(html,/<th>Edge band length, m<\/th>/);
   assert.ok(html.includes(`Total edge band: ${printNumber(summary.lengthMeters,'en')} m`));
@@ -1043,7 +1046,7 @@ test('production printing reports each real edge-band length and grouped materia
   const deducted=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.ok(deducted.includes(`Total edge band: ${printNumber(summary.lengthMeters,'en')} m`),'deducting cutting blanks does not shorten band lengths based on finished outlines');
   const tr=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'tr'});
-  assert.match(tr,/Toplam kenar bandı: 34,08 m/);
+  assert.match(tr,/Toplam kenar bandı: 33,9 m/);
   assert.match(tr,/class="edge-summary"/);
   assert.equal((tr.match(/class="sheet /g)||[]).length,4,'edge totals still fit beneath production; the sourced cost estimate has its own sheet');
 });

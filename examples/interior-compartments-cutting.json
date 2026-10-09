@@ -13,43 +13,43 @@
           "label": "Ortak kapaklı dolap · Боковина левая",
           "x": 10,
           "y": 10,
-          "width": 620,
+          "width": 619,
           "height": 2200,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-2",
           "label": "Ortak kapaklı dolap · Боковина правая",
-          "x": 633,
+          "x": 632,
           "y": 10,
-          "width": 620,
+          "width": 619,
           "height": 2200,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-3",
           "label": "Ortak kapaklı dolap · Крышка",
-          "x": 1256,
+          "x": 1254,
           "y": 10,
-          "width": 620,
+          "width": 619,
           "height": 864,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-4",
           "label": "Ortak kapaklı dolap · Дно корпуса",
-          "x": 1256,
+          "x": 1254,
           "y": 877,
-          "width": 620,
+          "width": 619,
           "height": 864,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-5",
           "label": "Ortak kapaklı dolap · Секция 1 · внутренняя горизонтальная перегородка 1",
-          "x": 1256,
+          "x": 1254,
           "y": 1744,
-          "width": 620,
+          "width": 619,
           "height": 864,
           "rotated": true
         },
@@ -58,48 +58,48 @@
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · фасад",
           "x": 10,
           "y": 2213,
-          "width": 820,
-          "height": 381.2,
+          "width": 818,
+          "height": 379.2,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-15",
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · боковина левая",
-          "x": 833,
+          "x": 831,
           "y": 2213,
-          "width": 333.2,
+          "width": 332.2,
           "height": 544,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-10",
           "label": "Ortak kapaklı dolap · Секция 1 · задняя перемычка 1",
-          "x": 1169.2,
+          "x": 1166.2,
           "y": 2611,
           "width": 864,
-          "height": 100,
+          "height": 99,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-11",
           "label": "Ortak kapaklı dolap · Секция 1 · задняя перемычка 2",
-          "x": 1879,
+          "x": 1876,
           "y": 10,
-          "width": 100,
+          "width": 99,
           "height": 864,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-9",
           "label": "Ortak kapaklı dolap · Цокольная планка",
-          "x": 1982,
+          "x": 1978,
           "y": 10,
-          "width": 90,
+          "width": 89,
           "height": 896,
           "rotated": true
         }
       ],
-      "usedArea": 5082324.8
+      "usedArea": 5069766.399999999
     },
     {
       "id": "sheet-2",
@@ -115,7 +115,7 @@
           "x": 10,
           "y": 10,
           "width": 860,
-          "height": 600,
+          "height": 599,
           "rotated": false
         },
         {
@@ -124,25 +124,25 @@
           "x": 873,
           "y": 10,
           "width": 860,
-          "height": 600,
+          "height": 599,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-8",
           "label": "Ortak kapaklı dolap · Секция 1 · внутренний отсек 1 · полка 3",
           "x": 10,
-          "y": 613,
+          "y": 612,
           "width": 860,
-          "height": 600,
+          "height": 599,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-20",
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · фасад",
           "x": 873,
-          "y": 613,
-          "width": 820,
-          "height": 381.2,
+          "y": 612,
+          "width": 818,
+          "height": 379.2,
           "rotated": false
         },
         {
@@ -150,16 +150,16 @@
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · передняя стенка",
           "x": 1736,
           "y": 10,
-          "width": 333.2,
+          "width": 332.2,
           "height": 762,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-18",
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · задняя стенка",
-          "x": 1696,
+          "x": 1694,
           "y": 775,
-          "width": 333.2,
+          "width": 332.2,
           "height": 762,
           "rotated": true
         },
@@ -167,49 +167,49 @@
           "partId": "cabinet-1-part-23",
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · передняя стенка",
           "x": 873,
-          "y": 997.2,
+          "y": 994.2,
           "width": 762,
-          "height": 333.2,
+          "height": 332.2,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-24",
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · задняя стенка",
           "x": 10,
-          "y": 1216,
+          "y": 1214,
           "width": 762,
-          "height": 333.2,
+          "height": 332.2,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-16",
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · боковина правая",
           "x": 775,
-          "y": 1333.4,
+          "y": 1329.4,
           "width": 544,
-          "height": 333.2,
+          "height": 332.2,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-21",
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · боковина левая",
           "x": 1322,
-          "y": 1333.4,
-          "width": 333.2,
+          "y": 1329.4,
+          "width": 332.2,
           "height": 544,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-22",
           "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · боковина правая",
-          "x": 1658.2,
+          "x": 1657.2,
           "y": 1540,
-          "width": 333.2,
+          "width": 332.2,
           "height": 544,
           "rotated": true
         }
       ],
-      "usedArea": 3419959.999999999
+      "usedArea": 3410301.599999999
     },
     {
       "id": "sheet-3",
@@ -224,21 +224,21 @@
           "label": "Ortak kapaklı dolap · Секция 1 · Дверь 1",
           "x": 10,
           "y": 10,
-          "width": 447,
-          "height": 2096,
+          "width": 445,
+          "height": 2094,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-13",
           "label": "Ortak kapaklı dolap · Секция 1 · Дверь 2",
-          "x": 460,
+          "x": 458,
           "y": 10,
-          "width": 447,
-          "height": 2096,
+          "width": 445,
+          "height": 2094,
           "rotated": false
         }
       ],
-      "usedArea": 1873824
+      "usedArea": 1863660
     },
     {
       "id": "sheet-4",
@@ -274,8 +274,8 @@
   "totalSheets": 4,
   "totalParts": 25,
   "placedParts": 25,
-  "utilization": 47.808,
-  "wasteArea": 12275667.200000001,
-  "usedArea": 11244332.799999999,
+  "utilization": 47.67,
+  "wasteArea": 12308048.000000002,
+  "usedArea": 11211951.999999998,
   "stockArea": 23520000
 }

@@ -247,7 +247,7 @@ function makeScene(project, options, direction) {
     const slide = internal&&options.doorsOpen&&options.internalDrawersOpen ? Math.min(internal.box.depth*.48,260) : component === 'pull-out-shelf' && options.doorsOpen ? Math.min(number(section?.usableDepth, number(section?.depth, c.depth)) * .48, 260) : 0;
     const x = c.x + position.x, y = c.y + c.plinth + position.y, z = c.z + position.z + slide, color = material(project, part.materialId).color;
     if (part.orientation === 'horizontal') {
-      const outline = part.outline || [{ x: 0, y: 0 }, { x: pw, y: 0 }, { x: pw, y: ph }, { x: 0, y: ph }];
+      const outline = part.finishedOutline ?? part.outline ?? [{ x: 0, y: 0 }, { x: pw, y: 0 }, { x: pw, y: ph }, { x: 0, y: ph }];
       const bottom = outline.map(p => [x + p.x, y, z + p.y]), top = outline.map(p => [x + p.x, y + pt, z + p.y]);
       const area = outline.reduce((sum, p, i) => { const q = outline[(i + 1) % outline.length]; return sum + p.x * q.y - q.x * p.y; }, 0), sign = area >= 0 ? 1 : -1;
       face(bottom, color, [0, -1, 0], c.id, extras); face(top, color, [0, 1, 0], c.id, extras);
@@ -1053,7 +1053,7 @@ function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, la
       const point = camera.project([x + position.x + number(part.finishedWidth, part.width) / 2, bodyY + position.y + number(part.finishedHeight, part.height) / 2, number(cabinet.z) + position.z]);
       const sectionIndex=layout.sections.findIndex(section=>section.id===part.sectionId), localBottom=!part.sectionId||part.braceBaseY == null ? null : number(position.y)-number(part.braceBaseY);
       const mark=`C${i+1}${sectionIndex<0?'':` · S${sectionIndex+1}`}`;
-      return `<g data-brace-id="${escape(part.braceId||part.id)}"${part.sectionId?` data-section-id="${escape(part.sectionId)}"`:''} data-mount-cabinet-mm="${round(bottom)}"${localBottom==null?'':` data-mount-section-mm="${round(localBottom)}"`}>${svgTextBlock(point, compact ? [`${mark} · ${n(bottom)} ${unit}`] : [`${mark} · ${n(part.width)} × ${n(part.height)} × ${n(part.thickness)} ${unit}`, `${t('Низ от основания шкафа:')} ${n(bottom)} ${unit}`, ...(localBottom==null?[]:[`${t('Низ от основания секции:')} ${n(localBottom)} ${unit}`])], compact ? 9.2 : 10, 310)}</g>`;
+      return `<g data-brace-id="${escape(part.braceId||part.id)}"${part.sectionId?` data-section-id="${escape(part.sectionId)}"`:''} data-mount-cabinet-mm="${round(bottom)}"${localBottom==null?'':` data-mount-section-mm="${round(localBottom)}"`}>${svgTextBlock(point, compact ? [`${mark} · ${n(bottom)} ${unit}`] : [`${mark} · ${n(number(part.finishedWidth, part.width))} × ${n(number(part.finishedHeight, part.height))} × ${n(part.thickness)} ${unit}`, `${t('Низ от основания шкафа:')} ${n(bottom)} ${unit}`, ...(localBottom==null?[]:[`${t('Низ от основания секции:')} ${n(localBottom)} ${unit}`])], compact ? 9.2 : 10, 310)}</g>`;
     }).join('');
   }
   if (!['front', 'interior'].includes(view)) return '';
@@ -1180,7 +1180,22 @@ export function createDrawingSvg(project, view = 'front', { cabinetId = null, di
   return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}: ${escape(viewName)}"><title>${escape(title)} — ${escape(viewName)}</title><rect width="1120" height="792" fill="white"/><g font-family="Arial, sans-serif"><text x="60" y="44" font-size="20" font-weight="600" fill="#233c34">${escape(title)}</text><text x="60" y="67" font-size="12" fill="#617268">${escape(viewName)} · ${escape(t('Все размеры в миллиметрах'))}${selected && view === 'front' ? ` · ${escape(t('F = размеры фасада; внешние цепочки = проёмы'))}` : ''}</text><path d="M60,83 H1060" stroke="#c3cec6"/><g transform="translate(60,90)">${geometry}${labels}${applianceLabels}${dims}</g><path d="M60,741 H1060" stroke="#c3cec6"/><text x="60" y="764" font-size="11" fill="#617268">${selected ? `${t('Корпус без фасада:')} ${sizeText(selected, language)} ${unit}` : `${t('Помещение:')} ${sizeText(roomData(project), language)} ${unit}`}</text><text x="1060" y="764" text-anchor="end" font-size="11" fill="#617268">${t('Масштаб ≈')} 1:${scaleDenominator} ${t('при печати 100%')} · A4</text></g></svg>`;
 }
 
-/** Outline of a real production panel, including the exact L-notch dimensions. */
+/** Physical edge names follow the panel's production plane, not its SVG axes. */
+export function describePartEdges(part, { language = 'ru' } = {}) {
+  language = printLanguage(language);
+  const sides = part.orientation === 'horizontal'
+    ? { top: 'Сзади', bottom: 'Спереди', left: 'Слева', right: 'Справа' }
+    : part.orientation === 'vertical-depth'
+      ? { top: 'Сверху', bottom: 'Снизу', left: 'Спереди', right: 'Сзади' }
+      : { top: 'Сверху', bottom: 'Снизу', left: 'Слева', right: 'Справа' };
+  const unit = language === 'ru' ? 'мм' : 'mm';
+  return Object.entries(engine.getPartEdgeBanding(part).edges)
+    .filter(([, edge]) => edge.thickness > 0 && edge.lengthMm > 0)
+    .map(([side, edge]) => `${translatePrintText(sides[side], language)} ${printNumber(edge.thickness, language)} ${unit}`)
+    .join('; ') || '—';
+}
+
+/** Outline of a real cut blank, including exact L-notch dimensions and banded edges. */
 export function createPartSvg(part, project = { materials: [] }, { language = 'ru' } = {}) {
   language = printLanguage(language);
   const t = text => translatePrintText(text, language), n = value => printNumber(number(value), language), unit = language === 'ru' ? 'мм' : 'mm';
@@ -1189,6 +1204,19 @@ export function createPartSvg(part, project = { materials: [] }, { language = 'r
   const scale = Math.min(800 / width, 430 / height);
   const projectPoint = p => [500 + (p.x - width / 2) * scale, 320 + (p.y - height / 2) * scale];
   const polygon = outline.map(p => projectPoint(p).map(round).join(',')).join(' ');
+  const edgeBanding = engine.getPartEdgeBanding(part), edgeColor = '#007d68';
+  const bandedSegments = [];
+  for (const [side, band] of Object.entries(edgeBanding.edges)) {
+    if (band.thickness <= 0 || band.lengthMm <= 0) continue;
+    const horizontal = side === 'top' || side === 'bottom', axis = horizontal ? 'y' : 'x';
+    const bound = side === 'top' || side === 'left' ? 0 : horizontal ? height : width;
+    outline.forEach((p, index) => {
+      const q = outline[(index + 1) % outline.length];
+      if (Math.abs(p[axis] - bound) > .001 || Math.abs(q[axis] - bound) > .001 || Math.hypot(q.x - p.x, q.y - p.y) <= .001) return;
+      const a = projectPoint(p), b = projectPoint(q);
+      bandedSegments.push(`<path data-edge-band="${side}" data-edge-thickness-mm="${band.thickness}" d="M${a.map(round).join(',')} L${b.map(round).join(',')}" fill="none" stroke="${edgeColor}" stroke-width="4.5" stroke-linecap="butt"/>`);
+    });
+  }
   let dimensions = svgDimension(projectPoint({ x: 0, y: height }), projectPoint({ x: width, y: height }), n(width), 32) + svgDimension(projectPoint({ x: 0, y: 0 }), projectPoint({ x: 0, y: height }), n(height), 34);
   outline.forEach((p, i) => {
     const q = outline[(i + 1) % outline.length];
@@ -1196,7 +1224,11 @@ export function createPartSvg(part, project = { materials: [] }, { language = 'r
     if (!onBoundary) dimensions += svgDimension(projectPoint(p), projectPoint(q), n(Math.hypot(q.x - p.x, q.y - p.y)), -25);
   });
   const stock = material(project, part.materialId), title = `${translateBuiltInName(part.cabinetName,language,'cabinet') || t('Корпус')} · ${part.name ? translatePartName(part.name,language) : t('Деталь')}`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}"><title>${escape(title)}</title><rect width="1120" height="792" fill="white"/><g font-family="Arial, sans-serif"><text x="60" y="45" font-size="16" font-weight="600" fill="#233c34">${escape(title)}</text><text x="60" y="68" font-size="12" fill="#607268">${t('Деталь раскроя')} · ${escape(stock.name ? translateMaterialName(stock.name,language) : t('МДФ'))} · ${t('толщина')} ${n(part.thickness)} ${unit} · ${t('все размеры в мм')}</text><path d="M60,83 H1060" stroke="#c3cec6"/><g transform="translate(60,90)"><polygon points="${polygon}" fill="${escape(stock.color || '#e1d6c4')}" stroke="#44574b" stroke-width="1.5"/>${dimensions}</g><path d="M60,741 H1060" stroke="#c3cec6"/><text x="60" y="764" font-size="11" fill="#617268">${t('Раскрой')} ${n(width)} × ${n(height)} ${unit} · ${t('после кромки')} ${n(part.finishedWidth ?? width)} × ${n(part.finishedHeight ?? height)} ${unit}</text><text x="1060" y="764" text-anchor="end" font-size="11" fill="#617268">${escape(part.id || '')} · A4</text></g></svg>`;
+  const finishedWidth = number(part.finishedWidth, width), finishedHeight = number(part.finishedHeight, height);
+  const differentSize = Math.abs(finishedWidth - width) > .001 || Math.abs(finishedHeight - height) > .001;
+  const legend = bandedSegments.length ? `<path d="M60,689 H88" stroke="${edgeColor}" stroke-width="4.5"/><text x="99" y="693" font-size="12" fill="#334a40">${escape(t('Оклеиваемые торцы выделены цветом.'))}</text>` : '';
+  const finishedSize = differentSize ? `<text data-part-finished-size="true" x="60" y="777" font-size="11" fill="#617268">${escape(t('Готовый размер с кромкой'))}: ${n(finishedWidth)} × ${n(finishedHeight)} ${unit}</text>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}"><title>${escape(title)}</title><rect width="1120" height="792" fill="white"/><g font-family="Arial, sans-serif"><text x="60" y="45" font-size="16" font-weight="600" fill="#233c34">${escape(title)}</text><text x="60" y="68" font-size="12" fill="#607268">${t('Деталь раскроя')} · ${escape(stock.name ? translateMaterialName(stock.name,language) : t('МДФ'))} · ${t('толщина')} ${n(part.thickness)} ${unit} · ${t('все размеры в мм')}</text><path d="M60,83 H1060" stroke="#c3cec6"/><g transform="translate(60,90)"><polygon data-part-cut-outline="true" points="${polygon}" fill="${escape(stock.color || '#e1d6c4')}" stroke="#44574b" stroke-width="1.5"/>${bandedSegments.join('')}${dimensions}</g>${legend}<text data-part-edge-description="true" x="60" y="716" font-size="12" fill="#334a40">${escape(t('Кромить торцы'))}: ${escape(describePartEdges(part, { language }))}</text><path d="M60,741 H1060" stroke="#c3cec6"/><text data-part-cut-size="true" x="60" y="${differentSize ? 758 : 764}" font-size="11" fill="#617268">${escape(t('Заготовка без кромки'))}: ${n(width)} × ${n(height)} ${unit}</text>${finishedSize}<text x="1060" y="764" text-anchor="end" font-size="11" fill="#617268">${escape(part.id || '')} · A4</text></g></svg>`;
 }
 
 function tableSheets(title, intro, headings, rows, limit = 14, language = 'ru') {
@@ -1369,11 +1401,11 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
   const braces = parts.filter(part => part.braceId || part.role === 'brace' || part.component === 'brace');
   if (selected && braces.length) {
     const layout=modelLayout(selected,project), localBraces=braces.some(part=>part.sectionId);
-    const braceRows = braces.map((part, index) => [`C${index + 1}`, translatePartName(part.name,language), `${n(part.width)} × ${n(part.height)} × ${n(part.thickness)}`, n(number(selected.plinth) + number(part.position.y)), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ'),...(localBraces?[part.sectionId?`S${layout.sections.findIndex(section=>section.id===part.sectionId)+1}`:'—',!part.sectionId||part.braceBaseY==null?'—':n(number(part.position.y)-number(part.braceBaseY))]:[])]);
+    const braceRows = braces.map((part, index) => [`C${index + 1}`, translatePartName(part.name,language), `${n(number(part.finishedWidth, part.width))} × ${n(number(part.finishedHeight, part.height))} × ${n(part.thickness)}`, n(number(selected.plinth) + number(part.position.y)), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ'),...(localBraces?[part.sectionId?`S${layout.sections.findIndex(section=>section.id===part.sectionId)+1}`:'—',!part.sectionId||part.braceBaseY==null?'—':n(number(part.position.y)-number(part.braceBaseY))]:[])]);
     const intro='Высота монтажа измеряется от общего основания шкафа, включая цоколь. Обозначения C соответствуют виду сзади.';
     sheets += schedule(`${title} · ${t('задние поперечины')}`, `${t(intro)}${localBraces?` ${t('Высота местной поперечины измеряется от нижнего чистого уровня её секции.')}`:''}`, ['Поперечина', 'Название', 'Ш × В × Толщина, мм', 'Низ от основания, мм', 'Материал',...(localBraces?['Секция','Низ от основания секции, мм']:[])], braceRows);
   }
-  const cutRows = parts.map((part, index) => [index + 1, translatePartName(part.name,language), `${n(part.width)} × ${n(part.height)}`, n(part.thickness), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ'), Object.entries(part.edges || {}).filter(([, edge]) => number(edge) > 0).map(([side, edge]) => `${t({ top: 'верх', bottom: 'низ', left: 'лево', right: 'право' }[side] || side)} ${n(edge)}`).join('; ') || '—',n(engine.getPartEdgeBanding(part).lengthMeters)]);
+  const cutRows = parts.map((part, index) => [index + 1, translatePartName(part.name,language), `${n(part.width)} × ${n(part.height)}`, n(part.thickness), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ'), describePartEdges(part, { language }),n(engine.getPartEdgeBanding(part).lengthMeters)]);
   const partTitle = `${title} · ${t('детали и короба ящиков')}`, partIntro = 'Точные размеры каждой детали раскроя из инженерной модели. Короба ящиков перечислены отдельно от фасадов. Для L-деталей далее приведён контур.', partHeadings = ['№', 'Деталь / секция', 'Раскрой: Ш × В, мм', 'Толщина, мм', 'Материал', 'Кромка, мм','Расход кромки, м'];
   const edgeSummary=engine.getEdgeBandingSummary(parts), edgeRows=edgeSummary.groups.map(group=>[translateMaterialName(material(project,group.materialId).name,language)||t('МДФ'),n(group.thickness),n(group.partCount),n(group.lengthMeters)]);
   const edgePage=schedule(`${t('Всего кромки')}: ${n(edgeSummary.lengthMeters)} ${t('м')}`,'Расход кромки рассчитан по готовым размерам и выбранным сторонам каждой детали.',['Материал','Кромка, мм','Деталей с кромкой','Расход кромки, м'],edgeRows);
@@ -1382,7 +1414,9 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
     // Rows are budgeted by their wrapped text, rather than a blind fixed count.
     // A normal 24-part wardrobe fits one sheet at 7.5 pt; long custom names
     // consume more vertical space and cause an earlier page break.
-    const capacities = [4,60,24,10,52,16,9];
+    // Physical edge names need a wider column than schematic top/bottom keys.
+    // Match the 9 px type and the production table's actual column widths.
+    const capacities = [4,60,24,10,46,32,9];
     let offset=0;
     while(offset<cutRows.length){
       let count=0,height=0;
@@ -1414,12 +1448,13 @@ export function generateDrawingHTML(project, options = {}) {
   const t = text => translatePrintText(text,language);
   const edgeCSS='.sheet.parts-schedule td,.sheet.parts-schedule th{font-size:9px;padding:3.5px 6px}.sheet.parts-schedule th:nth-child(2),.sheet.parts-schedule td:nth-child(2){width:31%}.sheet.parts-schedule th:nth-child(5),.sheet.parts-schedule td:nth-child(5){width:27%}.sheet.parts-schedule th:nth-child(6),.sheet.parts-schedule td:nth-child(6){width:8%}.sheet.parts-schedule th:nth-child(7),.sheet.parts-schedule td:nth-child(7){width:7%}.edge-summary{margin-top:3mm}.edge-summary h1{font-size:12px;margin:0 0 4px}.edge-summary p{font-size:9px;margin:0 0 4px}.sheet.parts-schedule .edge-summary th:nth-child(1),.sheet.parts-schedule .edge-summary td:nth-child(1){width:50%}.sheet.parts-schedule .edge-summary th:nth-child(2),.sheet.parts-schedule .edge-summary td:nth-child(2){width:15%}.sheet.parts-schedule .edge-summary th:nth-child(3),.sheet.parts-schedule .edge-summary td:nth-child(3){width:15%}.sheet.parts-schedule .edge-summary th:nth-child(4),.sheet.parts-schedule .edge-summary td:nth-child(4){width:20%}';
   const gridCSS = '.sheet.combined-schedule{padding:9mm 14mm}.sheet.combined-schedule article+article{margin-top:5mm}.sheet.combined-schedule h1{font-size:16px;margin:0 0 7px}.sheet.combined-schedule p{margin-bottom:10px}.sheet.combined-schedule td,.sheet.combined-schedule th{padding:5px 6px;font-size:10px;line-height:1.25}.sheet.parts-schedule{padding:8mm 12mm}.sheet.parts-schedule td,.sheet.parts-schedule th{padding:4px 6px;font-size:10px;line-height:1.2}.sheet.parts-schedule th:nth-child(1),.sheet.parts-schedule td:nth-child(1){width:6%}.sheet.parts-schedule th:nth-child(2),.sheet.parts-schedule td:nth-child(2){width:34%}.sheet.parts-schedule th:nth-child(3),.sheet.parts-schedule td:nth-child(3){width:15%}.sheet.parts-schedule th:nth-child(4),.sheet.parts-schedule td:nth-child(4){width:6%}.sheet.parts-schedule th:nth-child(5),.sheet.parts-schedule td:nth-child(5){width:30%}.sheet.parts-schedule th:nth-child(6),.sheet.parts-schedule td:nth-child(6){width:9%}.sheet.projection-sheet{padding:8mm}.projection-sheet header{height:16mm}.projection-sheet h1{margin:0 0 2mm;font-size:4mm;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.projection-sheet p{margin:0;font-size:2.5mm;color:#617268;line-height:1.3}.projection-grid{display:grid;gap:4mm;height:176mm}.projection-panel{min-width:0;min-height:0;border:1px solid #dce4de;overflow:hidden}.projection-panel svg{display:block;width:100%;height:100%}@media screen and (max-width:1150px){.projection-sheet header{height:auto;margin-bottom:3mm}.projection-grid{height:58vw;min-height:350px}}@media print{.projection-sheet header{height:16mm}.projection-grid{height:176mm;min-height:0}}';
+  const physicalEdgeCSS = '.sheet.parts-schedule>table th:nth-child(2),.sheet.parts-schedule>table td:nth-child(2){width:28%}.sheet.parts-schedule>table th:nth-child(5),.sheet.parts-schedule>table td:nth-child(5){width:22%}.sheet.parts-schedule>table th:nth-child(6),.sheet.parts-schedule>table td:nth-child(6){width:16%}';
   return buildDrawingHTML(project,{...options,language})
     .replace('<html lang="ru">',`<html lang="${language}">`)
     .replace(' — чертежи</title>',` — ${t('чертежи')}</title>`)
     .replace(' · чертежи, фасады и детали · мм</span>',` · ${t('чертежи, фасады и детали')} · ${language==='ru'?'мм':'mm'}</span>`)
     .replace('>Печать / сохранить PDF</button>',`>${t('Печать / сохранить PDF')}</button>`)
-    .replace('<style>',`<style>${gridCSS}${edgeCSS}`)
+    .replace('<style>',`<style>${gridCSS}${edgeCSS}${physicalEdgeCSS}`)
     .replace('</style>',`${HARDWARE_PRINT_CSS}${COST_PRINT_CSS}</style>`);
 }
 
