@@ -95,11 +95,11 @@
           "x": 1978,
           "y": 10,
           "width": 89,
-          "height": 896,
+          "height": 864,
           "rotated": true
         }
       ],
-      "usedArea": 5069766.399999999
+      "usedArea": 5066918.399999999
     },
     {
       "id": "sheet-2",
@@ -274,8 +274,8 @@
   "totalSheets": 4,
   "totalParts": 25,
   "placedParts": 25,
-  "utilization": 47.67,
-  "wasteArea": 12308048.000000002,
-  "usedArea": 11211951.999999998,
+  "utilization": 47.658,
+  "wasteArea": 12310896.000000002,
+  "usedArea": 11209103.999999998,
   "stockArea": 23520000
 }

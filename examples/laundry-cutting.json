@@ -64,42 +64,42 @@
         },
         {
           "partId": "cabinet-1-part-19",
-          "label": "Cihaz nişi ve yan dolaplar · Задняя перемычка 1",
+          "label": "Cihaz nişi ve yan dolaplar · Секция 4 · Zemindeki cihaz · задняя перемычка 1",
           "x": 1966,
           "y": 10,
           "width": 98,
-          "height": 1564,
+          "height": 928,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-20",
-          "label": "Cihaz nişi ve yan dolaplar · Задняя перемычка 2",
-          "x": 10,
-          "y": 2516,
-          "width": 1564,
-          "height": 98,
-          "rotated": false
+          "label": "Cihaz nişi ve yan dolaplar · Секция 4 · Zemindeki cihaz · задняя перемычка 2",
+          "x": 1966,
+          "y": 941,
+          "width": 98,
+          "height": 928,
+          "rotated": true
         },
         {
           "partId": "cabinet-1-part-17",
           "label": "Cihaz nişi ve yan dolaplar · Цокольная планка · участок 1",
           "x": 1966,
-          "y": 1577,
+          "y": 1872,
           "width": 89,
-          "height": 324,
+          "height": 300,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-18",
           "label": "Cihaz nişi ve yan dolaplar · Цокольная планка · участок 2",
           "x": 1966,
-          "y": 1904,
+          "y": 2175,
           "width": 89,
-          "height": 324,
+          "height": 300,
           "rotated": true
         }
       ],
-      "usedArea": 5211518
+      "usedArea": 5082590
     },
     {
       "id": "sheet-2",
@@ -272,8 +272,8 @@
   "totalSheets": 3,
   "totalParts": 26,
   "placedParts": 26,
-  "utilization": 68.971,
-  "wasteArea": 5473584,
-  "usedArea": 12166416,
+  "utilization": 68.24,
+  "wasteArea": 5602512,
+  "usedArea": 12037488,
   "stockArea": 17640000
 }

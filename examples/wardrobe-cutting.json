@@ -148,14 +148,14 @@
         {
           "partId": "cabinet-1-part-8",
           "label": "Ortada çekmeceli dolap · Цокольная планка",
-          "x": 1997,
-          "y": 10,
-          "width": 89,
-          "height": 1196,
-          "rotated": true
+          "x": 10,
+          "y": 629,
+          "width": 1164,
+          "height": 89,
+          "rotated": false
         }
       ],
-      "usedArea": 1768984
+      "usedArea": 1766136
     },
     {
       "id": "sheet-3",
@@ -276,8 +276,8 @@
   "totalSheets": 5,
   "totalParts": 24,
   "placedParts": 24,
-  "utilization": 45.332,
-  "wasteArea": 16072500,
-  "usedArea": 13327500,
+  "utilization": 45.322,
+  "wasteArea": 16075348,
+  "usedArea": 13324652,
   "stockArea": 29400000
 }

@@ -183,20 +183,7 @@
         "includeBack": false,
         "includeBottom": true,
         "sidesToFloor": true,
-        "rearBraces": [
-          {
-            "id": "laundry-brace-upper",
-            "y": 2000,
-            "height": 100,
-            "materialId": "mdf-white"
-          },
-          {
-            "id": "laundry-brace-lower",
-            "y": 300,
-            "height": 100,
-            "materialId": "mdf-white"
-          }
-        ],
+        "rearBraces": [],
         "id": "cabinet-1",
         "name": "Cihaz nişi ve yan dolaplar",
         "type": "tall",
@@ -272,7 +259,7 @@
                   "drawers": 2,
                   "shelves": 0,
                   "depth": null,
-                  "back": "none",
+                  "back": "braces",
                   "floor": "open",
                   "pullOutShelf": false,
                   "name": "Zemindeki cihaz",
@@ -288,7 +275,21 @@
                       "top": 25,
                       "rear": 50
                     }
-                  }
+                  },
+                  "rearBraces": [
+                    {
+                      "id": "laundry-brace-upper",
+                      "y": 1336,
+                      "height": 100,
+                      "materialId": "mdf-white"
+                    },
+                    {
+                      "id": "laundry-brace-lower",
+                      "y": 300,
+                      "height": 100,
+                      "materialId": "mdf-white"
+                    }
+                  ]
                 }
               ]
             },

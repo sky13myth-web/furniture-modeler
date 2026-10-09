@@ -330,6 +330,11 @@ test('a partial floor portal retains neighbour bottoms while leaving the actual 
 
 test('rear crossbars use real panel geometry and annotate their mount height from the whole cabinet base', () => {
   const project = createLaundryExample(), cabinet = project.cabinets[0];
+  // Keep this a whole-cabinet rail fixture. The laundry example now uses
+  // local rails within its floor portal, avoiding its vertical partitions.
+  cabinet.layout = { id: 'global-rail-opening', kind: 'section', front: 'open', shelves: 0 };
+  cabinet.rearBraces = [{ id: 'global-upper', y: 2000, height: 100 }, { id: 'global-lower', y: 300, height: 100 }];
+  assert.equal(validateProject(project).filter(issue => issue.level === 'error').length, 0);
   const parts = generateParts(project).filter(part => part.component === 'brace');
   assert.equal(parts.length, 2);
   const viewport = new FurnitureViewport(mockCanvas());
@@ -915,8 +920,9 @@ test('floor portals display a missing lower fixing axis instead of zero height o
 test('left, right and upward doors rotate about the requested physical edge and preserve all manufacturing panels', () => {
   const project=createDefaultProject(), cabinet=project.cabinets[0];
   Object.assign(cabinet,{width:800,height:1000,depth:600,layout:{id:'direction-door',kind:'section',front:'doors',doors:1,shelves:0,doorOpenings:['left']}});
-  const manufacturing=generateParts(project), angle=Math.PI*.44, cos=Math.cos(angle), sin=Math.sin(angle);
+  const manufacturing=generateParts(project);
   for(const opening of ['left','right','up']) {
+    const angle=opening==='up'?Math.PI*.44:Math.PI/2, cos=Math.cos(angle), sin=Math.sin(angle);
     cabinet.layout.doorOpenings=[opening];
     const front=getFrontLayout(cabinet,project)[0], fx=cabinet.x+front.x, fy=cabinet.y+cabinet.plinth+front.y, fz=cabinet.z+cabinet.depth, fw=front.width, fh=front.height;
     withSoftwareViewport(project,viewport=>{
@@ -1033,7 +1039,7 @@ test('production printing reports each real edge-band length and grouped materia
   const project=createDefaultProject(),cabinet=project.cabinets[0],parts=generateParts(project),summary=getEdgeBandingSummary(parts);
   const before=structuredClone(project), sides=parts.filter(part=>/^Боковина/.test(part.name));
   assert.equal(getPartEdgeBanding(sides[0]).lengthMeters,2.2);
-  assert.equal(summary.lengthMeters,33.9);
+  assert.equal(summary.lengthMeters,33.868);
   const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.match(html,/<th>Edge band length, m<\/th>/);
   assert.ok(html.includes(`Total edge band: ${printNumber(summary.lengthMeters,'en')} m`));
@@ -1046,7 +1052,7 @@ test('production printing reports each real edge-band length and grouped materia
   const deducted=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.ok(deducted.includes(`Total edge band: ${printNumber(summary.lengthMeters,'en')} m`),'deducting cutting blanks does not shorten band lengths based on finished outlines');
   const tr=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'tr'});
-  assert.match(tr,/Toplam kenar bandı: 33,9 m/);
+  assert.match(tr,/Toplam kenar bandı: 33,868 m/);
   assert.match(tr,/class="edge-summary"/);
   assert.equal((tr.match(/class="sheet /g)||[]).length,4,'edge totals still fit beneath production; the sourced cost estimate has its own sheet');
 });

@@ -242,7 +242,7 @@ test('side-by-side sections have independent dimensions and drawer widths', () =
   const leftBottom = generateParts(project).find(item => item.sectionId === 'left' && item.name.endsWith('Ящик 1 · дно'));
   assert.deepEqual([leftBottom.width, leftBottom.height], [547, 460]);
   const leftFront = getFrontLayout(cabinet, project).find(front => front.sectionId === 'left');
-  assert.deepEqual([leftFront.x, leftFront.width, leftFront.depth], [2, 597, 500]);
+  assert.deepEqual([leftFront.x, leftFront.width, leftFront.depth], [20, 569, 500]);
   cabinet.layout = { ...createSection('doors'), id: 'setback', depth: 400 };
   cabinet.z = project.room.depth - cabinet.depth;
   assert.equal(validateProject(project).some(item => item.message.includes('границы помещения')), false);
@@ -292,9 +292,9 @@ test('L rear cutout creates bounded contours, shortened sides and return panels'
   const top = parts.find(item => item.name === 'Крышка');
   assert.equal(top.outline.length, 6);
   assert.equal(top.area, 1164 * 617 - 300 * 180);
-  assert.deepEqual(parts.filter(item => item.name.startsWith('Боковина')).map(item => item.width), [440, 617]);
+  assert.deepEqual(parts.filter(item => item.name.startsWith('Боковина')).map(item => item.width), [437, 617]);
   assert.equal(parts.find(item => item.name === 'Возвратная боковина выреза').width, 177);
-  assert.deepEqual(parts.filter(item => item.name.startsWith('Задняя стенка')).map(item => item.width), [900, 300]);
+  assert.deepEqual(parts.filter(item => item.name.startsWith('Задняя стенка')).map(item => item.width), [900, 318]);
   assert.equal(getCabinetFootprint(project.cabinets[0]).length, 6);
   const actualArea = parts.reduce((sum, item) => sum + item.area, 0);
   assert.equal(getProjectStats(project).totalArea, actualArea / 1e6);
@@ -312,7 +312,7 @@ test('whole back overrides local rear omissions and disabled whole back permits 
   const project = createDefaultProject(), cabinet = project.cabinets[0];
   cabinet.includeBack = false;
   assert.equal(getCabinetLayout(cabinet, project).bodyDepth, 620);
-  const backPanels = () => generateParts(project).filter(item => item.orientation === 'vertical-width' && item.name.toLowerCase().includes('задняя стенка'));
+  const backPanels = () => generateParts(project).filter(item => ['back', 'section-back'].includes(item.role));
   assert.equal(backPanels().length, 0);
   cabinet.layout.children[0].back = 'panel';
   let backs = backPanels();
@@ -718,7 +718,8 @@ test('new floor-length outer sides retain the raised bottom, plinth front and se
   assert.deepEqual(shorter.filter(item => item.name.startsWith('Боковина')).map(item => [item.height, item.position.y]), [[2100, 0], [2100, 0]]);
   assert.deepEqual(shorter.filter(item => !item.name.startsWith('Боковина') && item.role !== 'plinth'), retained);
   const exposedPlinth = shorter.find(item => item.role === 'plinth');
-  assert.deepEqual([exposedPlinth.position, exposedPlinth.finishedWidth, exposedPlinth.finishedHeight], [plinth.position, plinth.finishedWidth, plinth.finishedHeight]);
+  assert.deepEqual([plinth.position.x, plinth.finishedWidth, plinth.finishedHeight], [18, 1164, 90]);
+  assert.deepEqual([exposedPlinth.position.x, exposedPlinth.finishedWidth, exposedPlinth.finishedHeight], [2, 1196, 90]);
   assert.equal(plinth.edges.left, 0); assert.equal(exposedPlinth.edges.left, 1);
   assert.deepEqual(getCabinetLayout(cabinet, project), layout);
   assert.equal(shorter.find(item => item.name === 'Дно корпуса').position.y, 0);
@@ -737,7 +738,7 @@ test('floor-length L return sides follow the option and zero plinth does not cha
   let sides = structuralSides();
   assert.equal(sides.length, 3);
   assert.equal(sides.every(item => item.height === 2200 && item.position.y === -100), true);
-  assert.deepEqual(sides.map(item => item.width), [617, 440, 177]);
+  assert.deepEqual(sides.map(item => item.width), [617, 437, 177]);
   cabinet.sidesToFloor = false;
   sides = structuralSides();
   assert.equal(sides.every(item => item.height === 2100 && item.position.y === 0), true);
@@ -1028,7 +1029,7 @@ test('internal drawers remain behind outer doors and produce real inset fronts p
   assert.deepEqual(getFrontLayout(cabinet, project), outerFronts);
   assert.equal(inside.length, 2);
   assert.deepEqual(inside.map(front => [front.x, front.y, front.width, front.height, front.depth]), [[40, 356, 820, 334, 541], [40, 20, 820, 334, 541]]);
-  assert.deepEqual(inside[0].box, { x: 51, y: 376, z: 23, width: 798, height: 286, depth: 501, panelThickness: 18, bottomThickness: 8 });
+  assert.deepEqual(inside[0].box, { x: 51, y: 376, z: 43, width: 798, height: 286, depth: 501, panelThickness: 18, bottomThickness: 8 });
   const parts = generateParts(project), innerParts = parts.filter(part => part.internalDrawerIndex !== undefined);
   assert.equal(parts.length, originalParts.length + 12);
   assert.equal(innerParts.every(part => part.sectionId === 'behind-doors' && part.position && part.orientation), true);

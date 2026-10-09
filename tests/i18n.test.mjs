@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LANGUAGES, translateText, applyTranslations, translateAppDOM, defaultName, localizeMaterialPreset } from '../src/i18n.js';
 import { MATERIAL_PRESETS } from '../src/standards.js';
+import { translatePrintText } from '../src/print-i18n.js';
 
 class TextNode {
   constructor(text) { this.nodeType = 3; this.current = text; this.writes = 0; }
@@ -530,4 +531,48 @@ test('removing outer doors preserves internal contents and the new hardboard lab
   assert.equal(translateText('Тонкая древесноволокнистая панель', 'tr'), 'Lif levha');
   const caption = new Element('p', {}, [text('Снятие дверей сохраняет внутреннее наполнение.')]);
   for (const language of ['tr', 'en', 'ru']) { applyTranslations(caption, language); assert.equal(caption.textContent, translateText(phrases[0], language)); }
+});
+
+test('factory diagnostics translate after part IDs and custom names without rewriting their labels', () => {
+  const diagnostics = [
+    ['Толщина детали не совпадает с материалом.', 'Parça kalınlığı malzemeyle uyuşmuyor.', 'Part thickness does not match the material.'],
+    ['Некорректный контур детали.', 'Geçersiz parça konturu.', 'Invalid part outline.'],
+    ['Некорректные размеры детали.', 'Geçersiz parça ölçüleri.', 'Invalid part dimensions.'],
+  ];
+  for (const label of ['S1', 'Мой шкаф · Левая: особая деталь']) for (const [ru, tr, en] of diagnostics) {
+    const source = `${label}: ${ru}`;
+    for (const [language, expected] of [['ru', ru], ['tr', tr], ['en', en]]) {
+      assert.equal(translateText(source, language), `${label}: ${expected}`);
+      assert.equal(translatePrintText(source, language), `${label}: ${expected}`);
+    }
+    const caption = new Element('p', {}, [text(source)]);
+    for (const language of ['tr', 'en', 'ru']) {
+      applyTranslations(caption, language);
+      assert.equal(caption.textContent, translateText(source, language));
+    }
+  }
+  assert.equal(translateText('Мой шкаф: неизвестная заметка.', 'en'), 'Мой шкаф: неизвестная заметка.');
+});
+
+test('internal drawer hinge clearance controls translate and restore while keeping the legacy label', () => {
+  const label = 'Отступ под петли / сторона';
+  const hint = 'Общий отступ для ящиков за этими дверями. Применяется у левой и правой стенок; внутренние перегородки этот отступ не получают. Размер уточните по выбранным петлям.';
+  const caption = new Element('label', { title: hint }, [text(label)]);
+  const help = new Element('p', {}, [text(hint)]);
+  const value = new Element('input', { type: 'number', value: '17.5' });
+  const root = new Element('div', {}, [caption, help, value]);
+  for (const language of ['ru', 'tr', 'en', 'ru']) {
+    applyTranslations(root, language);
+    assert.equal(caption.textContent, translateText(label, language));
+    assert.equal(caption.getAttribute('title'), translateText(hint, language));
+    assert.equal(help.textContent, translateText(hint, language));
+    assert.equal(value.getAttribute('value'), '17.5');
+    if (language !== 'ru') {
+      assert.equal(translateText(label, language), translateText('Отступ от петель / сторона', language));
+      assert.doesNotMatch(help.textContent, /[А-Яа-яЁё]/u);
+    }
+  }
+  assert.equal(translateText(label, 'en'), 'Hinge clearance / side');
+  assert.match(translateText(hint, 'en'), /internal partitions do not receive this clearance/);
+  assert.match(translateText(hint, 'tr'), /iç bölme panellerinde bu boşluk bırakılmaz/);
 });

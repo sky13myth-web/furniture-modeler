@@ -158,7 +158,7 @@ test('a resize stops before a moving shelf reaches a fixed-height rod, using act
   assert.ok(getRodCollisions(proposed, project).length);
   const result = constrainCabinetEdit(cabinet, proposed, project);
   assert.equal(result.possible, true); assert.equal(result.clamped, true);
-  near(result.cabinet.height, 3075.002);
+  near(result.cabinet.height, 3093.002);
   assert.deepEqual(getRodCollisions(result.cabinet, project), []);
 });
 

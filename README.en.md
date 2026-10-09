@@ -4,9 +4,13 @@ A free, local furniture design application. Design the cabinet itself: divide it
 
 [Русский](README.md) · [Türkçe](README.tr.md) · [MIT license](LICENSE)
 
-## Run
+## Windows installer
 
-Install Node.js 18 or newer, download or clone this repository, and run:
+Download **ATOLYE-Setup-2.1.0-x64.exe** from the [latest release](https://github.com/sky13myth-web/furniture-modeler/releases/latest) and follow the installation wizard. Launch ATÖLYE from its desktop or Start menu shortcut. No Node.js, terminal or internet connection is needed to use the installed application. Installation is per user; projects stay on your computer. [Installation and backups](docs/windows-install.md).
+
+## Run from source
+
+Install Node.js 22 or newer, download or clone this repository, and run:
 
 ```sh
 npm start
@@ -18,7 +22,7 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173). On Windows, you can double-
 
 - Split cabinet sections vertically or horizontally. Moving a divider changes the adjacent openings while preserving distant sections.
 - Choose doors, drawers, open niches, pull-out shelves or internal drawers behind doors. Door hinges can be on the left, right or top; opening can use a handle or push-to-open.
-- Select a door section and choose **Internal layout** to divide its interior into shelf and drawer areas behind the same tall doors. The existing split, resize and delete tools work inside; **Back to doors** returns to the outer view.
+- Select a door section and choose **Internal layout** to divide its interior into shelf and drawer areas behind the same tall doors. The existing split, resize and delete tools work inside; **Back to doors** returns to the outer view. Select an internal drawer to set **Hinge clearance / side**: the value belongs to the enclosing doors and is applied only at their outside side walls.
 - Add clothes rails to open or door compartments, including internal compartments. Set the axis height, front inset, diameter and length. Automatic length is the clear width minus 4 mm: an editable planning allowance of 2 mm per end, to check against the selected holders. The default diameter is 25 mm. Rails and pairs of holders appear separately from sheet parts in the hardware schedule. Removing outer doors preserves the internal layout. Delete an element with its trash button or selected-object action; Ctrl+Z restores it.
 - Extend a cabinet with a full-height section, create wall cabinets or place a top cabinet above an existing one.
 - Remove backs, bottoms and local plinths, extend sides to the floor, and add rear strengthening rails or a rear notch.
@@ -38,6 +42,8 @@ Six orthographic views include section openings, individual fronts and fastener 
 In **Room**, choose **Plan** or **3D** and use **Print / PDF**. The A4 landscape room plan includes the actual outline, wall dimensions, window and door offsets, rotated furniture and schedules. Its scale is independent of the editor zoom. The room 3D print retains the current viewpoint and open-front state. The preview lets you save a standalone HTML document with **Save room plan** or **Save room 3D view**. Document language is selected separately and defaults to Turkish.
 
 Cutting layouts consider stock material, thickness, kerf, margins and grain direction. Cutting sizes automatically exclude the applied edge band thickness, including when opening older projects. Ordinary shelves are banded only at the front: an 864 × 600 mm shelf with a 1 mm front band uses an 864 × 599 mm blank. The 3D model and assembly drawings retain finished sizes. Individual part drawings highlight the banded edges and label blank and finished sizes separately. Export a parts CSV with both sizes, selected edge bands and their total length. Save the project as JSON to move it between computers; it retains outer and internal compartments, section plinths, back panels and rails. Browser storage saves changes locally.
+
+**Cutting layout → For the factory** exports a CSV for import with column mapping and a ZIP package containing the parts list, materials, DXF outlines at 1:1 in mm, part SVGs, assembly HTML and instructions. Map only one size pair: `CUT_*` contains blanks with edge bands already deducted, so disable further deduction; use `FINISHED_*` if the factory deducts edge bands itself. Documents default to Turkish. The factory still prepares its own machine program. See the [field and handoff reference (Russian)](docs/factory-export.md); `node scripts/export-factory-example.mjs` updates the example.
 
 JSON also retains clothes rail positions, diameters and manual lengths. `/?demo=rods` opens a disposable example with two rails behind shared doors in an L-shaped room. `node scripts/export-room-example.mjs` updates `examples/clothes-rods.*`, including the project, drawings and room plan.
 

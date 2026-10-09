@@ -4,7 +4,7 @@
  * universal washer/dryer size. Existing invalid openings may improve without
  * worsening another axis; they remain invalid until completely repaired.
  */
-import { getCabinetLayout, getApplianceFit, getFrontLayout, getInternalDrawerLayout, getRodLayout, validateProject, findLayoutNode, resizeSectionAdjacent, resizeDivider } from './engine.js';
+import { getCabinetLayout, getApplianceFit, getFrontLayout, getExternalDrawerLayout, getInternalDrawerLayout, getRodLayout, validateProject, findLayoutNode, resizeSectionAdjacent, resizeDivider } from './engine.js';
 import { getInteriorLayout, resizeInteriorSection, resizeInteriorDivider } from './cabinet-interior.js';
 import { getRodLimits } from './cabinet-rods.js';
 
@@ -56,9 +56,6 @@ function constraints(cabinet, project) {
   const add = (key, kind, sectionId, axis, available, required) => rows.push({ key, kind, sectionId, axis, available, required, deficit: Math.max(0, required - available) });
   for (const item of getApplianceRequirements(cabinet, project)) for (const axis of AXES) add(`appliance/${item.sectionId}/${axis}`, 'appliance', item.sectionId, axis, item.available[axis], item.required[axis]);
   const layout = getCabinetLayout(cabinet, project), t = layout.thickness;
-  const stockThickness = (id, fallback) => Number(project?.materials?.find(material => material.id === id)?.thickness ?? fallback);
-  const panels = stockThickness(cabinet.drawerMaterialId ?? cabinet.materialId, t);
-  const bottom = Number(cabinet.drawerBottomThickness ?? stockThickness(cabinet.drawerBottomMaterialId, 6));
   const runner = Number(cabinet.drawerSlideGap ?? 13), edge = project?.settings?.deductEdge ? Number(cabinet.edgeBand ?? project?.materials?.find(material => material.id === cabinet.materialId)?.edgeBand ?? 1) : 0;
   for (const axis of AXES) add(`cabinet/${axis}`, 'carcass', null, axis, cabinet[axis], POSITIVE_MINIMUM);
   add('cabinet/body-height', 'carcass', null, 'height', layout.bodyHeight, t * (cabinet.includeBottom === false ? 1 : 2) + POSITIVE_MINIMUM);
@@ -71,7 +68,13 @@ function constraints(cabinet, project) {
     for (const axis of AXES) add(`section/${section.id}/${axis}`, 'section', section.id, axis, axis === 'depth' ? section.usableDepth : section[axis], 50);
     const depthCap = section.parentSectionId ? layout.sections.find(item => item.id === section.parentSectionId).depth : layout.bodyDepth;
     if (section.node.depth !== null && section.node.depth !== undefined) add(`section/${section.id}/depth-cap`, 'section', section.id, 'depth', depthCap - section.node.depth, 0);
-    if (section.node.shelves > 0) add(`shelf/${section.id}/depth`, 'shelf', section.id, 'depth', section.usableDepth - 20, POSITIVE_MINIMUM);
+    if (section.node.shelves > 0) {
+      add(`shelf/${section.id}/depth`, 'shelf', section.id, 'depth', section.usableDepth - 20, POSITIVE_MINIMUM);
+      // Shelf capacity uses the actual selected body-stock thickness, rather
+      // than a nominal 18 mm. Every panel consumes t of the clear opening;
+      // the tiny remainder is a numerical limit, not a workshop clearance.
+      if (cabinet.layout && !section.node.interiorLayout) add(`shelf/${section.id}/height`, 'shelf', section.id, 'height', section.height, section.node.shelves * t + POSITIVE_MINIMUM);
+    }
     if (section.node.pullOutShelf) {
       add(`pull-out/${section.id}/width`, 'pull-out-shelf', section.id, 'width', section.width - 2 * runner, 50);
       add(`pull-out/${section.id}/depth`, 'pull-out-shelf', section.id, 'depth', section.usableDepth - 40, 50);
@@ -79,15 +82,21 @@ function constraints(cabinet, project) {
     }
     if (section.backMode === 'braces') for (const brace of section.node.rearBraces ?? []) add(`brace/${section.id}/${brace.id}/height`, 'brace', section.id, 'height', section.height - brace.y, brace.height);
   }
+  if (!cabinet.layout && cabinet.shelves > 0) {
+    const firstDrawerY = getFrontLayout(cabinet, project).filter(front => front.kind === 'drawer').reduce((minimum, front) => Math.min(minimum, front.y), Infinity);
+    const shelfTop = cabinet.doors > 0 && cabinet.drawers > 0 ? Math.min(layout.bodyHeight - t, firstDrawerY - Number(cabinet.gap ?? 2) / 2) : layout.bodyHeight - t;
+    add('shelf/legacy/height', 'shelf', null, 'height', shelfTop - t, cabinet.shelves * t + POSITIVE_MINIMUM);
+  }
+  const externalDrawers = getExternalDrawerLayout(cabinet, project);
   for (const front of getFrontLayout(cabinet, project)) {
     const key = `front/${front.sectionId ?? 'legacy'}/${front.kind}/${front.index}`;
     add(`${key}/width`, 'front', front.sectionId, 'width', front.width, 2 * edge + POSITIVE_MINIMUM);
     add(`${key}/height`, 'front', front.sectionId, 'height', front.height, 2 * edge + POSITIVE_MINIMUM);
     if (front.kind !== 'drawer') continue;
-    const section = layout.sections.find(item => item.id === front.sectionId);
-    add(`${key}/box-height`, 'drawer', front.sectionId, 'height', front.height - 40 - bottom, edge + POSITIVE_MINIMUM);
-    add(`${key}/box-width`, 'drawer', front.sectionId, 'width', (section?.width ?? cabinet.width - 2 * t) - 2 * runner - 2 * panels, POSITIVE_MINIMUM);
-    add(`${key}/box-depth`, 'drawer', front.sectionId, 'depth', (section?.usableDepth ?? layout.bodyDepth - Number(cabinet.cutout?.depth ?? 0)) - 40 - 2 * panels, POSITIVE_MINIMUM);
+    const { box } = externalDrawers.find(drawer => drawer.index === front.index && drawer.sectionId === front.sectionId);
+    add(`${key}/box-height`, 'drawer', front.sectionId, 'height', box.height, edge + POSITIVE_MINIMUM);
+    add(`${key}/box-width`, 'drawer', front.sectionId, 'width', box.width - 2 * box.panelThickness, POSITIVE_MINIMUM);
+    add(`${key}/box-depth`, 'drawer', front.sectionId, 'depth', box.depth - 2 * box.panelThickness, POSITIVE_MINIMUM);
   }
   for (const front of getInternalDrawerLayout(cabinet, project)) {
     const key = `internal/${front.sectionId}/${front.index}`;

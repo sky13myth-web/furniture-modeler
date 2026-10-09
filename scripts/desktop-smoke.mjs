@@ -1,0 +1,23 @@
+import { spawn } from 'node:child_process';
+import { mkdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const packaged = process.argv.includes('--packaged');
+const output = path.join(root, '.tools', packaged ? 'desktop-smoke-packaged' : 'desktop-smoke');
+await mkdir(output, { recursive: true });
+const require = createRequire(import.meta.url);
+const executable = packaged ? path.join(root, 'dist', 'win-unpacked', 'ATOLYE.exe') : require('electron');
+const args = [...(packaged ? [] : [root]), '--smoke-test', `--smoke-output=${output}`];
+const environment = { ...process.env };
+delete environment.ELECTRON_RUN_AS_NODE;
+const child = spawn(executable, args, { cwd: root, env: environment, stdio: 'inherit', windowsHide: true });
+const timeout = setTimeout(() => { console.error('Desktop smoke exceeded 60 seconds.'); child.kill(); }, 60000);
+const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
+clearTimeout(timeout);
+if (code !== 0) process.exit(code || 1);
+const report = JSON.parse(await readFile(path.join(output, 'report.json'), 'utf8'));
+if (!report.passed) throw new Error(report.error || 'Desktop smoke failed');
+console.log(`${report.packaged ? 'Packaged' : 'Development'} desktop: ${report.checks.length} checks passed.`);

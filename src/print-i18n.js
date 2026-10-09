@@ -70,6 +70,25 @@ export function translateBuiltInName(name, language = 'ru', kind = 'any') {
 }
 
 const phrases = [
+  ['Для фабрики','Fabrika için','For the factory'],
+  ['Заказ на раскрой','Kesim siparişi','Cutting order'],
+  ['Скачать комплект ZIP','ZIP paketini indir','Download ZIP package'],
+  ['Ведомость деталей CSV','CSV parça listesi','Parts list CSV'],
+  ['Контуры деталей DXF','DXF parça konturları','Part outlines DXF'],
+  ['Ось текстуры','Damar ekseni','Grain axis'],
+  ['Текстура: B — вдоль высоты детали','Damar yönü: B — parça yüksekliği boyunca','Grain: B — along part height'],
+  ['Размеры заготовок уже уменьшены на кромку. Повторно вычитать её толщину не нужно.','Kesim ölçülerinden kenar bandı kalınlığı zaten düşülmüştür. Tekrar düşürmeye gerek yoktur.','Cut blank dimensions already deduct the edge band thickness. Do not deduct it again.'],
+  ['В комплекте: ведомость, материалы, контуры DXF и чертежи с кромками.','Paket içeriği: parça listesi, malzemeler, DXF konturları ve kenar bantlarını gösteren çizimler.','The package contains a parts list, materials, DXF outlines and drawings showing edge bands.'],
+  ['CSV импортируется с сопоставлением колонок; DXF содержит контуры 1:1 в мм.','CSV sütunları eşleştirilerek içe aktarılır; DXF konturları 1:1 ölçekte ve mm birimindedir.','CSV requires column mapping for import; DXF contains 1:1 outlines in mm.'],
+  ['Исправьте ошибки проекта перед экспортом.','Dışa aktarmadan önce proje hatalarını düzeltin.','Fix project errors before exporting.'],
+  ['В проекте нет деталей для раскроя.','Projede kesilecek parça yok.','The project has no parts to cut.'],
+  ['Проверка перед раскроем','Kesim öncesi kontrol','Pre-cutting check'],
+  ['Готовые размеры и заготовки проверены','Bitmiş ölçüler ve kesim ölçüleri kontrol edildi','Finished dimensions and cut blanks checked'],
+  ['Толщина детали не совпадает с материалом.','Parça kalınlığı malzemeyle uyuşmuyor.','Part thickness does not match the material.'],
+  ['Некорректный контур детали.','Geçersiz parça konturu.','Invalid part outline.'],
+  ['Некорректные размеры детали.','Geçersiz parça ölçüleri.','Invalid part dimensions.'],
+  ['задняя перемычка пересекает панель корпуса или полку; измените её положение или высоту.','arka kayıt gövde paneli veya rafla kesişiyor; konumunu veya yüksekliğini değiştirin.','the rear brace intersects a carcass panel or shelf; change its position or height.'],
+  ['задняя перемычка пересекает короб ящика; измените её положение, толщину или глубину секции.','arka kayıt çekmece kutusuyla kesişiyor; konumunu, kalınlığını veya bölme derinliğini değiştirin.','the rear brace intersects a drawer box; change its position, thickness or the section depth.'],
   ['Перспектива','Perspektif','Perspective'],
   ['3D-вид шкафа','Dolabın 3B görünümü','Cabinet 3D view'],['Текущий ракурс','Mevcut görünüş','Current viewpoint'],
   ['Фасады открыты','Ön paneller açık','Fronts open'],['Фасады закрыты','Ön paneller kapalı','Fronts closed'],
@@ -209,6 +228,9 @@ export function translatePrintText(text, language = 'ru') {
   const value = String(text ?? ''), lang = printLanguage(language);
   if (lang === 'ru') return translatePartName(value,lang);
   if (vocabulary.has(value)) return vocabulary.get(value)[lang];
+  // Keep custom cabinet/part labels unchanged when localising known errors.
+  const factoryDiagnostic = value.match(/^([\s\S]*:\s*)(Толщина детали не совпадает с материалом\.|Некорректный контур детали\.|Некорректные размеры детали\.|задняя перемычка пересекает панель корпуса или полку; измените её положение или высоту\.|задняя перемычка пересекает короб ящика; измените её положение, толщину или глубину секции\.)(\s*)$/u);
+  if (factoryDiagnostic) return `${factoryDiagnostic[1]}${vocabulary.get(factoryDiagnostic[2])[lang]}${factoryDiagnostic[3]}`;
   const part = translatePartName(value,lang);
   if (part !== value) return part;
   if (/^Зазоры: бок\/сторона /.test(value)) return value.replace('Зазоры: бок/сторона',lang==='tr'?'Boşluklar: her yan':'Clearances: each side').replace('сверху',lang==='tr'?'üst':'top').replace('сзади',lang==='tr'?'arka':'rear').replaceAll('мм','mm');

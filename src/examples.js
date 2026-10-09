@@ -1,4 +1,4 @@
-import {createDefaultProject,createSection} from './engine.js';
+import {createDefaultProject,createSection,getCabinetLayout} from './engine.js';
 import {translateBuiltInName} from './print-i18n.js';
 
 /** A floor opening between ordinary side cabinets, with a pull-out shelf. */
@@ -15,7 +15,12 @@ export function createLaundryExample(language='tr'){
   ]},
   leaf('laundry-right','doors',{shelves:3,name:'Правый шкаф'})
  ]};
- cabinet.rearBraces=[{id:'laundry-brace-upper',y:2000,height:100,materialId:cabinet.materialId},{id:'laundry-brace-lower',y:300,height:100,materialId:cabinet.materialId}];
+ // Rear rails belong to the floor opening, between its real column sides.
+ // Full-cabinet rails would pass through those floor-reaching dividers.
+ const floorOpening=getCabinetLayout(cabinet,project).sections.find(section=>section.id==='laundry-floor');
+ floorOpening.node.back='braces';
+ floorOpening.node.rearBraces=[{id:'laundry-brace-upper',y:floorOpening.height-150,height:100,materialId:cabinet.materialId},{id:'laundry-brace-lower',y:300,height:100,materialId:cabinet.materialId}];
+ cabinet.rearBraces=[];
  project.name=translateBuiltInName(project.name,language,'project');
  cabinet.name=translateBuiltInName(cabinet.name,language,'cabinet');
  const localize=node=>{if(node.name)node.name=translateBuiltInName(node.name,language,'section');if(node.appliance?.label)node.appliance.label=translateBuiltInName(node.appliance.label,language,'appliance');node.children?.forEach(localize);};

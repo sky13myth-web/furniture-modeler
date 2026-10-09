@@ -11,3 +11,5 @@ node_modules/
 *.tmp
 .DS_Store
 Thumbs.db
+# Desktop installer output
+dist/

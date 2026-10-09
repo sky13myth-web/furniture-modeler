@@ -1,11 +1,25 @@
 {
   "name": "atolye-furniture-studio",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/sky13myth-web/furniture-modeler.git" },
   "type": "module",
   "description": "Offline cabinet furniture design studio, millimetres, Turkish board presets",
-  "scripts": { "start": "node server.mjs", "test": "node --test" },
-  "engines": { "node": ">=18" }
+  "main": "desktop/main.cjs",
+  "author": "ATÖLYE contributors",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "desktop": "electron .",
+    "desktop:smoke": "node scripts/desktop-smoke.mjs",
+    "desktop:verify": "node scripts/verify-desktop-package.mjs",
+    "dist:win": "electron-builder --config electron-builder.yml --win nsis --x64 --publish never",
+    "release:checksums": "node scripts/release-checksums.mjs"
+  },
+  "engines": { "node": ">=22" },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  }
 }

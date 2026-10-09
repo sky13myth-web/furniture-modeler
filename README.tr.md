@@ -4,9 +4,13 @@
 
 ATÖLYE, bilgisayarınızda çalışan ücretsiz bir mobilya tasarım uygulamasıdır. Dolabı bölmelere ayırabilir, kapak ve çekmeceleri düzenleyebilir, düzensiz biçimli bir odaya yerleştirebilirsiniz. Ölçüler mm cinsindendir. Arayüz Türkçe, Rusça ve İngilizceyi destekler; ilk açılışta Türkçe seçilidir.
 
-## Başlatma
+## Windows kurulumu
 
-Node.js 18 veya daha yeni bir sürüm kurun. Proje klasöründe şu komutu çalıştırın:
+[Son sürümden](https://github.com/sky13myth-web/furniture-modeler/releases/latest) **ATOLYE-Setup-2.1.0-x64.exe** dosyasını indirin ve kurulum sihirbazını izleyin. ATÖLYE'yi masaüstü veya Başlat menüsü kısayolundan açın. Kurulu uygulamayı kullanmak için Node.js, terminal veya internet bağlantısı gerekmez. Kurulum geçerli kullanıcı içindir; projeler bilgisayarınızda saklanır. [Kurulum ve yedekleme bilgileri](docs/windows-install.md).
+
+## Kaynak koddan başlatma
+
+Node.js 22 veya daha yeni bir sürüm kurun. Proje klasöründe şu komutu çalıştırın:
 
 ```sh
 npm start
@@ -15,6 +19,8 @@ npm start
 Ardından [http://127.0.0.1:4173](http://127.0.0.1:4173) adresini açın. Windows'ta `start.bat` dosyasına çift tıklayabilirsiniz. Ek npm paketi gerekmez. Başlatıldıktan sonra internetsiz çalışır.
 
 ## Tasarım
+
+İç çekmeceyi seçtiğinizde **Menteşe boşluğu / yan** alanı görünür. Değer, çekmeceyi kapatan dış kapak bölmesine aittir; yalnızca dış yan panellerde uygulanır, iç ara panellerde ek menteşe boşluğu oluşturmaz.
 
 Bir bölme seçip yatay veya dikey bölün. Bölme panelini sürüklemek komşu açıklıkların ölçülerini değiştirir; uzaktaki bölmeler korunur. Sağ panelden sayısal ölçü de girebilirsiniz. Boyut küçültülürken paneller, çekmece kutuları ve cihaz için gerekli alan korunur.
 
@@ -41,6 +47,8 @@ Yeni dolaplarda varsayılan arkalık **3 mm sert lif levhadır**; malzeme adı *
 **Oda** bölümünde **Plan** veya **3B** görünüşünü seçip **Yazdır / PDF** düğmesine basın. A4 yatay oda planında gerçek oda konturu, duvar ölçüleri, pencere ve kapı mesafeleri, döndürülmüş dolaplar ve listeler bulunur. Baskı ölçeği editördeki yakınlaştırmadan bağımsızdır. Odanın 3B baskısı mevcut bakış açısını ve kapakların açık/kapalı durumunu korur. Önizlemede **Oda planını kaydet** veya **Odanın 3B görünümünü kaydet** ile bağımsız HTML dosyası kaydedebilirsiniz.
 
 Kesim planı malzeme, kalınlık, testere payı, kenar boşlukları ve doku yönünü dikkate alır. Eski projeler açıldığında da kesim ölçülerinden yalnızca uygulanan kenar bandının kalınlığı otomatik düşülür. Normal raflarda yalnızca ön kenar bantlanır: önünde 1 mm bant bulunan 864 × 600 mm raf için 864 × 599 mm parça kesilir. 3B model ve montaj çizimleri bitmiş ölçüleri korur. Parça çizimleri bantlanan kenarları renkli gösterir; kesim ölçüsü ve bitmiş ölçü ayrı belirtilir. CSV'de her iki ölçü ve kenar bandı metrajı bulunur. JSON dosyası projeyi yedeklemek ve başka bilgisayara taşımak içindir; iç bölmeleri, bölmeye özel bazaları, arka panelleri ve kayıtları da saklar. Değişiklikler tarayıcıda da kaydedilir.
+
+**Kesim planı → Fabrika için**, sütun eşleştirmesiyle içe aktarılacak CSV'yi ve ZIP paketini dışa aktarır. Pakette parça listesi, malzemeler, mm biriminde 1:1 DXF konturları, parça SVG'leri, montaj HTML'i ve talimatlar bulunur. Yalnızca bir ölçü çiftini eşleştirin: `CUT_*` ölçülerinden kenar bandı zaten düşülmüştür; tekrar düşümü kapatın. Fabrika bandı kendisi düşüyorsa `FINISHED_*` bitmiş ölçülerini kullanın. Varsayılan belge dili Türkçedir. Makine programını fabrika hazırlar. [Alan ve teslim kılavuzu (Rusça)](docs/factory-export.md); örneği `node scripts/export-factory-example.mjs` günceller.
 
 Askı borularının konumları, çapları ve elle girilen uzunlukları da JSON'da korunur. `/?demo=rods`, L biçimli odada ortak kapakların arkasındaki iki boruyu gösteren geçici örneği açar. `node scripts/export-room-example.mjs`, proje, çizimler ve oda planını içeren `examples/clothes-rods.*` dosyalarını günceller.
 

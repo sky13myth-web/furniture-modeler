@@ -36,15 +36,15 @@ test('floor-length sides cover both plinth ends while raised sides leave them ex
   const { project, cabinet } = fixture();
   let plinth = panel(project, 'Цокольная');
   assert.deepEqual(edges(plinth), [1, 0, 0, 0]);
-  assert.deepEqual([plinth.width, plinth.height, plinth.finishedWidth, plinth.finishedHeight], [896, 89, 896, 90]);
-  assert.equal(getPartEdgeBanding(plinth).lengthMm, 896);
-  const placement = structuredClone(plinth.position);
+  assert.deepEqual([plinth.width, plinth.height, plinth.finishedWidth, plinth.finishedHeight], [864, 89, 864, 90]);
+  assert.equal(getPartEdgeBanding(plinth).lengthMm, 864);
+  assert.equal(plinth.position.x, 18);
   cabinet.sidesToFloor = false;
   plinth = panel(project, 'Цокольная');
   assert.deepEqual(edges(plinth), [1, 0, 1, 1]);
   assert.deepEqual([plinth.width, plinth.height, plinth.finishedWidth, plinth.finishedHeight], [894, 89, 896, 90]);
   assert.equal(getPartEdgeBanding(plinth).lengthMm, 1076);
-  assert.deepEqual(plinth.position, placement);
+  assert.equal(plinth.position.x, 2);
 });
 
 test('an extended floor-opening divider closes only the adjacent plinth end in either column order', () => {
@@ -87,7 +87,7 @@ test('rear braces omit only the horizontal edges covered by their bottom or roof
   assert.equal(getPartEdgeBanding(rail).lengthMm, 0);
 });
 
-test('L-return corner-only contact never hides its whole rim, while the horizontal rear notch stays unbanded', () => {
+test('the exposed lower portion of a floor-length L-return keeps its continuous band, while the horizontal rear notch stays unbanded', () => {
   for (const corner of ['back-left', 'back-right']) for (const includeBack of [true, false]) {
     const { project, cabinet } = fixture({ includeBack, cutout: { corner, width: 300, depth: 180 } });
     const parts = generateParts(project), top = parts.find(part => part.name === 'Крышка'), shelf = parts.find(part => part.name.includes('полка 1'));

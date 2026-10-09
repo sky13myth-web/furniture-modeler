@@ -1,0 +1,11 @@
+import { createHash } from 'node:crypto';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const directory = path.join(root, 'dist');
+const files = (await readdir(directory)).filter(file => /^ATOLYE-Setup-.*\.exe$/.test(file)).sort();
+if (!files.length) throw new Error('Build the Windows installer before generating checksums.');
+const text = (await Promise.all(files.map(async file => `${createHash('sha256').update(await readFile(path.join(directory, file))).digest('hex')}  ${file}`))).join('\n') + '\n';
+await writeFile(path.join(directory, 'SHA256SUMS.txt'), text);
+console.log(text.trim());

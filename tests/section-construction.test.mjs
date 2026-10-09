@@ -76,6 +76,15 @@ test('full back ignores local omissions and local rails, retaining legacy global
   assert.equal(parts.filter(p => p.role === 'back').length, 1);
   assert.deepEqual(parts.filter(p => p.role === 'brace').map(p => p.braceId), ['legacy']);
   assert.equal(getCabinetLayout(c, project).sections[1].backMode, 'global');
+  // A legacy full-width rail at 2000..2100 passes through the 18 mm
+  // floor-reaching column divider (x600..618, z8..26). The full rear
+  // panel ignores local settings, but does not make that joint possible.
+  assert.deepEqual(errors(project).map(e => e.message), [`«${c.name}»: задняя перемычка пересекает панель корпуса или полку; измените её положение или высоту.`]);
+  // Below two raised bottoms there is free space for a full-width rail:
+  // the divider starts at118, the bottoms at100, the rail ends at90.
+  Object.assign(c.layout.children[0], { floor: 'inherit', plinthHeight: 100 });
+  c.rearBraces = [{ id: 'legacy', y: 0, height: 90 }];
+  assert.deepEqual(generateParts(project).filter(p => p.role === 'brace').map(p => p.braceId), ['legacy']);
   assert.deepEqual(errors(project), []);
 });
 

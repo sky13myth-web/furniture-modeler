@@ -1,0 +1,43 @@
+appId: com.atolye.furniture.studio
+productName: ATÖLYE
+copyright: Copyright © 2026 ATÖLYE contributors
+asar: true
+directories:
+  output: dist
+  buildResources: build
+files:
+  - index.html
+  - src/**/*.js
+  - src/**/*.css
+  - desktop/**/*.cjs
+  - build/icon.ico
+  - LICENSE
+  - package.json
+win:
+  icon: build/icon.ico
+  executableName: ATOLYE
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ATOLYE-Setup-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: ATÖLYE
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  packElevateHelper: false
+  displayLanguageSelector: true
+  installerLanguages:
+    - ru_RU
+    - tr_TR
+    - en_US
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  license: LICENSE
+  include: build/installer.nsh
