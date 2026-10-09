@@ -1,0 +1,11 @@
+{
+  "name": "atolye-furniture-studio",
+  "version": "2.0.0",
+  "private": true,
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/sky13myth-web/furniture-modeler.git" },
+  "type": "module",
+  "description": "Offline cabinet furniture design studio, millimetres, Turkish board presets",
+  "scripts": { "start": "node server.mjs", "test": "node --test" },
+  "engines": { "node": ">=18" }
+}

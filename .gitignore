@@ -1,0 +1,13 @@
+# Local tools, credentials, caches and dependencies
+.tools/
+.agents/
+.codex/
+.aws/
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

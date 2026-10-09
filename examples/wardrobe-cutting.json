@@ -1,0 +1,272 @@
+{
+  "sheets": [
+    {
+      "id": "sheet-1",
+      "materialId": "mdf-white",
+      "materialName": "Yıldız MDFLAM · Beyaz VT_068 · 18 mm",
+      "thickness": 18,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-1",
+          "label": "Ortada çekmeceli dolap · Боковина левая",
+          "x": 10,
+          "y": 10,
+          "width": 612,
+          "height": 2200,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-2",
+          "label": "Ortada çekmeceli dolap · Боковина правая",
+          "x": 625,
+          "y": 10,
+          "width": 612,
+          "height": 2200,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-3",
+          "label": "Ortada çekmeceli dolap · Крышка",
+          "x": 1240,
+          "y": 10,
+          "width": 612,
+          "height": 1164,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-4",
+          "label": "Ortada çekmeceli dolap · Дно корпуса",
+          "x": 1240,
+          "y": 1177,
+          "width": 612,
+          "height": 1164,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-14",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · передняя стенка",
+          "x": 1855,
+          "y": 10,
+          "width": 199,
+          "height": 1102,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-15",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · задняя стенка",
+          "x": 1855,
+          "y": 1115,
+          "width": 199,
+          "height": 1102,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-20",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · передняя стенка",
+          "x": 10,
+          "y": 2213,
+          "width": 1102,
+          "height": 199,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-21",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · задняя стенка",
+          "x": 10,
+          "y": 2415,
+          "width": 1102,
+          "height": 199,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-12",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · боковина левая",
+          "x": 1115,
+          "y": 2344,
+          "width": 572,
+          "height": 199,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-13",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · боковина правая",
+          "x": 1115,
+          "y": 2546,
+          "width": 572,
+          "height": 199,
+          "rotated": false
+        }
+      ],
+      "usedArea": 5222384
+    },
+    {
+      "id": "sheet-2",
+      "materialId": "mdf-white",
+      "materialName": "Yıldız MDFLAM · Beyaz VT_068 · 18 mm",
+      "thickness": 18,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-6",
+          "label": "Ortada çekmeceli dolap · Горизонтальная перегородка 1",
+          "x": 10,
+          "y": 10,
+          "width": 1164,
+          "height": 612,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-7",
+          "label": "Ortada çekmeceli dolap · Горизонтальная перегородка 2",
+          "x": 1177,
+          "y": 10,
+          "width": 612,
+          "height": 1164,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-18",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · боковина левая",
+          "x": 1792,
+          "y": 10,
+          "width": 199,
+          "height": 572,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-19",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · боковина правая",
+          "x": 1792,
+          "y": 585,
+          "width": 199,
+          "height": 572,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-8",
+          "label": "Ortada çekmeceli dolap · Цокольная планка",
+          "x": 1994,
+          "y": 10,
+          "width": 90,
+          "height": 1196,
+          "rotated": true
+        }
+      ],
+      "usedArea": 1760032
+    },
+    {
+      "id": "sheet-3",
+      "materialId": "hdf-back",
+      "materialName": "Yıldız MDFLAM · Beyaz VT_068 · 8 mm",
+      "thickness": 8,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-5",
+          "label": "Ortada çekmeceli dolap · Задняя стенка",
+          "x": 10,
+          "y": 10,
+          "width": 1200,
+          "height": 2100,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-16",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · дно",
+          "x": 10,
+          "y": 2113,
+          "width": 1138,
+          "height": 572,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-22",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · дно",
+          "x": 1213,
+          "y": 10,
+          "width": 572,
+          "height": 1138,
+          "rotated": true
+        }
+      ],
+      "usedArea": 3821872
+    },
+    {
+      "id": "sheet-4",
+      "materialId": "mdf-oak",
+      "materialName": "Yıldız MDFLAM · Valley Meşe YT_10E · 18 mm",
+      "thickness": 18,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-10",
+          "label": "Ortada çekmeceli dolap · Секция 1 · Üst bölme · Дверь 2",
+          "x": 10,
+          "y": 10,
+          "width": 597,
+          "height": 924,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-9",
+          "label": "Ortada çekmeceli dolap · Секция 1 · Üst bölme · Дверь 1",
+          "x": 610,
+          "y": 10,
+          "width": 597,
+          "height": 924,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-23",
+          "label": "Ortada çekmeceli dolap · Секция 3 · Alt bölme · Дверь 1",
+          "x": 1210,
+          "y": 10,
+          "width": 597,
+          "height": 672,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-24",
+          "label": "Ortada çekmeceli dolap · Секция 3 · Alt bölme · Дверь 2",
+          "x": 1210,
+          "y": 685,
+          "width": 597,
+          "height": 672,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-11",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Фасад ящика 1",
+          "x": 10,
+          "y": 937,
+          "width": 1196,
+          "height": 247,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-17",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Фасад ящика 2",
+          "x": 10,
+          "y": 1187,
+          "width": 1196,
+          "height": 247,
+          "rotated": false
+        }
+      ],
+      "usedArea": 2496448
+    }
+  ],
+  "unplaced": [],
+  "totalSheets": 4,
+  "totalParts": 24,
+  "placedParts": 24,
+  "utilization": 56.551,
+  "wasteArea": 10219264,
+  "usedArea": 13300736,
+  "stockArea": 23520000
+}

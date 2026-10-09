@@ -1,0 +1,397 @@
+import {createDefaultProject,createCabinet,createSection,convertLegacyLayout,getCabinetLayout,getSectionMountingAxes,getFrontLayout,getInternalDrawerLayout,getApplianceFit,findLayoutNode,splitSection,removeSection,extendCabinetSide,canPlaceCabinet,canEditCabinetPlacement,getPartEdgeBanding,getEdgeBandingSummary,generateParts,optimizeCutting,validateProject} from './engine.js';
+import {constrainCabinetEdit,resizeApplianceSection,resizeApplianceDivider,setApplianceSectionDepth} from './appliance-constraints.js';
+import {resizeCabinetOnPlan} from './cabinet-plan-resize.js';
+import {checkImport,csvCell} from './project-io.js';
+import {FurnitureViewport,createDrawingSvg,generateDrawingHTML,createPartSvg,generateCabinet3DHTML} from './renderer.js';
+import {RoomEditor} from './room-editor.js';
+import {getRoomOutline,roomBounds,wallLength,remapWindows,polygonIsSimple} from './room-geometry.js';
+import {CabinetEditor} from './cabinet-editor.js';
+import {STANDARDS,MATERIAL_PRESETS} from './standards.js';
+import {createLaundryExample} from './examples.js';
+import {applyTranslations,translateText,localizeMaterialPreset} from './i18n.js';
+import {translatePrintText,translateMaterialName,translateBuiltInName} from './print-i18n.js';
+import {DrawingZoom,drawingZoomMarkup} from './drawing-zoom.js';
+
+const $=s=>document.querySelector(s);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=(v,d=0)=>Number(v||0).toLocaleString('ru-RU',{maximumFractionDigits:d});
+const rounded=v=>Math.round(Number(v)*10)/10;
+const uid=p=>`${p}-${crypto.randomUUID().slice(0,8)}`;
+const clone=v=>structuredClone(v);
+const key='atolye.project.v1';
+const demoMode=new URLSearchParams(location.search).has('demo');
+let interfaceLanguage='tr';try{const language=localStorage.getItem('atolye.ui.language');if(['ru','tr','en'].includes(language))interfaceLanguage=language;}catch{}
+const paths={plus:'M12 5v14M5 12h14',cube:'m12 3 9 5v8l-9 5-9-5V8l9-5Zm0 10v8M3 8l9 5 9-5',room:'M3 3h18v18H3V3Zm9 0v8h9',drawing:'M4 3h16v18H4V3Zm4 5h8m-8 4h5m-5 4h8',cut:'M3 3h18v18H3V3Zm7 0v18m0-12h11m-11 6h11',undo:'m8 4-5 5 5 5M3 9h10a7 7 0 0 1 7 7v3',redo:'m16 4 5 5-5 5m5-5H11a7 7 0 0 0-7 7v3',close:'m6 6 12 12M6 18 18 6',menu:'M4 6h16M4 12h16M4 18h16',download:'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',settings:'M4 7h16M4 17h16M8 4v6M16 14v6',copy:'M8 8h13v13H8V8Zm0 8H3V3h13v5',trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15',reset:'M3 10a9 9 0 1 1 2 8M3 3v7h7',door:'M4 3h16v18H4V3Zm8 0v18m-3-10v3m6-3v3',drawer:'M3 4h18v16H3V4Zm0 8h18M9 8h6m-6 8h6',open:'M3 3h18v18H3V3Zm0 9h18',splitH:'M3 3h18v18H3V3Zm0 9h18m-6-6 3 3 3-3m-6 12 3-3 3 3',splitV:'M3 3h18v18H3V3Zm9 0v18M6 9l3 3-3 3m12-6-3 3 3 3',print:'M6 8V3h12v5M6 17H3V8h18v9h-3M6 14h12v7H6v-7Z',check:'m5 12 4 4L19 6',info:'M12 11v6m0-10v1'};
+const icon=name=>`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.cube}"/></svg>`;
+let project=new URLSearchParams(location.search).get('demo')==='laundry'?createLaundryExample(interfaceLanguage):createDefaultProject(interfaceLanguage),restored=false;
+try{const saved=demoMode?null:JSON.parse(localStorage.getItem(key));if(saved?.project){checkImport(saved.project);project=saved.project;restored=true;}}catch{}
+function prepare(p){p.room.outline??=getRoomOutline(p.room);p.cabinets.forEach(c=>{c.includeBack??=true;c.rotation??=0;});p.version=2;return p;}
+prepare(project);
+let cabinetId=project.cabinets[0]?.id,sectionId=null,mode='cabinet',cabinetView='scheme',drawingView='front',selectedWall=0;
+let history=[],future=[],parts=[],cutting={sheets:[],unplaced:[],totalSheets:0,utilization:0},warnings=[];
+let expanded=new Set(),toastTimer,roomView='plan';
+let propertyContext='';
+let drawingZoom,partZoom;
+let roomFocus='wall',selectedWindowId=null;
+
+$('#app').innerHTML=`<header class="studio-header"><a class="brand" href="#" aria-label="ATÖLYE"><span class="brand-mark">A</span><strong>ATÖLYE</strong></a><button class="project-name" data-action="rename"></button><span class="local-state">На вашем компьютере</span><div class="header-right"><button class="icon-button" data-action="undo" aria-label="Отменить" title="Ctrl+Z">${icon('undo')}</button><button class="icon-button" data-action="redo" aria-label="Повторить" title="Ctrl+Y">${icon('redo')}</button><button class="button" data-action="file">${icon('menu')}Проект</button></div></header>
+<nav class="studio-nav"><div class="mode-tabs"><button data-mode="cabinet">${icon('cube')}Шкаф</button><button data-mode="room">${icon('room')}Помещение</button><button data-mode="drawings">${icon('drawing')}Чертежи</button><button data-mode="cutting">${icon('cut')}Раскрой</button></div><button class="text-button" data-action="help">Как работать</button><span class="units">мм</span></nav>
+<main class="studio-workspace"><aside class="project-sidebar"><div class="sidebar-heading">ШКАФЫ ПРОЕКТА <span id="cabinet-count"></span></div><div id="cabinet-list"></div><button class="add-cabinet" data-action="add-cabinet">${icon('plus')}Добавить шкаф</button><div class="sidebar-bottom"><button class="text-button" data-action="materials">${icon('settings')}Материалы</button></div></aside>
+<section class="studio-stage"><div class="stage-title"><div><span class="eyebrow" id="stage-eyebrow"></span><h1 id="stage-title"></h1></div><div id="stage-actions"></div></div>
+<div class="design-canvas" id="design-shell"><div class="canvas-top"><div class="view-switch"><button data-cabinet-view="scheme">Схема</button><button data-cabinet-view="3d">3D</button></div><div class="canvas-edit-tools" id="cabinet-tools" role="toolbar" aria-label="Инструменты секции"><button class="button" data-split="horizontal" title="Разделить выбранную секцию по высоте">${icon('splitH')}По высоте</button><button class="button" data-split="vertical" title="Разделить выбранную секцию по ширине">${icon('splitV')}По ширине</button><button class="icon-button" data-action="extend-left" title="Добавить секцию слева" aria-label="Добавить секцию слева">←${icon('plus')}</button><button class="icon-button" data-action="extend-right" title="Добавить секцию справа" aria-label="Добавить секцию справа">${icon('plus')}→</button><button class="icon-button" data-action="delete-section" title="Удалить выбранную секцию, расширив соседнюю" aria-label="Удалить секцию">${icon('trash')}</button></div><button class="icon-button" data-action="reset-view" title="Уместить на экране" aria-label="Уместить на экране">${icon('reset')}</button></div><div id="cabinet-editor"></div><canvas id="cabinet-viewport" hidden></canvas><div class="canvas-bottom" id="cabinet-3d-tools" hidden><button class="button quiet" data-action="open-fronts">Открыть фасады</button><button class="button quiet" data-action="open-internal" hidden>Открыть внутренние ящики</button><button class="button quiet" data-action="cabinet-3d-print">Печать 3D-вида</button></div></div>
+<div class="room-canvas" id="room-shell" hidden><div class="room-tools" id="room-tools" role="toolbar" aria-label="Инструменты помещения"><button class="button" data-action="add-window">${icon('plus')}Окно</button><button class="button" data-action="add-door">${icon('door')}Дверь</button><button class="button" data-action="room-niche">Ниша</button><button class="button" data-action="room-protrusion">Выступ</button><button class="icon-button" data-action="add-corner" title="Добавить угол на выбранной стене" aria-label="Добавить угол">${icon('plus')}</button><button class="icon-button" data-action="remove-corner" title="Удалить выбранный угол" aria-label="Удалить угол">${icon('trash')}</button></div><div id="room-editor"></div><canvas id="room-viewport" hidden></canvas></div>
+<div class="drawing-stage" id="drawings-shell" hidden></div><div class="cutting-stage" id="cutting-shell" hidden></div><div class="stage-status" id="stage-status"></div></section>
+<aside class="properties"><div id="properties-content"></div></aside></main><footer class="studio-footer"><span id="footer-info"></span><button class="text-button" data-action="validation" id="validation-button"></button></footer>`;
+
+$('.header-right').insertAdjacentHTML('afterbegin',`<select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="tr">Türkçe</option><option value="en">English</option></select>`);
+$('#interface-language').value=interfaceLanguage;
+const cabinetEditor=new CabinetEditor($('#cabinet-editor'),{onSelect:id=>{sectionId=id;render();},onResize:(id,axis,mm)=>change(()=>applyCabinetResult(selectedCabinet(),resizeApplianceDivider(selectedCabinet(),id,axis,mm,project)))});
+const viewport=new FurnitureViewport($('#cabinet-viewport'),{onSelect:id=>{if(id){cabinetId=id;sectionId=null;render();}}});
+const roomViewport=new FurnitureViewport($('#room-viewport'),{onSelect:id=>{if(id){cabinetId=id;roomFocus='cabinet';renderProperties();renderList();}}});
+const roomEditor=new RoomEditor($('#room-editor'),{
+ onChange:(outline,metadata)=>change(()=>{project.room.windows=remapWindows(project.room,outline,metadata);project.room.outline=outline;const b=roomBounds(project.room);project.room.width=b.width;project.room.depth=b.depth;selectedWall=Math.min(selectedWall,outline.length-1);}),
+ onSelectWall:index=>{selectedWall=index;roomFocus='wall';selectedWindowId=null;roomEditor.setSelectedWindow(null);renderProperties();},
+ onSelectCorner:index=>{roomFocus='corner';selectedWindowId=null;renderProperties();},
+ onSelectCorners:indices=>{roomFocus=indices.length?'corner':'wall';selectedWindowId=null;renderProperties();},
+ onDeleteOpening:id=>deleteOpening(id),
+ onDeleteCabinet:id=>deleteCabinet(id),
+ onSelectWindow:id=>{selectedWindowId=id;roomFocus='window';const w=selectedOpening();if(w)selectedWall=w.wallIndex??legacyWall(w.wall);renderProperties();},
+ onMoveWindow:(id,pos)=>change(()=>{const w=project.room.windows.find(w=>w.id===id);if(w)w.offset=rounded(pos.offset);}),
+ onSelectCabinet:id=>{cabinetId=id;sectionId=null;roomFocus='cabinet';selectedWindowId=null;renderProperties();renderList();},
+ // Keep the solved contact position: rounding can push a corner into a wall.
+ onMoveCabinet:(id,pos)=>change(()=>{const c=project.cabinets.find(c=>c.id===id);if(c){c.x=pos.x;c.z=pos.z;}}),
+ onResizeCabinet:(id,dimensions)=>change(()=>{const c=project.cabinets.find(c=>c.id===id);return c?applyCabinetResult(c,resizeCabinetOnPlan(c,dimensions,project)):false;})
+});
+function selectedCabinet(){return project.cabinets.find(c=>c.id===cabinetId);}
+function selectedOpening(){return project.room.windows.find(w=>w.id===selectedWindowId);}
+function editableSection(){const c=selectedCabinet();if(c)c.layout??=convertLegacyLayout(c);return selectedSection();}
+function layout(){const c=selectedCabinet();return c?getCabinetLayout(c,project):null;}
+function selectedSection(){const g=layout();if(!g)return null;let s=g.sections.find(s=>s.id===sectionId);if(!s){s=g.sections[0];sectionId=s?.id;}return s;}
+function calculate(){parts=generateParts(project);cutting=optimizeCutting(parts,project.materials,project.settings);warnings=validateProject(project);if(demoMode){$('.local-state').textContent='Пример · без автосохранения';return;}try{localStorage.setItem(key,JSON.stringify({version:2,project}));$('.local-state').textContent='Сохранено на компьютере';}catch{$('.local-state').textContent='Сохраните файл проекта';}}
+function applyCabinetResult(c,result){if(!result.possible)throw Error(result.reason||'Техника и монтажные зазоры не помещаются в секции.');Object.assign(c,result.cabinet);if(result.clamped)toast(result.reason||'Размер ограничен конструкцией, техникой и монтажными зазорами.');return true;}
+function change(fn){
+ const original=project,before=clone(project),selection={cabinetId,sectionId,roomFocus,selectedWindowId};let clamped=false;
+ try{
+  if(fn()===false)throw Error('Размер не помещается. Уменьшите его или измените общий габарит шкафа.');
+  checkImport(project);
+  if(project===original){
+   for(const prior of before.cabinets){const next=project.cabinets.find(c=>c.id===prior.id);if(!next)continue;const result=constrainCabinetEdit(prior,next,project,{baselineProject:before});if(!result.possible)throw Error(result.reason);Object.assign(next,result.cabinet);clamped||=result.clamped;}
+   checkImport(project);
+   for(const next of project.cabinets){const prior=before.cabinets.find(c=>c.id===next.id);if(prior?!canEditCabinetPlacement(prior,next,project,{baselineProject:before}):!canPlaceCabinet(next,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');}
+  }
+ }catch(error){project=before;({cabinetId,sectionId,roomFocus,selectedWindowId}=selection);toast(`Изменение не сохранено: ${error.message}`);render();return false;}
+ if(JSON.stringify(project)===JSON.stringify(before)){render();return true;}
+ history.push(before);if(history.length>50)history.shift();future=[];calculate();render();if(clamped)toast('Размер ограничен конструкцией, техникой и монтажными зазорами.');return true;
+}
+function deleteOpening(id){return change(()=>{if(!project.room.windows.some(w=>w.id===id))return false;project.room.windows=project.room.windows.filter(w=>w.id!==id);selectedWindowId=null;roomEditor.selectedWindowId=null;roomFocus='wall';});}
+function deleteCabinet(id){return change(()=>{const index=project.cabinets.findIndex(c=>c.id===id);if(index<0)return false;project.cabinets.splice(index,1);cabinetId=project.cabinets[Math.min(index,project.cabinets.length-1)]?.id??null;sectionId=null;selectedWindowId=null;roomFocus='wall';roomEditor.selectedCabinetId=null;roomEditor.hint='';});}
+function renderList(){$('#cabinet-count').textContent=project.cabinets.length;$('#cabinet-list').innerHTML=project.cabinets.map((c,i)=>`<button class="cabinet-list-item ${c.id===cabinetId?'active':''}" data-cabinet="${esc(c.id)}"><span>${String(i+1).padStart(2,'0')}</span><div><strong>${esc(c.name)}</strong><small>${fmt(c.width)} × ${fmt(c.height)} × ${fmt(c.depth)}</small></div></button>`).join('');}
+function render(){
+ viewport.language=interfaceLanguage;roomViewport.language=interfaceLanguage;
+ if(!selectedCabinet())cabinetId=project.cabinets[0]?.id;
+ const c=selectedCabinet();selectedSection();$('.project-name').textContent=project.name;renderList();
+ document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
+ $('[data-action="undo"]').disabled=!history.length;$('[data-action="redo"]').disabled=!future.length;
+ $('#design-shell').hidden=mode!=='cabinet';$('#room-shell').hidden=mode!=='room';$('#drawings-shell').hidden=mode!=='drawings';$('#cutting-shell').hidden=mode!=='cutting';
+ $('#stage-eyebrow').textContent={cabinet:'ВАША КОНСТРУКЦИЯ',room:'ПОМЕЩЕНИЕ ЛЮБОЙ ФОРМЫ',drawings:'РАЗМЕРЫ ДЛЯ ПРОИЗВОДСТВА',cutting:'ДЕТАЛИ И МАТЕРИАЛ'}[mode];
+ $('#stage-title').textContent=mode==='cabinet'?(c?.name||'Новый шкаф'):{room:'Контур помещения',drawings:'Чертёж шкафа',cutting:'Карта раскроя'}[mode];
+ $('#stage-actions').innerHTML=mode==='cabinet'&&c?`<button class="text-button" data-action="cabinet-options">${icon('settings')}Шкаф</button>`:mode==='room'?`<div class="view-switch"><button data-room-view="plan" class="${roomView==='plan'?'active':''}">План</button><button data-room-view="3d" class="${roomView==='3d'?'active':''}">3D</button></div>${roomView==='3d'?`<button class="button" data-action="room-open-fronts">${roomViewport.options.doorsOpen?'Закрыть все фасады':'Открыть все фасады'}</button>`:''}`:mode==='drawings'?`<button class="button" data-action="drawing-svg">${icon('download')}SVG</button><button class="button primary" data-action="drawing-print">${icon('print')}Печать / PDF</button>`:mode==='cutting'?`<button class="button" data-action="csv">${icon('download')}Детали CSV</button><button class="button" data-action="cutting-print">${icon('print')}Печать</button>`:'';
+ if(mode==='cabinet'&&c)$('#stage-actions').insertAdjacentHTML('beforeend',`<button class="icon-button" data-action="delete-cabinet" aria-label="Удалить шкаф" title="Удалить шкаф">${icon('trash')}</button>`);
+ if(mode==='cabinet'){
+  $('#cabinet-editor').hidden=cabinetView!=='scheme';$('#cabinet-viewport').hidden=cabinetView!=='3d';$('#cabinet-3d-tools').hidden=cabinetView!=='3d';document.querySelectorAll('[data-cabinet-view]').forEach(b=>b.classList.toggle('active',b.dataset.cabinetView===cabinetView));
+  $('#cabinet-tools').hidden=cabinetView!=='scheme'||!c;
+  $('#cabinet-tools [data-action="delete-section"]').disabled=!c||layout().sections.length<2;
+  cabinetEditor.setProject(project,cabinetId,sectionId);viewport.setProject(project,cabinetId);viewport.setView('3d');viewport.setOptions({room:false,dimensions:true,focusCabinet:true,selectedSectionId:sectionId});viewport.resize();
+  $('[data-action="open-fronts"]').textContent=viewport.options.doorsOpen?'Закрыть фасады':'Открыть фасады';
+  $('[data-action="open-internal"]').hidden=!c||!getInternalDrawerLayout(c,project).length;
+  $('[data-action="open-internal"]').textContent=viewport.options.internalDrawersOpen?'Закрыть внутренние ящики':'Открыть внутренние ящики';
+ }
+ if(mode==='room'){$('#room-editor').hidden=roomView!=='plan';$('#room-tools').hidden=roomView!=='plan';$('#room-viewport').hidden=roomView!=='3d';roomEditor.setProject(project,roomFocus==='cabinet'?cabinetId:null);if(roomFocus==='wall'&&roomEditor.selectedWall!==selectedWall)roomEditor.setSelectedWall(selectedWall);if(roomFocus==='window'&&selectedOpening())roomEditor.setSelectedWindow(selectedWindowId);roomViewport.setProject(project,cabinetId);roomViewport.setOptions({room:true,dimensions:false});roomViewport.resize();}
+ if(mode==='drawings')renderDrawings();if(mode==='cutting')renderCutting();renderProperties();
+ $('#stage-status').innerHTML=mode==='cabinet'?`<span>${c?`${layout().sections.length} секций · `:''}${parts.filter(p=>!c||p.cabinetId===c.id).length} деталей</span><span>Глубина корпуса в мм · фасад добавляется снаружи</span>`:mode==='room'?`<span>${getRoomOutline(project.room).length} стен · высота ${fmt(project.room.height)} мм</span><span>Тяните углы и мебель на плане</span>`:mode==='drawings'?'<span>Проёмы, фасады и детали имеют отдельные размеры</span>':`<span>${cutting.totalSheets} листов · ${fmt(cutting.utilization,1)}% заполнение</span><span>Пропил ${project.settings.kerf} мм</span>`;
+ $('#footer-info').textContent=`${project.cabinets.length} шкафов · ${parts.length} деталей · миллиметры`;
+ const errors=warnings.filter(w=>w.level==='error');$('#validation-button').innerHTML=`${icon(errors.length?'info':'check')}${errors.length?`${errors.length} ошибок`:warnings.length?`${warnings.length} замечаний`:'Геометрия проверена'}`;$('#validation-button').classList.toggle('error',!!errors.length);
+}
+function input(label,field,value,{min=0,max=20000,step=1,unit='мм',scope='cabinet',disabled=false}={}){return `<label class="field"><span>${label}</span><div class="input-with-unit"><input type="number" data-scope="${scope}" data-field="${field}" value="${rounded(value)}" min="${min}" max="${max}" step="${step}" ${disabled?'disabled':''}><small>${unit}</small></div></label>`;}
+function materialOptions(current){return project.materials.map(m=>`<option value="${esc(m.id)}" ${m.id===current?'selected':''}>${esc(m.name)} · ${m.thickness} мм</option>`).join('');}
+function selectMaterial(label,field,current){return `<label class="field"><span>${label}</span><select data-scope="cabinet" data-field="${field}">${materialOptions(current)}</select></label>`;}
+function disclosure(key,label,body){return `<details class="property-details" data-detail="${key}" ${expanded.has(key)?'open':''}><summary>${label}</summary><div>${body}</div></details>`;}
+function renderProperties(){
+ const c=selectedCabinet(),s=selectedSection();let html='';
+ if(mode==='cabinet'&&c){
+  html=`<div class="property-block"><h2>Габариты шкафа</h2><div class="fields three">${input('Ширина','width',c.width,{min:100,max:6000})}${input('Высота','height',c.height,{min:100,max:6000})}${input('Глубина','depth',c.depth,{min:100,max:3000})}</div><div class="fields">${input('Высота цоколя','plinth',c.plinth,{max:c.height-60})}<label class="check-row compact-check"><input type="checkbox" data-scope="cabinet" data-field="includeBottom" ${c.includeBottom!==false?'checked':''}>Дно корпуса</label></div><label class="check-row"><input type="checkbox" data-scope="cabinet" data-field="includeBack" ${c.includeBack!==false?'checked':''}>Задняя стенка</label><label class="check-row"><input type="checkbox" data-scope="cabinet" data-field="sidesToFloor" ${c.sidesToFloor===true?"checked":""}>Боковины до пола</label><p class="hint">Боковины опираются на пол. Дно остаётся над цоколем; спереди — цокольная планка.</p></div>`;
+  if(!c.layout)html+=`<div class="property-block"><button class="button primary full" data-action="edit-sections">Редактировать секции</button><p class="hint">Сохранённый шкаф пока имеет прежнюю конструкцию. Между областями будут добавлены перегородки.</p></div>`;
+  if(s){const node=s.node;
+   const geom=getCabinetLayout(c,project),fronts=getFrontLayout(c,project).filter(f=>f.sectionId===s.id);
+   const index=geom.sections.findIndex(e=>e.id===s.id)+1;
+   html+=`<div class="property-block selected-section"><div class="section-title"><span class="eyebrow">ВЫБРАНО НА СХЕМЕ</span><h2>Секция ${index}</h2></div><div class="fill-options">${[['doors','door','Двери'],['drawers','drawer','Ящики'],['open','open','Открыто']].map(([v,i,l])=>`<button class="${node.front===v?'active':''}" data-front="${v}">${icon(i)}${l}</button>`).join('')}</div>`;
+   if(node.front==='doors'){
+    html+=input('Дверей в секции','doors',node.doors||2,{min:1,max:8,unit:'шт.',scope:'section'});
+    html+=`<div class="fields">${fronts.filter(f=>f.kind==='door').map(f=>`<label class="field"><span>Дверь ${f.index+1} · открывание</span><select data-scope="section" data-field="door-opening-${f.index}">${[['left','Влево'],['right','Вправо'],['up','Вверх']].map(([value,label])=>`<option value="${value}" ${(f.opening??(f.index%2?'right':'left'))===value?'selected':''}>${label}</option>`).join('')}</select></label>`).join('')}</div>`;
+    html+=input('Внутренние ящики за дверками','internalDrawerCount',node.internalDrawerCount||0,{min:0,max:12,unit:'шт.',scope:'section'});
+   }
+   if(node.front==='drawers')html+=input('Ящиков в секции','drawers',node.drawers||2,{min:1,max:12,unit:'шт.',scope:'section'});
+   if(node.front==='doors'&&node.internalDrawerCount>0)html+=input('Отступ от петель / сторона','internalDrawerHingeGap',node.internalDrawerHingeGap??20,{max:200,scope:'section'})+'<p class="hint">Отступ для петель задайте по их паспорту. Ручка внутреннего ящика учитывается отдельным отступом в глубину.</p>';
+   if(node.front!=='drawers')html+=input('Полки внутри','shelves',node.shelves||0,{max:20,unit:'шт.',scope:'section',disabled:node.internalDrawerCount>0});
+   if(node.front==='open')html+=`<label class="check-row"><input type="checkbox" data-scope="section" data-field="pullOutShelf" ${node.pullOutShelf?'checked':''}>Выдвижная полка</label>`;
+   if(node.front!=='open'||node.pullOutShelf)html+=`<label class="field"><span>Тип открытия</span><select data-scope="section" data-field="openingMechanism"><option value="handle" ${node.openingMechanism!=='push'?'selected':''}>Ручка</option><option value="push" ${node.openingMechanism==='push'?'selected':''}>Push-to-open</option></select></label>`;
+   html+=`<div class="fields">${input('Ширина проёма','section-width',s.width,{min:1,max:6000,scope:'section'})}${input('Высота проёма','section-height',s.height,{min:1,max:6000,scope:'section'})}</div>`;
+   const mounting=getSectionMountingAxes(c,project).find(axis=>axis.id===s.id);
+   if(mounting?.height!==null&&mounting?.height!==undefined)html+=input('Между осями крепления','mounting-height',mounting.height,{min:1,max:6000,scope:'section'})+'<p class="hint">Оси винтов проходят по центру толщины горизонтальных плит. Это расстояние между осями, а не высота проёма.</p>';
+   else if(mounting?.bottom===null)html+='<p class="hint">Снизу нет плиты — нижней оси крепления нет.</p>';
+   const atFloor=s.floorEligible??(node.floor==='open'||Math.abs(s.y-(c.includeBottom===false?0:geom.thickness))<.1);
+   if(atFloor)html+=`<label class="check-row floor-check"><input type="checkbox" data-scope="section" data-field="floor-open" ${node.floor==='open'?'checked':''}>Открытый проём до пола</label><p class="hint">Без дна и цоколя под этой секцией. Соседние секции сохраняют свою конструкцию.</p>`;
+   html+=disclosure('section-options','Глубина, задник и техника',`${input('Глубина секции','depth',s.depth,{min:1,max:3000,scope:'section'})}<label class="field"><span>Задняя стенка секции</span><select data-scope="section" data-field="back"><option value="inherit" ${node.back==='inherit'||!node.back?'selected':''}>Как у шкафа</option><option value="none" ${node.back==='none'?'selected':''}>Без задней стенки</option><option value="panel" ${node.back==='panel'?'selected':''}>Отдельная панель</option></select></label><button class="button full" data-action="appliance">${node.appliance?'Изменить технику':'Ниша для техники'}</button>${node.appliance?`<p class="hint">${esc(node.appliance.label)} · ${node.appliance.width} × ${node.appliance.height} × ${node.appliance.depth} мм</p><button class="text-button" data-action="remove-appliance">Убрать технику со схемы</button>`:''}`);
+   if(node.front==='drawers'&&fronts.length>1)html+=disclosure('drawer-heights','Высоты отдельных фасадов',fronts.map((f,i)=>input(`Фасад ${i+1}`,'drawer-height-'+i,f.height,{min:60,max:s.frontHeight,scope:'section'})).join(''));
+   html+='</div>';
+  }
+  html+=disclosure('cabinet-materials','Материалы и отделка',`${selectMaterial('Корпус','materialId',c.materialId)}${selectMaterial('Фасады','frontMaterialId',c.frontMaterialId)}${selectMaterial('Короб ящика','drawerMaterialId',c.drawerMaterialId)}${selectMaterial('Дно ящика','drawerBottomMaterialId',c.drawerBottomMaterialId)}${selectMaterial('Задник','backMaterialId',c.backMaterialId)}<button class="text-button" data-action="materials">Изменить цвет или добавить материал</button>`);
+  html+=disclosure('rear-braces','Задние поперечины',`${(c.rearBraces||[]).map((b,i)=>`<div class="brace-row"><div class="row"><strong>Поперечина ${i+1}</strong><button class="icon-button" data-delete-brace="${esc(b.id)}" aria-label="Удалить поперечину ${i+1}">${icon('trash')}</button></div><div class="fields">${braceInput(b,'y','От низа шкафа')}${braceInput(b,'height','Высота планки')}</div><label class="field"><span>Материал</span><select data-brace="${esc(b.id)}" data-field="materialId">${materialOptions(b.materialId||c.materialId)}</select></label></div>`).join('')}<button class="button full" data-action="add-brace">${icon('plus')}Добавить поперечину</button>`);
+  html+=disclosure('cabinet-shape','Форма и монтаж',`<label class="field"><span>Форма корпуса</span><select data-scope="cabinet" data-field="cutout-corner"><option value="none" ${!c.cutout?'selected':''}>Прямой</option><option value="back-left" ${c.cutout?.corner==='back-left'?'selected':''}>Вырез сзади слева</option><option value="back-right" ${c.cutout?.corner==='back-right'?'selected':''}>Вырез сзади справа</option></select></label>${c.cutout?`<div class="fields">${input('Ширина выреза','cutout-width',c.cutout.width,{min:10,max:c.width-60})}${input('Глубина выреза','cutout-depth',c.cutout.depth,{min:10,max:c.depth-60})}</div><p class="hint">Вырез проходит на всю высоту. Контуры плит передаются в деталировку.</p>`:''}${input('Зазор фасадов','gap',c.gap,{max:10,step:.1})}${input('Кромка','edgeBand',c.edgeBand,{max:3,step:.1})}${input('Зазор направляющей / сторона','drawerSlideGap',c.drawerSlideGap,{max:40,step:.1})}`);
+ }else if(mode==='room'){
+  const outline=getRoomOutline(project.room);selectedWall=Math.min(selectedWall,outline.length-1);
+  const w=selectedOpening();if(roomFocus==='window'&&!w)roomFocus='wall';
+  html=`<div class="property-block"><h2>Помещение</h2>${input('Высота потолка','height',project.room.height,{min:500,max:10000,scope:'room'})}${disclosure('installation-clearance','Посадочные допуски',`${input('От стен','installation-walls',project.room.installationClearance?.walls??0,{min:0,max:1000,scope:'room'})}${input('До потолка','installation-ceiling',project.room.installationClearance?.ceiling??0,{min:0,max:1000,scope:'room'})}<p class="hint">Запас для монтажа шкафа. Перемещение на плане учитывает стены и эти отступы.</p>`)}</div>`;
+  if(roomFocus==='window'&&w){const wall=w.wallIndex??legacyWall(w.wall),length=wallLength(project.room,wall),door=w.kind==='door';
+   html+=`<div class="property-block window-block"><span class="eyebrow">ВЫБРАНО НА ПЛАНЕ · СТЕНА ${wall+1}</span><div class="row"><h2>${door?'Дверной проём':'Окно'}</h2><button class="icon-button" data-delete-window="${esc(w.id)}" aria-label="Удалить ${door?'дверной проём':'окно'}">${icon('trash')}</button></div><div class="fields">${windowInput(w,'width','Ширина проёма')}${windowInput(w,'height','Высота проёма')}${!door?windowInput(w,'sill','Нижний край от пола'):''}</div><div class="opening-distances"><div><small>До начала стены</small><strong>${fmt(w.offset,1)} мм</strong></div><div><small>До конца стены</small><strong>${fmt(length-w.offset-w.width,1)} мм</strong></div></div><p class="hint">Тяните выделенный проём вдоль стены. Расстояния на плане меняются сразу.</p>${disclosure('opening-position','Точное положение',windowInput(w,'offset','От начала стены'))}</div>`;
+  }else if(roomFocus==='cabinet'&&c){
+   html+=`<div class="property-block"><span class="eyebrow">ВЫБРАН ШКАФ НА ПЛАНЕ</span><h2 data-user-text>${esc(c.name)}</h2><div class="fields">${input('По горизонтали X','x',c.x,{min:-20000,max:20000})}${input('В глубину Z','z',c.z,{min:-20000,max:20000})}</div>${input('Низ шкафа от пола','y',c.y,{max:10000})}${input('Поворот','rotation',c.rotation||0,{min:-180,max:180,step:.1,unit:'°'})}<button class="button full" data-action="rotate-cabinet">Повернуть на 90°</button><button class="button full" data-action="design-selected">Редактировать этот шкаф</button></div>`;
+  }else if(roomFocus==='corner'&&roomEditor.getSelectedCorners().length>1){
+   const count=roomEditor.getSelectedCorners().length;html+=`<div class="property-block"><span class="eyebrow">ВЫБРАНО НА ПЛАНЕ</span><h2>Углов выбрано: ${count}</h2><p class="hint">Удаление уберёт все выбранные углы одним действием. Контур должен оставаться корректным.</p><button class="button full" data-action="remove-corner">Удалить выбранные углы</button></div>`;
+  }else if(roomFocus==='corner'&&Number.isInteger(roomEditor.selectedCorner)&&outline[roomEditor.selectedCorner]){
+   const i=roomEditor.selectedCorner,p=outline[i];html+=`<div class="property-block"><span class="eyebrow">ВЫБРАН УГОЛ НА ПЛАНЕ</span><h2>Угол ${i+1}</h2><div class="fields">${input('X','x',p.x,{scope:'corner',min:-20000,max:20000})}${input('Z','z',p.z,{scope:'corner',min:-20000,max:20000})}</div><p class="hint">Тяните угол по горизонтали или вертикали. Alt позволяет двигать его свободно.</p><button class="button full" data-action="remove-corner">Убрать этот угол</button></div>`;
+  }else{
+   html+=`<div class="property-block"><span class="eyebrow">ВЫБРАНА СТЕНА НА ПЛАНЕ</span><h2>Стена ${selectedWall+1}</h2>${input('Длина стены','wall-length',wallLength(project.room,selectedWall),{min:100,max:20000,scope:'room'})}<p class="hint">Тяните стену, чтобы сдвинуть её целиком. Ниша и выступ добавляются на выбранной стене кнопками над планом.</p></div>`;
+   const openings=project.room.windows.filter(w=>(w.wallIndex??legacyWall(w.wall))===selectedWall);
+   if(openings.length)html+=`<div class="property-block"><h2>Проёмы этой стены</h2><div class="opening-list">${openings.map((w,i)=>`<button data-select-window="${esc(w.id)}">${w.kind==='door'?'Дверной проём':'Окно'} ${i+1}<small>${fmt(w.width)} × ${fmt(w.height)} мм</small></button>`).join('')}</div></div>`;
+  }
+ }else if(mode==='drawings'){
+  const list=parts.filter(p=>p.cabinetId===cabinetId);
+  const fronts=c?getFrontLayout(c,project):[],sections=c?getCabinetLayout(c,project).sections:[],mountingAxes=c?getSectionMountingAxes(c,project):[];
+  html=`<div class="property-block"><h2>Фасады и проёмы</h2><div class="dimension-list">${fronts.map((f,i)=>`<div><strong>F${i+1} · ${f.kind==='door'?'Дверь':'Фасад ящика'}</strong><span>${fmt(f.width,1)} × ${fmt(f.height,1)} мм</span></div>`).join('')}${sections.map((s,i)=>{const axes=mountingAxes.find(a=>a.id===s.id);return `<div><strong>S${i+1} · Проём секции</strong><span>${fmt(s.width,1)} × ${fmt(s.height,1)} мм</span>${axes?.height!=null?`<small>Между осями крепления: ${fmt(axes.height,1)} мм</small>`:''}</div>`;}).join('')}</div></div><div class="property-block"><h2>Детали конструкции</h2><p class="hint">Нажмите на деталь, чтобы открыть её чертёж.</p><div class="drawing-parts">${list.map((p,i)=>`<button data-part="${esc(p.id)}"><span>${String(i+1).padStart(2,'0')}</span><div><strong data-i18n="off">${esc(translatePrintText(p.name,interfaceLanguage))}</strong><small>${fmt(p.width,1)} × ${fmt(p.height,1)} × ${p.thickness} мм${p.outline?' · с вырезом':''}</small></div></button>`).join('')}</div></div>`;
+ }else if(mode==='cutting'){
+  html=`<div class="property-block"><h2>Раскрой</h2>${input('Пропил','kerf',project.settings.kerf,{max:20,step:.1,scope:'settings'})}${input('Отступ от края листа','margin',project.settings.margin,{max:100,scope:'settings'})}<label class="check-row"><input type="checkbox" data-scope="settings" data-field="allowRotate" ${project.settings.allowRotate?'checked':''}>Поворот без текстуры</label><label class="check-row"><input type="checkbox" data-scope="settings" data-field="deductEdge" ${project.settings.deductEdge?'checked':''}>Вычитать толщину кромки</label><p class="hint">Листы разделены по материалу и толщине. Фигурные детали размещаются по охватывающему прямоугольнику.</p><button class="button full" data-action="materials">Размеры листов и материалы</button></div>`;
+ }else html='<div class="empty-properties">Добавьте шкаф, чтобы начать проектирование.</div>';
+ if(mode==='drawings')html+=edgeSummaryMarkup(parts.filter(p=>p.cabinetId===cabinetId));
+ if(mode==='drawings'||mode==='cutting')html+=printOptions();
+ $('#properties-content').innerHTML=html;updateRoomDeleteTool();
+ if(mode==='room'&&roomFocus==='cabinet'&&c){const block=$('#properties-content > .property-block:last-child');block.querySelector('h2').insertAdjacentHTML('afterend',`<div class="fields">${input('Ширина','width',c.width,{min:100,max:6000})}${input('Глубина','depth',c.depth,{min:100,max:3000})}</div><p class="hint">Тяните ручки на плане, чтобы изменить ширину и глубину.</p>`);block.insertAdjacentHTML('beforeend',`<button class="button full cabinet-delete" data-action="delete-cabinet">${icon('trash')}Удалить шкаф</button>`);}
+ if(mode==='drawings')for(const button of $('#properties-content').querySelectorAll('[data-part]')){const part=parts.find(p=>p.id===button.dataset.part);if(part)button.querySelector('div').insertAdjacentHTML('beforeend',`<small data-i18n="off">${esc(translatePrintText('Кромка, м',interfaceLanguage))}: ${fmt(getPartEdgeBanding(part).lengthMeters,3)}</small>`);}
+ const nextContext=`${mode}:${cabinetId}:${mode==='cabinet'?sectionId:mode==='room'?`${roomFocus}:${selectedWindowId}:${roomEditor.selectedCorner??selectedWall}`:''}`;if(propertyContext!==nextContext){$('.properties').scrollTop=0;propertyContext=nextContext;}
+}
+function legacyWall(w){return{back:0,right:1,front:2,left:3}[w]??0;}
+function windowInput(w,field,label){return `<label class="field"><span>${label}</span><div class="input-with-unit"><input type="number" data-window="${esc(w.id)}" data-field="${field}" value="${w[field]}" min="${field==='width'||field==='height'?100:0}" max="20000"><small>мм</small></div></label>`;}
+function braceInput(b,field,label){return `<label class="field"><span>${label}</span><div class="input-with-unit"><input type="number" data-brace="${esc(b.id)}" data-field="${field}" value="${b[field]}" min="${field==='height'?10:0}" max="6000"><small>мм</small></div></label>`;}
+
+const views={front:'Спереди',interior:'Внутри',back:'Сзади',left:'Слева',right:'Справа',top:'Сверху'};
+function renderDrawings(){const c=selectedCabinet();drawingZoom?.destroy();$('#drawings-shell').innerHTML=`<div class="drawing-views">${Object.entries(views).map(([v,l])=>`<button class="${drawingView===v?'active':''}" data-drawing-view="${v}">${l}</button>`).join('')}</div>${c?drawingZoomMarkup(createDrawingSvg(project,drawingView,{cabinetId:c.id,dimensions:true,frontDetails:true,language:interfaceLanguage})):'<div class="empty-state">Добавьте шкаф для создания чертежей.</div>'}`;drawingZoom=c?new DrawingZoom($('#drawings-shell')):null;}
+function sheetSvg(sheet){const colors=['#dce5d4','#e8dbc8','#d6e2e3','#e3dfc8'];return `<svg viewBox="-25 -25 ${sheet.width+50} ${sheet.height+50}" class="sheet-plan"><rect width="${sheet.width}" height="${sheet.height}" fill="#f8f9f3" stroke="#a7b59b" stroke-width="3"/>${sheet.placements.map((p,i)=>{const original=parts.find(a=>a.id===p.partId);const shape=original?.outline;let contour='';if(shape?.length){const pts=shape.map(q=>p.rotated?`${p.x+q.y},${p.y+original.width-q.x}`:`${p.x+q.x},${p.y+q.y}`).join(' ');contour=`<polygon points="${pts}" fill="${colors[i%4]}" stroke="#7c936e" stroke-width="3"/>`;}return `<g><rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}" fill="${shape?'#f0f1e9':colors[i%4]}" stroke="#a7b09a" stroke-width="2" ${shape?'stroke-dasharray="10 6"':''}/>${contour}<title>${esc(p.label)} · ${p.width} × ${p.height}</title><text x="${p.x+p.width/2}" y="${p.y+p.height/2}" text-anchor="middle" fill="#5b7650" font-size="${Math.min(30,p.width/10,p.height/4)}">${i+1}</text><text x="${p.x+p.width/2}" y="${p.y+p.height/2+30}" text-anchor="middle" fill="#6e8562" font-size="${Math.min(22,p.width/12,p.height/5)}">${rounded(p.width)} × ${rounded(p.height)}</text></g>`;}).join('')}</svg>`;}
+function renderCutting(){$('#cutting-shell').innerHTML=`<div class="cutting-totals"><span><strong>${cutting.totalSheets}</strong> листов</span><span><strong>${fmt(cutting.utilization,1)}%</strong> заполнение</span><span>${parts.length} деталей</span><span><strong>${fmt(getEdgeBandingSummary(parts).lengthMeters,3)}</strong> м кромки</span></div>${edgeSummaryMarkup(parts)}${cutting.unplaced.length?`<div class="notice error">Не размещено ${cutting.unplaced.length} деталей. Проверьте формат и толщину листа.</div>`:''}<div class="sheet-grid">${cutting.sheets.map((s,i)=>`<article class="sheet-card"><header><span class="sheet-number">${String(i+1).padStart(2,'0')}</span><div><strong>${esc(project.materials.find(m=>m.id===s.materialId)?.name)}</strong><small>${s.thickness} мм · ${s.width} × ${s.height}</small></div></header>${sheetSvg(s)}<button class="text-button" data-sheet="${i}">${s.placements.length} деталей · посмотреть</button></article>`).join('')||'<div class="empty-state">Раскрой появится после добавления шкафа.</div>'}</div>`;}
+
+document.addEventListener('click',e=>{
+ const b=e.target.closest('button,a');if(!b)return;
+ if(b.dataset.mode){mode=b.dataset.mode;render();}
+ if(b.dataset.cabinet){cabinetId=b.dataset.cabinet;sectionId=null;if(mode==='room'){roomFocus='cabinet';selectedWindowId=null;}render();}
+ if(b.dataset.cabinetView){cabinetView=b.dataset.cabinetView;render();}
+ if(b.dataset.roomView){roomView=b.dataset.roomView;render();}
+ if(b.dataset.drawingView){drawingView=b.dataset.drawingView;renderDrawings();}
+ if(b.dataset.front){change(()=>{const node=editableSection()?.node;if(node){node.front=b.dataset.front;if(node.front!=='open')delete node.pullOutShelf;if(node.front!=='doors')delete node.internalDrawerCount;if(node.front==='drawers')node.shelves=0;delete node.appliance;}});}
+ if(b.dataset.split){const s=selectedSection();if(s)change(()=>{const c=selectedCabinet();if(!splitSection(c,s.id,b.dataset.split))return false;sectionId=findLayoutNode(c.layout,s.id)?.children?.[0]?.id;});}
+ if(b.dataset.deleteWindow)deleteOpening(b.dataset.deleteWindow);
+ if(b.dataset.selectWindow){selectedWindowId=b.dataset.selectWindow;roomFocus='window';const w=selectedOpening();if(w)selectedWall=w.wallIndex??legacyWall(w.wall);render();}
+ if(b.dataset.deleteBrace)change(()=>{const c=selectedCabinet();c.rearBraces=(c.rearBraces||[]).filter(a=>a.id!==b.dataset.deleteBrace);});
+ if(b.dataset.material)editMaterial(b.dataset.material);
+ if(b.dataset.part)showPart(b.dataset.part);
+ if(b.dataset.sheet)showSheet(Number(b.dataset.sheet));
+ if(b.dataset.action)action(b.dataset.action);
+ if(b.classList.contains('brand')){e.preventDefault();mode='cabinet';render();}
+});
+document.addEventListener('toggle',e=>{if(e.target.matches('details[data-detail]')){const name=e.target.dataset.detail;if(e.target.open)expanded.add(name);else expanded.delete(name);}},true);
+document.addEventListener('change',e=>{
+ if(e.target.id==='interface-language'){interfaceLanguage=e.target.value;try{localStorage.setItem('atolye.ui.language',interfaceLanguage);}catch{}render();applyLanguage();return;}
+ if(e.target.id==='print-turkish'){change(()=>project.settings.printLanguage=e.target.checked?'tr':interfaceLanguage==='en'?'en':'ru');return;}
+ const braceEl=e.target;if(braceEl.dataset.brace){const value=braceEl.type==='number'?Number(braceEl.value):braceEl.value;if(braceEl.type==='number'&&!validNumber(braceEl,value)){renderProperties();return;}change(()=>{const b=selectedCabinet()?.rearBraces?.find(b=>b.id===braceEl.dataset.brace);if(b)b[braceEl.dataset.field]=value;});return;}
+ const el=e.target;if(el.dataset.window){const value=Number(el.value);if(!validNumber(el,value)){renderProperties();return;}change(()=>{const w=project.room.windows.find(w=>w.id===el.dataset.window);if(w)w[el.dataset.field]=value;});return;}
+ if(!el.dataset.scope)return;const field=el.dataset.field,scope=el.dataset.scope;
+ const value=el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value;
+ if(el.type==='number'&&!validNumber(el,value)){renderProperties();return;}
+ change(()=>{
+  const c=selectedCabinet(),s=scope==='section'?editableSection():selectedSection();
+  if(scope==='cabinet'&&c){
+   if(mode==='room'&&['width','depth'].includes(field))return applyCabinetResult(c,resizeCabinetOnPlan(c,{[field]:value},project));
+   if(field==='cutout-corner'){c.cutout=value==='none'?undefined:{corner:value,width:c.cutout?.width||150,depth:c.cutout?.depth||150};}
+   else if(field.startsWith('cutout-'))c.cutout[field.slice(7)]=value;
+   else if(field==='rotation')setCabinetRotation(c,value);
+   else {c[field]=value;if(field==='backMaterialId')c.backThickness=project.materials.find(m=>m.id===value)?.thickness||3;if(field==='drawerBottomMaterialId')c.drawerBottomThickness=project.materials.find(m=>m.id===value)?.thickness||6;}
+   if(['x','y','z','rotation'].includes(field)&&!canPlaceCabinet(c,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');
+  }
+  if(scope==='section'&&s){
+   if(field.startsWith('door-opening-')){const index=Number(field.slice(13));s.node.doorOpenings=Array.from({length:s.node.doors||2},(_,i)=>i===index?value:s.node.doorOpenings?.[i]??(i%2?'right':'left'));return;}
+   if(field==='floor-open'){s.node.floor=value?'open':'inherit';return;}
+   if(field==='mounting-height'){const axes=getSectionMountingAxes(c,project).find(axis=>axis.id===s.id);return axes?.height==null?false:resizeOpening(c,s.id,'horizontal',value-(axes.height-s.height));}
+   if(field==='section-width'||field==='section-height')return resizeOpening(c,s.id,field==='section-width'?'vertical':'horizontal',value);
+   if(field==='depth')return applyCabinetResult(c,setApplianceSectionDepth(c,s.id,value,project));
+   if(field.startsWith('drawer-height-')){
+    const fs=getFrontLayout(c,project).filter(f=>f.sectionId===s.id&&f.kind==='drawer'),index=Number(field.slice(14));const available=fs.reduce((sum,f)=>sum+f.height,0),rest=available-fs[index].height;const heights=fs.map((f,i)=>i===index?value:(available-value)*f.height/rest);if(heights.some(h=>!Number.isFinite(h)||h<60))return false;s.node.drawerHeights=heights;
+   }else{s.node[field]=value;if(field==='drawers'){s.node.drawerHeights=undefined;s.node.shelves=0;}if(field==='doors'&&s.node.doorOpenings)s.node.doorOpenings=Array.from({length:value},(_,i)=>s.node.doorOpenings[i]??(i%2?'right':'left'));if(field==='internalDrawerCount'&&value>0)s.node.shelves=0;}
+  }
+  if(scope==='settings')project.settings[field]=value;
+  if(scope==='corner'){const index=roomEditor.selectedCorner,outline=clone(getRoomOutline(project.room));if(!outline[index])return false;outline[index][field]=value;if(!polygonIsSimple(outline))return false;project.room.windows=remapWindows(project.room,outline,{kind:'drag',index});project.room.outline=outline;const bounds=roomBounds(project.room);project.room.width=bounds.width;project.room.depth=bounds.depth;}
+  if(scope==='room'){
+   if(field.startsWith('installation-')){project.room.installationClearance??={walls:0,ceiling:0};project.room.installationClearance[field.slice(13)]=value;return;}
+   if(field==='wall-length'){const outline=clone(getRoomOutline(project.room)),a=outline[selectedWall],b=outline[(selectedWall+1)%outline.length],length=Math.hypot(b.x-a.x,b.z-a.z);b.x=rounded(a.x+(b.x-a.x)*value/length);b.z=rounded(a.z+(b.z-a.z)*value/length);if(!polygonIsSimple(outline)||outline.some(p=>Math.abs(p.x)>20000||Math.abs(p.z)>20000))return false;project.room.windows=remapWindows(project.room,outline,{kind:'drag'});project.room.outline=outline;const bounds=roomBounds(project.room);project.room.width=bounds.width;project.room.depth=bounds.depth;}
+   else project.room[field]=value;
+  }
+ });
+});
+function validNumber(el,value){const integer=['doors','drawers','shelves','internalDrawerCount'].includes(el.dataset.field);if(!Number.isFinite(value)||value<Number(el.min)||value>Number(el.max)||(integer&&!Number.isInteger(value))){toast(`Введите ${integer?'целое ':''}число от ${el.min} до ${el.max}`);return false;}return true;}
+function resizeOpening(c,id,axis,value){return applyCabinetResult(c,resizeApplianceSection(c,id,axis,value,project));}
+function setCabinetRotation(c,degrees){const old=(c.rotation||0)*Math.PI/180,next=degrees*Math.PI/180,center={x:c.x+c.width/2*Math.cos(old)-c.depth/2*Math.sin(old),z:c.z+c.width/2*Math.sin(old)+c.depth/2*Math.cos(old)};c.rotation=degrees;c.x=Math.round((center.x-c.width/2*Math.cos(next)+c.depth/2*Math.sin(next))*1000)/1000;c.z=Math.round((center.z-c.width/2*Math.sin(next)-c.depth/2*Math.cos(next))*1000)/1000;}
+function updateRoomDeleteTool(){const button=$('#room-tools [data-action="remove-corner"]');if(!button)return;const opening=roomFocus==='window'?selectedOpening():null,indices=roomEditor.getSelectedCorners();const label=opening?opening.kind==='door'?'Удалить дверной проём':'Удалить окно':indices.length>1?`Удалить выбранные углы (${indices.length})`:'Удалить выбранный угол';button.title=label;button.setAttribute('aria-label',label);button.disabled=!opening&&!indices.length;}
+function action(name){const c=selectedCabinet();
+ if(name==='design-selected'){mode='cabinet';cabinetView='scheme';render();}
+ if(name==='edit-sections'&&c)change(()=>{c.layout=convertLegacyLayout(c);});
+ if(name==='undo'&&history.length){future.push(clone(project));project=history.pop();calculate();render();}
+ if(name==='redo'&&future.length){history.push(clone(project));project=future.pop();calculate();render();}
+ if(name==='add-cabinet')addCabinetDialog();
+ if((name==='extend-left'||name==='extend-right')&&c)change(()=>{const added=extendCabinetSide(c,name==='extend-left'?'left':'right',300,project);if(!added)throw Error('Эту сторону нельзя расширить: проверьте задний вырез, ширину шкафа и число секций.');sectionId=added;});
+ if(name==='rotate-cabinet'&&c)change(()=>{setCabinetRotation(c,(((c.rotation||0)+90+180)%360+360)%360-180);if(!canPlaceCabinet(c,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');});
+ if(name==='reset-view'){cabinetEditor.reset();viewport.resetCamera();}
+ if(name==='open-fronts'){const open=!viewport.options.doorsOpen;viewport.setOptions({doorsOpen:open,...(!open?{internalDrawersOpen:false}:{})});render();}
+ if(name==='open-internal'){viewport.setOptions({doorsOpen:true,internalDrawersOpen:!viewport.options.internalDrawersOpen});render();}
+ if(name==='room-open-fronts'){const open=!roomViewport.options.doorsOpen;roomViewport.setOptions({doorsOpen:open,internalDrawersOpen:open});render();}
+ if(name==='delete-section'&&c){change(()=>{const s=editableSection(),sections=layout().sections,index=sections.findIndex(a=>a.id===s.id),nextId=sections[index+1]?.id??sections[index-1]?.id;const ok=removeSection(c,s.id,project);sectionId=nextId;return ok;});}
+ if(name==='add-corner')roomEditor.addCorner();
+ if(name==='remove-corner'){if(roomFocus==='window'&&selectedOpening())deleteOpening(selectedWindowId);else roomEditor.removeSelectedCorners();}
+ if(name==='room-niche')roomEditor.addFeature('niche');
+ if(name==='room-protrusion')roomEditor.addFeature('protrusion');
+ if(name==='add-window'||name==='add-door')addOpening(name==='add-door'?'door':'window');
+ if(name==='add-brace'&&c)change(()=>{c.rearBraces??=[];const height=Math.min(100,Math.max(10,c.height-(c.plinth||0)-36));let y=Math.max(c.plinth||0,c.height-height-18);for(const brace of [...c.rearBraces].sort((a,b)=>b.y-a.y)){if(y<brace.y+brace.height+10&&y+height>brace.y-10)y=brace.y-height-10;}if(y<(c.plinth||0)){toast('Нет свободного места для поперечины. Измените положение существующих.');return false;}c.rearBraces.push({id:uid('brace'),y,height,materialId:c.materialId});expanded.add('rear-braces');});
+ if(name==='appliance')applianceDialog();
+ if(name==='remove-appliance')change(()=>delete editableSection().node.appliance);
+ if(name==='rename')textDialog('Название проекта',project.name,value=>change(()=>project.name=value));
+ if(name==='cabinet-options'&&c)modal('Шкаф',`<div class="menu-actions"><button data-action="rename-cabinet">Переименовать</button><button data-action="duplicate">${icon('copy')}Дублировать</button><button data-action="delete-cabinet" class="danger">${icon('trash')}Удалить шкаф</button></div>`);
+ if(name==='rename-cabinet'&&c)textDialog('Название шкафа',c.name,value=>change(()=>c.name=value));
+ if(name==='duplicate'&&c){change(()=>{const copy=clone(c),placement=createCabinet(c.type,project,c);copy.id=uid('cabinet');copy.name=(copy.name+' · '+translateText('копия',interfaceLanguage)).slice(0,100);copy.x=placement.x;copy.y=placement.y;copy.z=placement.z;project.cabinets.push(copy);cabinetId=copy.id;sectionId=null;});closeModal();}
+ if(name==='delete-cabinet'&&c){deleteCabinet(c.id);closeModal();}
+ if(name==='file')modal('Проект',`<div class="menu-actions"><button data-action="save">${icon('download')}Сохранить файл проекта</button><button data-action="import">Открыть файл проекта</button><button data-action="new">${icon('plus')}Новый пустой проект</button><button data-action="example">Открыть пример конструкции</button><button data-action="standards">Материалы и турецкие нормы</button></div>`);
+ if(name==='save'){download(JSON.stringify({version:2,application:'ATÖLYE',project},null,2),`${filename()}.json`,'application/json');closeModal();toast('Файл проекта сохранён');}
+ if(name==='import'){$('#project-file').click();}
+ if(name==='new'){change(()=>{project=createDefaultProject(interfaceLanguage);project.name=translateText('Новый проект',interfaceLanguage);project.cabinets=[];cabinetId=null;sectionId=null;mode='room';});closeModal();}
+ if(name==='example'){change(()=>{project=createDefaultProject(interfaceLanguage);cabinetId=project.cabinets[0]?.id;sectionId=null;mode='cabinet';});closeModal();}
+ if(name==='materials')materialsDialog();
+ if(name==='add-material')editMaterial(null);
+ if(name==='drawing-svg'&&c)download(createDrawingSvg(project,drawingView,{cabinetId:c.id,dimensions:true,frontDetails:true,language:project.settings.printLanguage??'tr'}),`${filename()}-${drawingView}.svg`,'image/svg+xml');
+ if(name==='drawing-print'&&c)printHTML(generateDrawingHTML(project,{cabinetId:c.id,language:project.settings.printLanguage??'tr'}));
+ if(name==='cabinet-3d-print'&&c){const language=project.settings.printLanguage??'tr';const snapshot=viewport.captureCabinet3D({cabinetId:c.id,language});const html=generateCabinet3DHTML(project,{...snapshot,language});modal('Печать 3D-вида',`<iframe class="print-3d-preview" title="3D" srcdoc="${esc(html)}"></iframe><div class="print-3d-actions"><button class="button primary" id="print-current-3d">${icon('print')}Печать / PDF</button><button class="button" id="save-current-3d">${icon('download')}Сохранить лист 3D</button></div>`,true);$('#print-current-3d').onclick=()=>printHTML(html);$('#save-current-3d').onclick=()=>download(html,`${filename()}-3d.html`,'text/html;charset=utf-8');}
+ if(name==='csv')exportCSV();
+ if(name==='cutting-print')printHTML(cuttingHTML());
+ if(name==='validation')modal('Проверка конструкции',warnings.length?`<ul class="warning-list">${warnings.map(w=>`<li class="${w.level}">${esc(w.message)}</li>`).join('')}</ul>`:'<p>Габариты, размещение и детали прошли геометрическую проверку.</p>');
+ if(name==='standards')modal('Материалы и турецкие нормы',`<p class="hint">Форматы МДФ взяты из турецких каталогов. Зазоры и монтаж выбираются под конкретную фурнитуру и технику.</p>${STANDARDS.map(s=>`<article class="standard"><h3>${esc(s.title)}</h3><p>${esc(s.description)}</p><a href="${esc(s.url)}" target="_blank" rel="noopener">Источник</a></article>`).join('')}<p class="hint">Проект не заменяет испытания готовой мебели и сертификацию TSE.</p>`,true);
+ if(name==='help')modal('Три шага к своей конструкции',`<ol class="help-list"><li><strong>Создайте шкаф.</strong> Габариты меняются справа. Щёлкните по секции на схеме.</li><li><strong>Разделите и заполните.</strong> Кнопки над схемой делят и удаляют выбранную секцию. Выбирайте двери, ящики или открытый проём. Перемещение перегородки меняет только два соседних проёма.</li><li><strong>Проверьте и передайте.</strong> Чертежи содержат размеры проёмов, фасадов и деталей. Раскрой и CSV обновляются вместе с конструкцией.</li></ol><p>В помещении выберите стену и добавьте окно, дверь, нишу или выступ кнопками над планом. Окна и двери перемещаются вдоль стены мышью; расстояния видны на плане. Стена перемещается поперёк своей оси, угол — по одной оси; Alt позволяет двигать угол свободно.</p><p class="hint">Для техники создайте открытую секцию и выберите «Глубина, задник и техника». Флажок «Открытый проём до пола» убирает дно и цоколь только здесь. Задние поперечины добавляются отдельно. Размеры и сервисные зазоры задавайте по паспорту своей техники. Ctrl+Z — отмена, Ctrl+S — файл проекта.</p>`);
+ if(name==='close-modal')closeModal();
+}
+function addOpening(kind){
+ if(project.room.windows.length>=30){toast('В проекте уже 30 проёмов');return;}
+ if(roomFocus==='corner'&&Number.isInteger(roomEditor.selectedCorner))selectedWall=roomEditor.selectedCorner;
+ const length=wallLength(project.room,selectedWall);if(length<100){toast('Для проёма нужна стена длиной хотя бы 100 мм');return;}
+ let width=Math.min(kind==='door'?800:1200,length);const sill=kind==='door'?0:Math.min(900,Math.max(0,project.room.height-100));
+ const occupied=project.room.windows.filter(w=>(w.wallIndex??legacyWall(w.wall))===selectedWall).map(w=>({start:Math.max(0,w.offset-50),end:Math.min(length,w.offset+w.width+50)})).sort((a,b)=>a.start-b.start);
+ const gaps=[];let cursor=0;for(const o of occupied){if(o.start>cursor)gaps.push({start:cursor,end:o.start});cursor=Math.max(cursor,o.end);}if(cursor<length)gaps.push({start:cursor,end:length});
+ let gap=gaps.filter(g=>g.end-g.start>=width).sort((a,b)=>Math.abs((a.start+a.end)/2-length/2)-Math.abs((b.start+b.end)/2-length/2))[0];if(!gap){gap=gaps.sort((a,b)=>(b.end-b.start)-(a.end-a.start))[0];if(!gap||gap.end-gap.start<100){toast('На этой стене нет свободного места для нового проёма');return;}width=rounded(Math.min(width,gap.end-gap.start));}
+ const w={id:uid(kind),kind,wallIndex:selectedWall,offset:rounded((gap.start+gap.end-width)/2),width,height:Math.min(kind==='door'?2000:1200,project.room.height-sill),sill};
+ change(()=>{project.room.windows.push(w);selectedWindowId=w.id;roomFocus='window';});
+}
+function addCabinetDialog(){
+ if(project.cabinets.length>=150){toast('В проекте уже 150 шкафов');return;}
+ const anchor=selectedCabinet(),ceiling=project.room.height-(project.room.installationClearance?.ceiling??0);
+ const aboveHeight=anchor?Math.min(720,ceiling-anchor.y-anchor.height):0;
+ modal('Добавить шкаф',`<form id="cabinet-form"><label class="field"><span>Тип шкафа</span><select name="type"><option value="floor">Напольный шкаф</option><option value="wall">Навесной шкаф</option><option value="mezzanine" ${!anchor||aboveHeight<100?'disabled':''}>Антресоль над выбранным шкафом</option></select></label><div class="fields three">${[['width','Ширина',900,6000],['height','Высота',2200,6000],['depth','Глубина',620,3000]].map(([field,label,value,max])=>`<label class="field"><span>${label}, мм</span><input name="${field}" type="number" min="100" max="${max}" value="${value}" required></label>`).join('')}</div><p class="hint" id="cabinet-placement-hint"></p><button class="button primary full">Добавить шкаф</button></form>`);
+ const form=$('#cabinet-form');
+ const selectType=()=>{const type=form.elements.type.value,preset=type==='wall'?{width:800,height:Math.min(720,ceiling),depth:340}:type==='mezzanine'?{width:anchor.width,height:aboveHeight,depth:anchor.depth}:{width:900,height:2200,depth:620};for(const field of ['width','height','depth'])form.elements[field].value=Math.floor(preset[field]);$('#cabinet-placement-hint').textContent=type==='mezzanine'?'Антресоль размещается над выбранным шкафом с тем же поворотом.':type==='wall'?'Высота установки навесного шкафа — 1510 мм или ниже, если ограничивает потолок.':'Шкаф размещается в свободном месте на полу. Секции можно заполнить после добавления.';};
+ form.elements.type.onchange=selectType;selectType();
+ form.onsubmit=e=>{e.preventDefault();if(!form.reportValidity())return;const type=form.elements.type.value,values=Object.fromEntries(['width','height','depth'].map(field=>[field,form.elements[field].valueAsNumber]));const saved=change(()=>{
+  const next=createCabinet(type==='wall'||type==='mezzanine'?'wall':'tall',project,{...values,name:translateText(`Шкаф ${project.cabinets.length+1}`,interfaceLanguage),shelves:0,plinth:0});next.layout=createSection('open');
+  if(type==='mezzanine'){if(!anchor)throw Error('Выберите шкаф для установки антресоли.');Object.assign(next,{x:anchor.x,z:anchor.z,y:anchor.y+anchor.height,rotation:anchor.rotation||0,...(anchor.cutout?{cutout:clone(anchor.cutout)}:{})});}
+  if(!canPlaceCabinet(next,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');
+  project.cabinets.push(next);cabinetId=next.id;sectionId=next.layout.id;mode='cabinet';
+ });if(saved)closeModal();};
+}
+function materialsDialog(){modal('Материалы',`<div class="materials-list">${project.materials.map(m=>`<button data-material="${esc(m.id)}"><i style="background:${esc(m.color)}"></i><span><strong>${esc(m.name)}</strong><small>${m.thickness} мм · лист ${m.sheetWidth} × ${m.sheetHeight}${m.grain?' · текстура':''}</small></span></button>`).join('')}</div><button class="button full" data-action="add-material">${icon('plus')}Добавить материал</button>`);}
+function editMaterial(id){
+ const old=project.materials.find(material=>material.id===id),m=old?clone(old):{id:uid('material'),name:translateText('Новый МДФ',interfaceLanguage),type:'MDF',color:'#c5b38e',thickness:18,sheetWidth:2100,sheetHeight:2800,grain:false,edgeBand:1};
+ modal('Материал и цвет',`<form id="material-form">${!old?`<label class="field"><span>Начать с пресета</span><select name="preset"><option value="">Свой материал</option>${MATERIAL_PRESETS.map((material,i)=>`<option value="${i}">${esc(translateMaterialName(material.name,interfaceLanguage))}</option>`).join('')}</select></label>`:''}<label class="field"><span>Название</span><input name="name" value="${esc(m.name)}" maxlength="120" required></label><div class="fields"><label class="field"><span>Цвет</span><input name="color" type="color" value="${esc(m.color)}"></label><label class="field"><span>Толщина, мм</span><input name="thickness" type="number" value="${m.thickness}" min="1" max="60" step=".1" required></label></div><div class="fields"><label class="field"><span>Лист X, мм</span><input name="sheetWidth" type="number" value="${m.sheetWidth}" min="100" max="10000" required></label><label class="field"><span>Лист Y, мм</span><input name="sheetHeight" type="number" value="${m.sheetHeight}" min="100" max="10000" required></label></div><label class="check-row"><input name="grain" type="checkbox" ${m.grain?'checked':''}>Текстура вдоль высоты детали</label><button class="button primary full">Сохранить материал</button></form>`);
+ const form=$('#material-form');
+ form.elements.preset?.addEventListener('change',e=>{if(e.target.value==='')return;const preset=localizeMaterialPreset(MATERIAL_PRESETS[Number(e.target.value)],interfaceLanguage);Object.assign(m,{type:translateText(preset.type,interfaceLanguage),edgeBand:preset.edgeBand,manufacturer:preset.manufacturer,decorCode:preset.decorCode,sourceUrl:preset.sourceUrl});for(const field of ['name','color','thickness','sheetWidth','sheetHeight'])form.elements[field].value=field==='name'?translateMaterialName(preset[field],interfaceLanguage):preset[field];form.elements.grain.checked=preset.grain;});
+ form.onsubmit=e=>{
+  e.preventDefault();if(!form.reportValidity())return;const data=new FormData(form);
+  const saved=change(()=>{
+   const next={...m,name:String(data.get('name')).trim(),color:data.get('color'),thickness:Number(data.get('thickness')),sheetWidth:Number(data.get('sheetWidth')),sheetHeight:Number(data.get('sheetHeight')),grain:data.has('grain')};
+   if(old){Object.assign(project.materials.find(material=>material.id===id),next);project.cabinets.forEach(c=>{if(c.backMaterialId===id)c.backThickness=next.thickness;if(c.drawerBottomMaterialId===id)c.drawerBottomThickness=next.thickness;});}else project.materials.push(next);
+  });if(saved)materialsDialog();
+ };
+}
+function edgeSummaryMarkup(list,language=interfaceLanguage){const summary=getEdgeBandingSummary(list),t=text=>esc(translatePrintText(text,language));return `<section class="edge-summary" data-i18n="off"><p><strong>${t('Всего кромки')}: ${fmt(summary.lengthMeters,3)} ${t('м')}</strong></p>${summary.groups.length?`<table><thead><tr><th>${t('Кромка по материалам')}</th><th>${t('Толщина мм')}</th><th>${t('Кромка, м')}</th></tr></thead><tbody>${summary.groups.map(group=>`<tr><td>${esc(translateMaterialName(project.materials.find(material=>material.id===group.materialId)?.name??'',language))}</td><td>${fmt(group.thickness,2)}</td><td>${fmt(group.lengthMeters,3)}</td></tr>`).join('')}</tbody></table>`:''}</section>`;}
+function partsTable(list){return `<table><thead><tr><th>Деталь</th><th>Размер, мм</th><th>Материал</th><th>Количество</th><th>Кромка, м</th></tr></thead><tbody>${list.map(p=>`<tr><td data-i18n="off">${esc(translatePrintText(p.name,interfaceLanguage))}${p.outline?' · '+esc(translatePrintText('с вырезом',interfaceLanguage)):''}</td><td>${fmt(p.width,1)} × ${fmt(p.height,1)} × ${p.thickness}</td><td data-i18n="off">${esc(translateMaterialName(project.materials.find(m=>m.id===p.materialId)?.name,interfaceLanguage))}</td><td>${p.quantity??1}</td><td>${fmt(getPartEdgeBanding(p).lengthMeters,3)}</td></tr>`).join('')}</tbody></table>${edgeSummaryMarkup(list)}`;}
+function showPart(id){const p=parts.find(p=>p.id===id);if(!p)return;modal(translatePrintText(p.name,interfaceLanguage),`${drawingZoomMarkup(createPartSvg(p,project,{language:interfaceLanguage}))}<p class="hint">Заготовка ${p.width} × ${p.height} мм · толщина ${p.thickness} мм. ${p.outline?'Фигурный контур показан отдельно от прямоугольника заготовки.':''}</p>${edgeSummaryMarkup([p])}<button class="button full" id="save-part">${icon('download')}Сохранить чертёж детали SVG</button>`,true);partZoom=new DrawingZoom($('.modal-body'));$('#save-part').onclick=()=>download(createPartSvg(p,project,{language:project.settings.printLanguage??'tr'}),`${filename()}-${p.id}.svg`,'image/svg+xml');}
+function showSheet(i){const s=cutting.sheets[i];if(!s)return;modal(`Лист ${i+1}`,sheetSvg(s)+partsTable(s.placements.map(p=>parts.find(a=>a.id===p.partId)).filter(Boolean)),true);}
+function exportCSV(){const language=project.settings.printLanguage??'tr',t=text=>translatePrintText(text,language),summary=getEdgeBandingSummary(parts);const rows=[['Шкаф','Секция','Деталь','Ширина заготовки мм','Высота заготовки мм','Толщина мм','Готовая ширина мм','Готовая высота мм','Материал','Текстура','Кромка сверху','Кромка снизу','Кромка слева','Кромка справа','Контур JSON','Количество','Кромка, м'].map(t),...parts.map(p=>[translateBuiltInName(p.cabinetName,language,'cabinet'),p.sectionId||'',t(p.name),p.width,p.height,p.thickness,p.finishedWidth,p.finishedHeight,translateMaterialName(project.materials.find(m=>m.id===p.materialId)?.name,language),t(p.grain?'Да':'Нет'),p.edges?.top||0,p.edges?.bottom||0,p.edges?.left||0,p.edges?.right||0,p.outline?JSON.stringify(p.outline):'',p.quantity??1,getPartEdgeBanding(p).lengthMeters])];rows.push([], [t('Всего кромки'),'','','','','','','','','','','','','','', '',summary.lengthMeters]);for(const group of summary.groups)rows.push([t('Кромка по материалам'),'','','','',group.thickness,'','',translateMaterialName(project.materials.find(m=>m.id===group.materialId)?.name??'',language),'','','','','','',group.partCount,group.lengthMeters]);download('\ufeff'+rows.map(row=>row.map(csvCell).join(';')).join('\r\n'),`${filename()}-детали.csv`,'text/csv;charset=utf-8');}
+function modal(title,body,wide=false){partZoom?.destroy();partZoom=null;$('#modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal ${wide?'wide':''}" role="dialog" aria-modal="true" aria-label="${esc(title)}"><header><h2>${esc(title)}</h2><button class="icon-button" data-action="close-modal" aria-label="Закрыть">${icon('close')}</button></header><div class="modal-body">${body}</div></section></div>`;$('#app').inert=true;$('.modal-backdrop').onclick=e=>{if(e.target===e.currentTarget)closeModal();};$('.modal input:not([type=checkbox])')?.focus();}
+function closeModal(){partZoom?.destroy();partZoom=null;$('#modal-root').innerHTML='';$('#app').inert=false;}
+function textDialog(title,value,onSave){modal(title,`<form id="text-form"><label class="field"><span>${esc(title)}</span><input name="text" value="${esc(value)}" maxlength="100" required></label><button class="button primary full">Сохранить</button></form>`);$('#text-form').onsubmit=e=>{e.preventDefault();const v=String(new FormData(e.target).get('text')).trim();if(v){onSave(v);closeModal();}};}
+function filename(){return project.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_').slice(0,80)||'project';}
+function download(content,name,type){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
+function printHTML(html){const w=window.open('','_blank');if(!w){toast('Разрешите окно печати в браузере');return;}let printed=false;const print=()=>{if(printed||w.closed)return;printed=true;w.focus();w.print();};w.onload=print;w.document.open();w.document.write(html);w.document.close();setTimeout(()=>{if(w.document.readyState==='complete')print();},700);}
+function toast(text){$('#toast').textContent=text;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),4500);}
+$('#project-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>3e6)throw Error('Файл больше 3 МБ');const data=JSON.parse(await file.text()),p=data.project||data;checkImport(p);change(()=>{project=prepare(p);cabinetId=project.cabinets[0]?.id;sectionId=null;mode='cabinet';});closeModal();toast('Проект открыт');}catch(err){toast(`Не удалось открыть: ${err.message}`);}e.target.value='';});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();return;}const modalOpen=!!$('.modal');if(modalOpen)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();action('save');}if(e.target.matches('input,select,textarea'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();action(e.shiftKey?'redo':'undo');}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();action('redo');}});
+calculate();render();
+if(restored)toast('Ваш проект открыт в редакторе секций');
+
+const applianceGapDefaults=type=>type==='washer'?{side:25,top:25,rear:50}:type==='dryer'?{side:30,top:25,rear:50}:{side:0,top:0,rear:0};
+function applianceDialog(){
+ const section=selectedSection();if(!section)return;
+ const c=selectedCabinet(),g=getCabinetLayout(c,project),atFloor=section.floorEligible;
+ const a=section.node.appliance||{type:'washer',label:translateText('Стиральная машина',interfaceLanguage),width:600,height:850,depth:600};
+ const gaps={...applianceGapDefaults(a.type),...a.clearances};
+ const enabled=a.useClearances??(!section.node.appliance&&['washer','dryer'].includes(a.type));
+ modal('Открытая ниша для техники',`<form id="appliance-form"><label class="field"><span>Что размещаем</span><select name="type">${[['washer','Стиральная машина'],['dryer','Сушильная машина'],['boiler','Бойлер'],['custom','Своё оборудование']].map(([v,t])=>`<option value="${v}" ${a.type===v?'selected':''}>${t}</option>`).join('')}</select></label><label class="field"><span>Название</span><input name="label" value="${esc(a.label)}" maxlength="100" required></label><div class="fields three">${['width','height','depth'].map((k,i)=>`<label class="field"><span>${['Ширина','Высота','Глубина'][i]} техники, мм</span><input name="${k}" type="number" value="${a[k]}" min="10" max="6000" required></label>`).join('')}</div>${atFloor?`<label class="check-row"><input name="onFloor" type="checkbox" ${!section.node.appliance||section.node.floor==='open'?'checked':''}>Стоит на полу — убрать дно и цоколь этой секции</label>`:''}<label class="check-row"><input name="useClearances" type="checkbox" ${enabled?'checked':''}>Учитывать монтажные зазоры и отступ от стены</label><div id="appliance-gap-fields" class="fields three">${[['side','С каждой стороны'],['top','Сверху'],['rear','Сзади: трубы и кабели']].map(([key,label])=>`<label class="field"><span>${label}, мм</span><input name="gap-${key}" type="number" min="0" max="1000" value="${gaps[key]}" required></label>`).join('')}</div><p class="hint">Начальные значения для планирования. Требования конкретной модели из её инструкции имеют приоритет. Глубину техники указывайте полностью, включая выступающие части.</p><div id="appliance-fit" class="appliance-fit" role="status" aria-live="polite"></div><details><summary>Откуда взяты зазоры</summary><p class="hint"><a href="https://www.samsung.com/ca/home-appliances/buying-guide/what-size-washing-machine-do-i-need/" target="_blank" rel="noopener">Samsung: размещение стиральных и сушильных машин</a>; <a href="https://download.beko.com/Download.UsageManualsBeko/AE/en_US_2960310556_EN.pdf" target="_blank" rel="noopener">Beko: пример инструкции сушильной машины</a>. Для сушилки начальный боковой запас увеличен до 30 мм. Эти параметры не являются универсальной нормой для любой техники. Для колонны нужен совместимый монтажный комплект, вентиляция и доступ спереди проверяются по инструкции.</p></details><button class="button primary full">Поместить в секцию</button></form>`);
+ const form=$('#appliance-form');
+ const read=()=>({type:form.elements.type.value,label:form.elements.label.value.trim(),width:form.elements.width.valueAsNumber,height:form.elements.height.valueAsNumber,depth:form.elements.depth.valueAsNumber,useClearances:form.elements.useClearances.checked,clearances:Object.fromEntries(['side','top','rear'].map(k=>{const v=form.elements[`gap-${k}`].valueAsNumber;return [k,Number.isFinite(v)&&v>=0&&v<=1000?v:gaps[k]];}))});
+ const preview=()=>{
+  $('#appliance-gap-fields').hidden=!form.elements.useClearances.checked;
+  for(const k of ['side','top','rear'])form.elements[`gap-${k}`].disabled=!form.elements.useClearances.checked;
+  if([...form.querySelectorAll('input[type="number"]')].some(el=>!el.disabled&&!el.checkValidity())){$('#appliance-fit').classList.add('has-warning');$('#appliance-fit').textContent='Заполните размеры и зазоры допустимыми числами.';return;}
+  const draft=clone(c);draft.layout??=convertLegacyLayout(draft);const node=findLayoutNode(draft.layout,section.id);
+  if(node){node.front='open';node.shelves=0;node.back='none';if(atFloor)node.floor=form.elements.onFloor.checked?'open':'inherit';}
+  const opening=getCabinetLayout(draft,project).sections.find(s=>s.id===section.id)||section;
+  const fit=getApplianceFit(opening,read());
+  const labels={width:'ширине',height:'высоте',depth:'глубине'};
+  const failed=Object.keys(labels).filter(k=>fit.deficits[k]>.001);
+  $('#appliance-fit').classList.toggle('has-warning',failed.length>0);
+  $('#appliance-fit').innerHTML=`<strong>Нужна ниша: ${fmt(fit.required.width,1)} × ${fmt(fit.required.height,1)} × ${fmt(fit.required.depth,1)} мм</strong><small>Доступно: ${fmt(fit.available.width,1)} × ${fmt(fit.available.height,1)} × ${fmt(fit.available.depth,1)} мм</small>${failed.length?failed.map(k=>`<p>Не помещается по ${labels[k]}: не хватает ${fmt(fit.deficits[k],1)} мм.</p>`).join(''):'<p>Техника помещается с указанными зазорами.</p>'}`;
+ };
+ form.addEventListener('input',preview);
+ form.elements.type.onchange=()=>{form.elements.label.value=form.elements.type.selectedOptions[0].textContent;const defaults=applianceGapDefaults(form.elements.type.value);for(const k of ['side','top','rear'])form.elements[`gap-${k}`].value=defaults[k];form.elements.useClearances.checked=['washer','dryer'].includes(form.elements.type.value);preview();};
+ form.onsubmit=e=>{e.preventDefault();const appliance=read();if(!form.reportValidity())return;const saved=change(()=>{const s=editableSection();s.node.appliance=appliance;s.node.front='open';s.node.shelves=0;s.node.back='none';delete s.node.pullOutShelf;delete s.node.internalDrawerCount;if(atFloor)s.node.floor=form.elements.onFloor.checked?'open':'inherit';});if(saved)closeModal();};
+ preview();
+}
+
+function printOptions(){const language=project.settings.printLanguage??'tr';return `<div class="property-block"><h2>Язык документов</h2><label class="check-row"><input id="print-turkish" type="checkbox" ${language==='tr'?'checked':''}>Печать на турецком</label>${language!=='tr'?`<label class="field"><span>Язык чертежей и раскроя</span><select data-scope="settings" data-field="printLanguage"><option value="ru" ${language==='ru'?'selected':''}>Русский</option><option value="en" ${language==='en'?'selected':''}>English</option></select></label>`:''}<p class="hint">Небольшие виды компонуются на одном листе. Сложные чертежи получают дополнительные страницы.</p></div>`;}
+function applyLanguage(){document.documentElement.lang=interfaceLanguage;$('#interface-language').setAttribute('aria-label',{ru:'Язык интерфейса',tr:'Arayüz dili',en:'Interface language'}[interfaceLanguage]);for(const element of [$('#app'),$('#modal-root'),$('#toast')])if(element)applyTranslations(element,interfaceLanguage);}
+const languageObserver=new MutationObserver(()=>applyLanguage());
+for(const element of [$('#app'),$('#modal-root'),$('#toast')])if(element)languageObserver.observe(element,{childList:true,subtree:true,characterData:true});
+applyLanguage();
+
+function cuttingHTML(){
+ const language=project.settings.printLanguage??'tr',t=text=>esc(translatePrintText(text,language));
+ const materialName=name=>esc(translateMaterialName(name,language));
+ const plans=cutting.sheets.map((sheet,index)=>{
+  const xml=new DOMParser().parseFromString(sheetSvg(sheet),'image/svg+xml');
+  for(const group of xml.querySelectorAll('g')){const texts=group.querySelectorAll('text');if(texts[0])texts[0].setAttribute('font-size',String(Math.min(120,sheet.width/19)));texts[1]?.remove();}
+  return `<article class="sheet"><h2>${t('Лист')} ${index+1} · ${materialName(project.materials.find(m=>m.id===sheet.materialId)?.name??'')} · ${sheet.thickness} mm</h2>${new XMLSerializer().serializeToString(xml.documentElement)}</article>`;
+ });
+ const pages=[];for(let i=0;i<plans.length;i+=4)pages.push(`<section class="plan-page"><h1>${esc(translateBuiltInName(project.name,language,'project'))} · ${t('Раскрой')}</h1><p>${t('Пропил')} ${project.settings.kerf} mm · ${t('Отступ от края листа')} ${project.settings.margin} mm · ${t('Номера деталей приведены в ведомости')}</p><div class="plan-grid">${plans.slice(i,i+4).join('')}</div></section>`);
+ const tables=cutting.sheets.map((sheet,index)=>`<section class="details"><h2>${t('Лист')} ${index+1}</h2><table><thead><tr><th>№</th><th>${t('Деталь')}</th><th>${t('Размер, мм')}</th><th>${t('Материал')}</th><th>${t('Количество')}</th><th>${t('Кромка, м')}</th></tr></thead><tbody>${sheet.placements.map((placement,i)=>{const part=parts.find(p=>p.id===placement.partId);return `<tr><td>${i+1}</td><td>${t(part?.name??placement.label)}</td><td>${fmt(part?.width,1)} × ${fmt(part?.height,1)} × ${part?.thickness}</td><td>${materialName(project.materials.find(m=>m.id===part?.materialId)?.name??'')}</td><td>${part?.quantity??1}</td><td>${fmt(part?getPartEdgeBanding(part).lengthMeters:0,3)}</td></tr>`;}).join('')}</tbody></table></section>`).join('');
+ return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${esc(translateBuiltInName(project.name,language,'project'))} · ${t('Раскрой')}</title><style>@page{size:A4 landscape;margin:10mm}body{font:9pt Arial;color:#233c34;margin:0}h1{font-size:14pt;margin:0 0 3mm}h2{font-size:9pt;margin:0 0 2mm}p{margin:0 0 4mm}.plan-page{break-after:page}.plan-grid{display:grid;grid-template-columns:1fr 1fr;gap:5mm}.sheet{height:77mm;break-inside:avoid}.sheet svg{height:69mm;width:100%}.details{margin:4mm 0}thead{display:table-header-group}table{border-collapse:collapse;width:100%;font-size:8pt}td,th{padding:1.3mm;border-bottom:1px solid #ccc;text-align:left}tr,.edge-summary{break-inside:avoid}.edge-summary{margin-top:5mm}</style></head><body>${pages.join('')}${tables}${edgeSummaryMarkup(parts,language)}${cutting.unplaced.length?`<p>${t('Не размещено')} ${cutting.unplaced.length} ${t('деталей')}</p>`:''}</body></html>`;
+}
