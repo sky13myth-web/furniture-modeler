@@ -149,12 +149,23 @@
         "manufacturer": "Yıldız Entegre",
         "decorCode": "HG_068",
         "sourceUrl": "https://www.yildizentegre.com/en/products/front-panel/hg-white-hg-068"
+      },
+      {
+        "id": "thin-back-3",
+        "name": "Arkalık levhası · 3 mm",
+        "type": "Lif levha",
+        "color": "#e7dfcf",
+        "thickness": 3,
+        "sheetWidth": 2100,
+        "sheetHeight": 2800,
+        "grain": false,
+        "edgeBand": 0
       }
     ],
     "cabinets": [
       {
         "materialId": "mdf-white",
-        "backMaterialId": "hdf-back",
+        "backMaterialId": "thin-back-3",
         "drawerMaterialId": "mdf-white",
         "drawerBottomMaterialId": "hdf-back",
         "doors": 0,
@@ -162,7 +173,7 @@
         "shelves": 0,
         "plinth": 100,
         "gap": 2,
-        "backThickness": 8,
+        "backThickness": 3,
         "drawerSlideGap": 13,
         "drawerBottomThickness": 8,
         "edgeBand": 1,

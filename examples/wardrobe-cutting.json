@@ -13,41 +13,41 @@
           "label": "Ortada çekmeceli dolap · Боковина левая",
           "x": 10,
           "y": 10,
-          "width": 612,
+          "width": 617,
           "height": 2200,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-2",
           "label": "Ortada çekmeceli dolap · Боковина правая",
-          "x": 625,
+          "x": 630,
           "y": 10,
-          "width": 612,
+          "width": 617,
           "height": 2200,
           "rotated": false
         },
         {
           "partId": "cabinet-1-part-3",
           "label": "Ortada çekmeceli dolap · Крышка",
-          "x": 1240,
+          "x": 1250,
           "y": 10,
-          "width": 612,
+          "width": 617,
           "height": 1164,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-4",
           "label": "Ortada çekmeceli dolap · Дно корпуса",
-          "x": 1240,
+          "x": 1250,
           "y": 1177,
-          "width": 612,
+          "width": 617,
           "height": 1164,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-14",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · передняя стенка",
-          "x": 1855,
+          "x": 1870,
           "y": 10,
           "width": 199,
           "height": 1102,
@@ -56,7 +56,7 @@
         {
           "partId": "cabinet-1-part-15",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · задняя стенка",
-          "x": 1855,
+          "x": 1870,
           "y": 1115,
           "width": 199,
           "height": 1102,
@@ -85,7 +85,7 @@
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · боковина левая",
           "x": 1115,
           "y": 2344,
-          "width": 572,
+          "width": 577,
           "height": 199,
           "rotated": false
         },
@@ -94,12 +94,12 @@
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · боковина правая",
           "x": 1115,
           "y": 2546,
-          "width": 572,
+          "width": 577,
           "height": 199,
           "rotated": false
         }
       ],
-      "usedArea": 5222384
+      "usedArea": 5258014
     },
     {
       "id": "sheet-2",
@@ -115,7 +115,7 @@
           "x": 10,
           "y": 10,
           "width": 1164,
-          "height": 612,
+          "height": 617,
           "rotated": false
         },
         {
@@ -123,45 +123,45 @@
           "label": "Ortada çekmeceli dolap · Горизонтальная перегородка 2",
           "x": 1177,
           "y": 10,
-          "width": 612,
+          "width": 617,
           "height": 1164,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-18",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · боковина левая",
-          "x": 1792,
+          "x": 1797,
           "y": 10,
           "width": 199,
-          "height": 572,
+          "height": 577,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-19",
           "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · боковина правая",
-          "x": 1792,
-          "y": 585,
+          "x": 1797,
+          "y": 590,
           "width": 199,
-          "height": 572,
+          "height": 577,
           "rotated": true
         },
         {
           "partId": "cabinet-1-part-8",
           "label": "Ortada çekmeceli dolap · Цокольная планка",
-          "x": 1994,
+          "x": 1999,
           "y": 10,
           "width": 90,
           "height": 1196,
           "rotated": true
         }
       ],
-      "usedArea": 1760032
+      "usedArea": 1773662
     },
     {
       "id": "sheet-3",
-      "materialId": "hdf-back",
-      "materialName": "Yıldız MDFLAM · Beyaz VT_068 · 8 mm",
-      "thickness": 8,
+      "materialId": "thin-back-3",
+      "materialName": "Arkalık levhası · 3 mm",
+      "thickness": 3,
       "width": 2100,
       "height": 2800,
       "placements": [
@@ -173,27 +173,9 @@
           "width": 1200,
           "height": 2100,
           "rotated": false
-        },
-        {
-          "partId": "cabinet-1-part-16",
-          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · дно",
-          "x": 10,
-          "y": 2113,
-          "width": 1138,
-          "height": 572,
-          "rotated": false
-        },
-        {
-          "partId": "cabinet-1-part-22",
-          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · дно",
-          "x": 1213,
-          "y": 10,
-          "width": 572,
-          "height": 1138,
-          "rotated": true
         }
       ],
-      "usedArea": 3821872
+      "usedArea": 2520000
     },
     {
       "id": "sheet-4",
@@ -259,14 +241,43 @@
         }
       ],
       "usedArea": 2496448
+    },
+    {
+      "id": "sheet-5",
+      "materialId": "hdf-back",
+      "materialName": "Yıldız MDFLAM · Beyaz VT_068 · 8 mm",
+      "thickness": 8,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-16",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 1 · дно",
+          "x": 10,
+          "y": 10,
+          "width": 1138,
+          "height": 577,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-22",
+          "label": "Ortada çekmeceli dolap · Секция 2 · Ortadaki çekmeceler · Ящик 2 · дно",
+          "x": 1151,
+          "y": 10,
+          "width": 577,
+          "height": 1138,
+          "rotated": true
+        }
+      ],
+      "usedArea": 1313252
     }
   ],
   "unplaced": [],
-  "totalSheets": 4,
+  "totalSheets": 5,
   "totalParts": 24,
   "placedParts": 24,
-  "utilization": 56.551,
-  "wasteArea": 10219264,
-  "usedArea": 13300736,
-  "stockArea": 23520000
+  "utilization": 45.447,
+  "wasteArea": 16038624,
+  "usedArea": 13361376,
+  "stockArea": 29400000
 }

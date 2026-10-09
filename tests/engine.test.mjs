@@ -225,9 +225,9 @@ test('wardrobe has independent top doors, middle drawers and bottom doors with r
   assert.equal(fronts.filter(front => front.sectionId === 'section-bottom').every(front => front.y + front.height < middle[1].y), true);
   const parts = generateParts(project);
   const drawerBottom = parts.find(item => item.sectionId === 'section-middle' && item.name.endsWith('Ящик 1 · дно'));
-  assert.deepEqual([drawerBottom.width, drawerBottom.height, drawerBottom.thickness], [1138, 572, 8]);
+  assert.deepEqual([drawerBottom.width, drawerBottom.height, drawerBottom.thickness], [1138, 577, 8]);
   const drawerSide = parts.find(item => item.sectionId === 'section-middle' && item.name.endsWith('Ящик 1 · боковина левая'));
-  assert.deepEqual([drawerSide.width, drawerSide.height], [572, 199]);
+  assert.deepEqual([drawerSide.width, drawerSide.height], [577, 199]);
   assert.equal(parts.filter(item => item.sectionId === 'section-middle').length, 12);
 });
 
@@ -307,7 +307,7 @@ test('L rear cutout creates bounded contours, shortened sides and return panels'
   assert.equal(bottom.height, 397);
 });
 
-test('whole-back and per-section rear omissions generate only retained panels', () => {
+test('whole back overrides local rear omissions and disabled whole back permits local panels', () => {
   const project = createDefaultProject(), cabinet = project.cabinets[0];
   cabinet.includeBack = false;
   assert.equal(getCabinetLayout(cabinet, project).bodyDepth, 620);
@@ -320,7 +320,9 @@ test('whole-back and per-section rear omissions generate only retained panels', 
   cabinet.includeBack = true;
   cabinet.layout.children[0].back = 'none';
   backs = backPanels();
-  assert.deepEqual(backs.map(item => item.sectionId), ['section-middle', 'section-bottom']);
+  assert.equal(backs.length, 1);
+  assert.equal(backs[0].sectionId, undefined);
+  assert.equal(backs[0].role, 'back');
 });
 
 test('appliance niche checks actual editable dimensions against its opening', () => {
@@ -617,15 +619,17 @@ test('physical appliance excess remains per-axis errors while installation defic
   assert.equal(getApplianceFit(getCabinetLayout(cabinet, project).sections[0], cabinet.layout.appliance).physicalFits, false);
 });
 
-test('new project uses confirmed catalog stocks while explicit workshop gauges remain unchanged', () => {
+test('new project separates verified factory stocks from its unbranded thin rear panel', () => {
   const project = createDefaultProject(), cabinet = project.cabinets[0];
-  assert.equal(project.materials.every(material => material.manufacturer === 'Yıldız Entegre' && material.sourceUrl.startsWith('https://www.yildizentegre.com/')), true);
-  assert.equal(project.materials.every(material => [8, 18, 25].includes(material.thickness)), true);
-  assert.equal(project.materials.some(material => /ХДФ|HDF|16 мм|3 мм|6 мм/i.test(material.name)), false);
-  assert.deepEqual([cabinet.backThickness, cabinet.drawerBottomThickness], [8, 8]);
+  const factory = project.materials.filter(material => material.id !== 'thin-back-3'), rear = project.materials.find(material => material.id === 'thin-back-3');
+  assert.equal(factory.every(material => material.manufacturer === 'Yıldız Entegre' && material.sourceUrl.startsWith('https://www.yildizentegre.com/')), true);
+  assert.equal(factory.every(material => [8, 18, 25].includes(material.thickness)), true);
+  assert.equal(factory.some(material => /ХДФ|HDF|16 мм|3 мм|6 мм/i.test(material.name)), false);
+  assert.deepEqual([rear.thickness, rear.manufacturer, rear.decorCode], [3, undefined, undefined]);
+  assert.deepEqual([cabinet.backThickness, cabinet.drawerBottomThickness], [3, 8]);
   assert.equal(project.materials.find(material => material.id === cabinet.drawerMaterialId).thickness, 18);
   const added = createCabinet('base', project);
-  assert.deepEqual([added.backThickness, added.drawerBottomThickness], [8, 8]);
+  assert.deepEqual([added.backThickness, added.drawerBottomThickness], [3, 8]);
   assert.equal(project.materials.find(material => material.id === added.drawerMaterialId).thickness, 18);
   const legacy = cabinetProject({ doors: 0, drawers: 2, shelves: 0 });
   const legacyAdded = createCabinet('base', legacy);
@@ -633,20 +637,21 @@ test('new project uses confirmed catalog stocks while explicit workshop gauges r
   assert.equal(legacy.materials.find(material => material.id === legacyAdded.drawerMaterialId).thickness, 16);
 });
 
-test('new identical white carcass/drawer and back/bottom roles share cutting stock IDs', () => {
+test('new identical white carcass and drawer roles share stock while rear3 and drawer bottom8 remain separate', () => {
   const project = createDefaultProject(), cabinet = project.cabinets[0];
   assert.equal(project.materials.some(material => material.id === 'mdf-drawer' || material.id === 'hdf-bottom'), false);
   assert.equal(new Set(project.materials.map(material => `${material.decorCode}:${material.type}:${material.thickness}:${material.sheetWidth}:${material.sheetHeight}`)).size, project.materials.length);
   assert.equal(cabinet.drawerMaterialId, cabinet.materialId);
-  assert.equal(cabinet.drawerBottomMaterialId, cabinet.backMaterialId);
+  assert.equal(cabinet.drawerBottomMaterialId, 'hdf-back');
+  assert.notEqual(cabinet.drawerBottomMaterialId, cabinet.backMaterialId);
   const parts = generateParts(project);
   assert.equal(parts.filter(item => item.name.includes(' · Ящик ') && !item.name.endsWith('дно')).every(item => item.materialId === cabinet.materialId), true);
-  assert.equal(parts.filter(item => item.name.includes(' · Ящик ') && item.name.endsWith('дно')).every(item => item.materialId === cabinet.backMaterialId), true);
+  assert.equal(parts.filter(item => item.name.includes(' · Ящик ') && item.name.endsWith('дно')).every(item => item.materialId === cabinet.drawerBottomMaterialId), true);
   const cutting = optimizeCutting(parts, project.materials, project.settings);
-  assert.deepEqual(new Set(cutting.sheets.map(sheet => sheet.materialId)), new Set(['mdf-white', 'mdf-oak', 'hdf-back']));
+  assert.deepEqual(new Set(cutting.sheets.map(sheet => sheet.materialId)), new Set(['mdf-white', 'mdf-oak', 'hdf-back', 'thin-back-3']));
   const added = createCabinet('base', project);
   assert.equal(added.drawerMaterialId, added.materialId);
-  assert.equal(added.drawerBottomMaterialId, added.backMaterialId);
+  assert.equal(added.drawerBottomMaterialId, 'hdf-back');
 });
 
 test('room allowances preserve legacy zero insets and keep a new default cabinet valid', () => {
@@ -799,7 +804,7 @@ test('a 900 mm standalone drawer cabinet distinguishes facade, opening and outer
   const wall = parts.find(item => item.name.endsWith('Ящик 1 · передняя стенка'));
   const side = parts.find(item => item.name.endsWith('Ящик 1 · боковина левая'));
   assert.deepEqual([facade.width, bottom.width, wall.width, side.thickness], [896, 838, 802, 18]);
-  assert.deepEqual([bottom.height, bottom.thickness], [532, 8]);
+  assert.deepEqual([bottom.height, bottom.thickness], [537, 8]);
   assert.equal(wall.width + 2 * side.thickness, bottom.width);
   assert.deepEqual(validateProject(project), []);
   const neighbor = structuredClone(cabinet);
@@ -823,7 +828,7 @@ test('900 mm drawer facade band deductions change the cut blank while retaining 
   const facade = parts.find(item => item.name.endsWith('Фасад ящика 1'));
   const bottom = parts.find(item => item.name.endsWith('Ящик 1 · дно'));
   assert.deepEqual([facade.width, facade.finishedWidth, facade.height, facade.finishedHeight], [894, 896, 375, 377]);
-  assert.deepEqual([bottom.width, bottom.finishedWidth, bottom.height, bottom.finishedHeight], [838, 838, 532, 532]);
+  assert.deepEqual([bottom.width, bottom.finishedWidth, bottom.height, bottom.finishedHeight], [838, 838, 537, 537]);
   assert.deepEqual(getFrontLayout(cabinet, project), fronts);
   const cutting = optimizeCutting(parts, project.materials, project.settings);
   const blank = cutting.sheets.flatMap(sheet => sheet.placements).find(item => item.partId === facade.id);
@@ -861,9 +866,9 @@ test('open-floor and missing-bottom sections have no invented lower fastening ax
   let axes = getSectionMountingAxes(cabinet, project);
   assert.deepEqual(axes.find(item => item.id === 'floor-niche'), { id: 'floor-niche', bottom: null, top: 2191, height: null, openingHeight: 2182, bottomThickness: null, topThickness: 18 });
   assert.deepEqual(axes.find(item => item.id === 'closed-column'), { id: 'closed-column', bottom: 109, top: 2191, height: 2082, openingHeight: 2064, bottomThickness: 18, topThickness: 18 });
-  cabinet.layout = leaf('no-bottom'); cabinet.includeBottom = false;
+  cabinet.layout = leaf('no-bottom'); cabinet.includeBottom = false; cabinet.plinth = 0;
   axes = getSectionMountingAxes(cabinet, project);
-  assert.deepEqual(axes[0], { id: 'no-bottom', bottom: null, top: 2191, height: null, openingHeight: 2082, bottomThickness: null, topThickness: 18 });
+  assert.deepEqual(axes[0], { id: 'no-bottom', bottom: null, top: 2191, height: null, openingHeight: 2182, bottomThickness: null, topThickness: 18 });
 });
 
 test('mounting axes follow the actual body gauge and preserve divider-free legacy construction', () => {
@@ -1017,8 +1022,8 @@ test('internal drawers remain behind outer doors and produce real inset fronts p
   const inside = getInternalDrawerLayout(cabinet, project);
   assert.deepEqual(getFrontLayout(cabinet, project), outerFronts);
   assert.equal(inside.length, 2);
-  assert.deepEqual(inside.map(front => [front.x, front.y, front.width, front.height, front.depth]), [[40, 356, 820, 334, 536], [40, 20, 820, 334, 536]]);
-  assert.deepEqual(inside[0].box, { x: 51, y: 376, z: 28, width: 798, height: 286, depth: 496, panelThickness: 18, bottomThickness: 8 });
+  assert.deepEqual(inside.map(front => [front.x, front.y, front.width, front.height, front.depth]), [[40, 356, 820, 334, 541], [40, 20, 820, 334, 541]]);
+  assert.deepEqual(inside[0].box, { x: 51, y: 376, z: 23, width: 798, height: 286, depth: 501, panelThickness: 18, bottomThickness: 8 });
   const parts = generateParts(project), innerParts = parts.filter(part => part.internalDrawerIndex !== undefined);
   assert.equal(parts.length, originalParts.length + 12);
   assert.equal(innerParts.every(part => part.sectionId === 'behind-doors' && part.position && part.orientation), true);
@@ -1027,7 +1032,7 @@ test('internal drawers remain behind outer doors and produce real inset fronts p
   assert.equal(frontPart.position.z + frontPart.thickness + inside[0].handleProjection + cabinet.gap, cabinet.depth);
   assert.equal(innerParts.find(part => part.internalDrawerIndex === 0 && part.name.endsWith('передняя стенка')).width, 762);
   const bottom = innerParts.find(part => part.internalDrawerIndex === 0 && part.name.endsWith('дно'));
-  assert.deepEqual([bottom.width, bottom.height, bottom.thickness, bottom.materialId], [798, 496, 8, cabinet.drawerBottomMaterialId]);
+  assert.deepEqual([bottom.width, bottom.height, bottom.thickness, bottom.materialId], [798, 501, 8, cabinet.drawerBottomMaterialId]);
   assert.deepEqual(validateProject(project), []);
   cabinet.layout.internalDrawerHingeGap = 25;
   assert.deepEqual(getInternalDrawerLayout(cabinet, project).map(front => [front.width, front.box.width]), [[810, 788], [810, 788]]);

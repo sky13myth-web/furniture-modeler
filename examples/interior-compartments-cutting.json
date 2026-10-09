@@ -1,0 +1,281 @@
+{
+  "sheets": [
+    {
+      "id": "sheet-1",
+      "materialId": "mdf-white",
+      "materialName": "Yıldız MDFLAM · Beyaz VT_068 · 18 mm",
+      "thickness": 18,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-1",
+          "label": "Ortak kapaklı dolap · Боковина левая",
+          "x": 10,
+          "y": 10,
+          "width": 620,
+          "height": 2200,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-2",
+          "label": "Ortak kapaklı dolap · Боковина правая",
+          "x": 633,
+          "y": 10,
+          "width": 620,
+          "height": 2200,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-3",
+          "label": "Ortak kapaklı dolap · Крышка",
+          "x": 1256,
+          "y": 10,
+          "width": 620,
+          "height": 864,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-4",
+          "label": "Ortak kapaklı dolap · Дно корпуса",
+          "x": 1256,
+          "y": 877,
+          "width": 620,
+          "height": 864,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-5",
+          "label": "Ortak kapaklı dolap · Секция 1 · внутренняя горизонтальная перегородка 1",
+          "x": 1256,
+          "y": 1744,
+          "width": 620,
+          "height": 864,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-14",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · фасад",
+          "x": 10,
+          "y": 2213,
+          "width": 820,
+          "height": 381.2,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-15",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · боковина левая",
+          "x": 833,
+          "y": 2213,
+          "width": 333.2,
+          "height": 544,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-10",
+          "label": "Ortak kapaklı dolap · Секция 1 · задняя перемычка 1",
+          "x": 1169.2,
+          "y": 2611,
+          "width": 864,
+          "height": 100,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-11",
+          "label": "Ortak kapaklı dolap · Секция 1 · задняя перемычка 2",
+          "x": 1879,
+          "y": 10,
+          "width": 100,
+          "height": 864,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-9",
+          "label": "Ortak kapaklı dolap · Цокольная планка",
+          "x": 1982,
+          "y": 10,
+          "width": 90,
+          "height": 896,
+          "rotated": true
+        }
+      ],
+      "usedArea": 5082324.8
+    },
+    {
+      "id": "sheet-2",
+      "materialId": "mdf-white",
+      "materialName": "Yıldız MDFLAM · Beyaz VT_068 · 18 mm",
+      "thickness": 18,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-6",
+          "label": "Ortak kapaklı dolap · Секция 1 · внутренний отсек 1 · полка 1",
+          "x": 10,
+          "y": 10,
+          "width": 860,
+          "height": 600,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-7",
+          "label": "Ortak kapaklı dolap · Секция 1 · внутренний отсек 1 · полка 2",
+          "x": 873,
+          "y": 10,
+          "width": 860,
+          "height": 600,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-8",
+          "label": "Ortak kapaklı dolap · Секция 1 · внутренний отсек 1 · полка 3",
+          "x": 10,
+          "y": 613,
+          "width": 860,
+          "height": 600,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-20",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · фасад",
+          "x": 873,
+          "y": 613,
+          "width": 820,
+          "height": 381.2,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-17",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · передняя стенка",
+          "x": 1736,
+          "y": 10,
+          "width": 333.2,
+          "height": 762,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-18",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · задняя стенка",
+          "x": 1696,
+          "y": 775,
+          "width": 333.2,
+          "height": 762,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-23",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · передняя стенка",
+          "x": 873,
+          "y": 997.2,
+          "width": 762,
+          "height": 333.2,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-24",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · задняя стенка",
+          "x": 10,
+          "y": 1216,
+          "width": 762,
+          "height": 333.2,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-16",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · боковина правая",
+          "x": 775,
+          "y": 1333.4,
+          "width": 544,
+          "height": 333.2,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-21",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · боковина левая",
+          "x": 1322,
+          "y": 1333.4,
+          "width": 333.2,
+          "height": 544,
+          "rotated": true
+        },
+        {
+          "partId": "cabinet-1-part-22",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · боковина правая",
+          "x": 1658.2,
+          "y": 1540,
+          "width": 333.2,
+          "height": 544,
+          "rotated": true
+        }
+      ],
+      "usedArea": 3419959.999999999
+    },
+    {
+      "id": "sheet-3",
+      "materialId": "mdf-oak",
+      "materialName": "Yıldız MDFLAM · Valley Meşe YT_10E · 18 mm",
+      "thickness": 18,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-12",
+          "label": "Ortak kapaklı dolap · Секция 1 · Дверь 1",
+          "x": 10,
+          "y": 10,
+          "width": 447,
+          "height": 2096,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-13",
+          "label": "Ortak kapaklı dolap · Секция 1 · Дверь 2",
+          "x": 460,
+          "y": 10,
+          "width": 447,
+          "height": 2096,
+          "rotated": false
+        }
+      ],
+      "usedArea": 1873824
+    },
+    {
+      "id": "sheet-4",
+      "materialId": "hdf-back",
+      "materialName": "Yıldız MDFLAM · Beyaz VT_068 · 8 mm",
+      "thickness": 8,
+      "width": 2100,
+      "height": 2800,
+      "placements": [
+        {
+          "partId": "cabinet-1-part-19",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 1 · дно",
+          "x": 10,
+          "y": 10,
+          "width": 798,
+          "height": 544,
+          "rotated": false
+        },
+        {
+          "partId": "cabinet-1-part-25",
+          "label": "Ortak kapaklı dolap · Секция 1 · Внутренний ящик 2 · дно",
+          "x": 811,
+          "y": 10,
+          "width": 798,
+          "height": 544,
+          "rotated": false
+        }
+      ],
+      "usedArea": 868224
+    }
+  ],
+  "unplaced": [],
+  "totalSheets": 4,
+  "totalParts": 25,
+  "placedParts": 25,
+  "utilization": 47.808,
+  "wasteArea": 12275667.200000001,
+  "usedArea": 11244332.799999999,
+  "stockArea": 23520000
+}

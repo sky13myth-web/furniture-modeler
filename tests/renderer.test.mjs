@@ -233,8 +233,8 @@ test('selected-cabinet exports include readable facade sizes, clean section open
   const html = generateDrawingHTML(project, { cabinetId: cabinet.id, language: 'ru' }).replace(/[\u00a0\u202f]/g, ' ');
   assert.equal((html.match(/<svg /g) || []).length, 6);
   assert.match(html, /детали и короба ящиков/);
-  assert.match(html, /572 × 199/);
-  assert.match(html, /1 138 × 572/);
+  assert.match(html, /577 × 199/);
+  assert.match(html, /1 138 × 577/);
   assert.match(html, /Полезная глубина/);
 });
 
@@ -348,6 +348,7 @@ test('rear crossbars use real panel geometry and annotate their mount height fro
   assert.match(svg, /C1 · 1 564 × 100 × 18 мм/);
   assert.match(svg, /Низ от основания шкафа: 2 000 мм/);
   assert.match(svg, /Низ от основания шкафа: 300 мм/);
+  assert.doesNotMatch(svg,/Низ от основания секции:|data-mount-section-mm=/,'whole-cabinet braces have no invented section reference');
   const html = generateDrawingHTML(project, { cabinetId: cabinet.id, language: 'ru' });
   assert.match(html, /задние поперечины/);
   assert.match(html, /Низ от основания, мм/);
@@ -438,13 +439,16 @@ test('technical clearances annotate the required niche while keeping the machine
   assert.ok(disabled.includes('<td>600 × 850 × 600</td><td>—</td><td>—</td><td>—</td><td>Помещается</td>'));
 });
 
-test('compact production printing fits six readable views and two short schedules in three sheets', () => {
+test('compact production printing fits six readable views, hardware and the referenced estimate in four sheets', () => {
   const project = createDefaultProject(), cabinet = project.cabinets[0];
   const html = generateDrawingHTML(project, { cabinetId: cabinet.id });
   assert.match(html, /<html lang="tr">/);
   assert.equal((html.match(/class="sheet projection-sheet"/g) || []).length, 1);
   assert.match(html, /data-projections="6"/);
-  assert.equal((html.match(/class="sheet /g) || []).length, 3, 'views, combined opening/front schedules, and the complete part schedule');
+  assert.equal((html.match(/class="sheet /g) || []).length, 4, 'views, combined opening/front/hardware schedules, complete parts and a sourced estimate');
+  assert.equal((html.match(/data-schedule-kind="hardware"/g)||[]).length,1);
+  assert.equal((html.match(/data-schedule-kind="cost"/g)||[]).length,1);
+  assert.doesNotMatch(html,/data-schedule-kind="price-sources"/,'short source lists remain beside the cost table');
   assert.match(html, /combined-schedule/);
   assert.match(html, /parts-schedule/);
   const projections = [...html.matchAll(/<svg[^>]+data-compact-view="([^"]+)"[\s\S]*?<\/svg>/g)];
@@ -471,8 +475,8 @@ test('short internal drawer schedules share the readable opening and facade shee
   for(const language of ['ru','tr','en']){
     const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language});
     const pages=[...html.matchAll(/<section class="sheet [\s\S]*?<\/section>/g)].map(match=>match[0]);
-    assert.equal(pages.length,6,'three detailed view pages, one S/F/I schedule and two production part pages');
-    const schedules=pages.filter(page=>page.includes('data-schedule-kind='));
+    assert.equal(pages.length,8,'three view pages, one S/F/I page, hardware, two production pages and one sourced estimate');
+    const schedules=pages.filter(page=>/data-schedule-kind="(?:openings|fronts|internal-fronts)"/.test(page));
     assert.equal(schedules.length,1,'two internal drawer rows do not consume their own page');
     for(const kind of ['openings','fronts','internal-fronts'])assert.ok(schedules[0].includes(`data-schedule-kind="${kind}"`));
     assert.match(schedules[0],/>I1<\/td>/);assert.match(schedules[0],/>I2<\/td>/);
@@ -483,7 +487,7 @@ test('short internal drawer schedules share the readable opening and facade shee
   }
   assert.deepEqual(project,before);
   const full=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'tr',compact:false});
-  assert.doesNotMatch(full,/data-schedule-kind=/,'the user can retain the separate full-sheet print layout');
+  assert.doesNotMatch(full,/data-schedule-kind="(?:openings|fronts|internal-fronts)"/,'the user can retain the separate full-sheet print layout');
 });
 
 test('long internal drawer schedules paginate before captions or rows overrun the landscape sheet', () => {
@@ -492,7 +496,7 @@ test('long internal drawer schedules paginate before captions or rows overrun th
   cabinet.layout={id:'long-internals',kind:'section',front:'doors',doors:2,shelves:0,internalDrawerCount:12,openingMechanism:'handle'};
   assert.deepEqual(validateProject(project).filter(item=>item.level==='error'),[]);
   const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
-  const schedules=[...html.matchAll(/<section class="sheet [\s\S]*?<\/section>/g)].map(match=>match[0]).filter(page=>page.includes('data-schedule-kind='));
+  const schedules=[...html.matchAll(/<section class="sheet [\s\S]*?<\/section>/g)].map(match=>match[0]).filter(page=>/data-schedule-kind="(?:openings|fronts|internal-fronts)"/.test(page));
   assert.equal(schedules.length,2);
   const internal=schedules.find(page=>page.includes('data-schedule-kind="internal-fronts"'));
   assert.ok(internal);assert.ok(!internal.includes('data-schedule-kind="fronts"')&&!internal.includes('data-schedule-kind="openings"'));
@@ -732,7 +736,7 @@ test('built-in saved names print in the target language across all creation lang
       assert.ok(generateDrawingHTML(project,{language}).includes(`<title>${projectName} — `));
       const part=generateParts(project).find(part=>part.sectionId===getCabinetLayout(cabinet,project).sections[0].id);
       assert.ok(createPartSvg(part,project,{language}).includes(cabinetName));
-      for(const material of project.materials) assert.equal(translateMaterialName(material.name,language),localizeMaterialPreset(material,language).name);
+      for(const material of project.materials) assert.equal(translateMaterialName(material.name,language),material.id==='thin-back-3'?defaultName('thinBack',language):localizeMaterialPreset(material,language).name);
     }
     assert.deepEqual(project,before,'printing never rewrites stored names or the creation language');
   }
@@ -964,7 +968,7 @@ test('front and interior CAD symbols and print schedules use the configured hing
 
 test('actual internal drawer parts stay behind closed doors and slide together only under the separate open-internals option', () => {
   const project=createDefaultProject(), cabinet=project.cabinets[0];
-  Object.assign(cabinet,{width:900,height:860,depth:580,layout:{id:'inner-section',kind:'section',front:'doors',doors:2,shelves:0,internalDrawerCount:2,openingMechanism:'handle'}});
+  Object.assign(cabinet,{width:900,height:860,depth:580,backThickness:8,backMaterialId:'hdf-back',layout:{id:'inner-section',kind:'section',front:'doors',doors:2,shelves:0,internalDrawerCount:2,openingMechanism:'handle'}});
   const drawers=getInternalDrawerLayout(cabinet,project), parts=generateParts(project), internalParts=parts.filter(part=>part.internalDrawerIndex!==undefined);
   assert.equal(internalParts.length,12);
   assert.deepEqual([drawers[0].depth,drawers[0].box.depth,drawers[0].handleProjection],[536,496,16]);
@@ -1026,7 +1030,7 @@ test('production printing reports each real edge-band length and grouped materia
   const project=createDefaultProject(),cabinet=project.cabinets[0],parts=generateParts(project),summary=getEdgeBandingSummary(parts);
   const before=structuredClone(project), sides=parts.filter(part=>/^Боковина/.test(part.name));
   assert.equal(getPartEdgeBanding(sides[0]).lengthMeters,2.2);
-  assert.equal(summary.lengthMeters,34.06);
+  assert.equal(summary.lengthMeters,34.08);
   const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.match(html,/<th>Edge band length, m<\/th>/);
   assert.ok(html.includes(`Total edge band: ${printNumber(summary.lengthMeters,'en')} m`));
@@ -1039,7 +1043,126 @@ test('production printing reports each real edge-band length and grouped materia
   const deducted=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.ok(deducted.includes(`Total edge band: ${printNumber(summary.lengthMeters,'en')} m`),'deducting cutting blanks does not shorten band lengths based on finished outlines');
   const tr=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'tr'});
-  assert.match(tr,/Toplam kenar bandı: 34,06 m/);
+  assert.match(tr,/Toplam kenar bandı: 34,08 m/);
   assert.match(tr,/class="edge-summary"/);
-  assert.equal((tr.match(/class="sheet /g)||[]).length,3,'the short total still fits beneath the compact production schedule');
+  assert.equal((tr.match(/class="sheet /g)||[]).length,4,'edge totals still fit beneath production; the sourced cost estimate has its own sheet');
+});
+
+function sectionBaseProject(globalPlinth=100) {
+  const project=createDefaultProject('ru'), cabinet=project.cabinets[0];
+  Object.assign(cabinet,{width:1800,height:2200,depth:620,plinth:globalPlinth,backThickness:8,backMaterialId:'hdf-back',includeBack:false,sidesToFloor:false,rearBraces:[]});
+  cabinet.layout={id:'local-bases',kind:'split',axis:'vertical',sizes:[1,1,1],children:[
+    {id:'floor',kind:'section',front:'open',shelves:0,floor:'open',back:'none',appliance:{type:'washer',label:'500 mm machine',width:500,height:850,depth:500}},
+    {id:'zero',kind:'section',front:'doors',doors:1,shelves:0,plinthHeight:0,back:'solid'},
+    {id:'raised',kind:'section',front:'doors',doors:1,shelves:0,plinthHeight:180,back:'braces',rearBraces:[{id:'local-low',y:40,height:100}]},
+  ]};
+  return project;
+}
+
+test('section bases render the real zero and raised bottoms and leave the floor portal free of fabricated support',()=>{
+  for(const globalPlinth of [0,100]){
+    const project=sectionBaseProject(globalPlinth),cabinet=project.cabinets[0],layout=getCabinetLayout(cabinet,project),parts=generateParts(project);
+    const floor=layout.sections.find(section=>section.id==='floor'),zero=layout.sections.find(section=>section.id==='zero'),raised=layout.sections.find(section=>section.id==='raised');
+    assert.equal(cabinet.plinth+floor.y,0);
+    assert.equal(cabinet.plinth+zero.y,18);
+    assert.equal(cabinet.plinth+raised.y,198);
+    withSoftwareViewport(project,viewport=>{
+      viewport.setOptions({focusCabinet:true,room:false,interior:true});viewport.setView('front');
+      for(const part of parts.filter(part=>['bottom','plinth','section-back','brace'].includes(part.component))){
+        const faces=viewport.hits.filter(face=>face.partId===part.id),points=faces.flatMap(face=>face.points);
+        assert.ok(points.length,`${part.name} is drawn from the actual cutting panel`);
+        assert.equal(Math.min(...points.map(point=>point[1])),cabinet.y+cabinet.plinth+part.position.y);
+        assert.equal(Math.max(...points.map(point=>point[1])),cabinet.y+cabinet.plinth+part.position.y+(part.orientation==='horizontal'?part.thickness:part.finishedHeight));
+      }
+      assert.equal(viewport.hits.filter(face=>face.component==='leg').length,0,'local bases do not receive uniform-height visual feet');
+      const appliance=viewport.hits.filter(face=>face.component==='appliance').flatMap(face=>face.points);
+      assert.equal(Math.min(...appliance.map(point=>point[1])),cabinet.y);
+      const pixel=viewport.camera.project([cabinet.x+floor.x+5,cabinet.y+50,cabinet.z+cabinet.depth]),frame=viewport.depthFrame,index=Math.floor(pixel[1]*frame.scale)*frame.width+Math.floor(pixel[0]*frame.scale);
+      assert.equal(frame.owners[index],0,'no full-width fallback plinth or bottom crosses the floor portal');
+    });
+    const fronts=getFrontLayout(cabinet,project);
+    assert.equal(cabinet.plinth+fronts.find(front=>front.sectionId==='zero').y,2);
+    assert.equal(cabinet.plinth+fronts.find(front=>front.sectionId==='raised').y,182);
+  }
+  const project=sectionBaseProject(),cabinet=project.cabinets[0];
+  cabinet.layout.children.forEach(node=>{node.front='open';node.plinthHeight=0;node.back='none';delete node.rearBraces;delete node.appliance;delete node.floor;});
+  assert.equal(generateParts(project).filter(part=>part.component==='plinth').length,0);
+  withSoftwareViewport(project,viewport=>assert.equal(viewport.hits.filter(face=>face.component==='plinth'||face.component==='leg').length,0,'all zero section bases intentionally omit the global plinth'));
+});
+
+test('local rear braces and base dimensions print accurate section and cabinet references in all three languages',()=>{
+  const project=sectionBaseProject(),cabinet=project.cabinets[0],before=structuredClone(project);
+  const brace=generateParts(project).find(part=>part.braceId==='local-low');
+  assert.equal(cabinet.plinth+brace.position.y,238);
+  assert.equal(brace.position.y-brace.braceBaseY,40);
+  for(const language of ['ru','tr','en']){
+    const back=createDrawingSvg(project,'back',{cabinetId:cabinet.id,language});
+    assert.match(back,/data-brace-id="local-low" data-section-id="raised" data-mount-cabinet-mm="238" data-mount-section-mm="40"/);
+    assert.ok(back.includes(translatePrintText('Низ от основания секции:',language)));
+    const front=createDrawingSvg(project,'front',{cabinetId:cabinet.id,language});
+    assert.match(front,/data-local-plinth="raised" data-plinth-height-mm="180"/);
+    const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language});
+    assert.ok(html.includes(translatePrintText('Высота цоколя, мм',language)));
+    assert.ok(html.includes(translatePrintText('Низ проёма от основания, мм',language)));
+    assert.ok(html.includes(translatePrintText('Низ от основания секции, мм',language)));
+    assert.ok(html.includes('<td>S3</td><td>40</td>'));
+    assert.ok(html.includes(translatePartName(brace.name,language)));
+    if(language!=='ru')assert.equal((html.match(/[А-Яа-яЁё][^<>]*/g)||[]).join('\n'),'','all generated construction labels translate, including lower-case local brace names');
+  }
+  assert.deepEqual(project,before,'drawing language and dimensions never alter stored section configuration');
+});
+
+test('the whole back overrides all local rear choices and remains the only rear panel in the renderer',()=>{
+  const project=sectionBaseProject(),cabinet=project.cabinets[0];cabinet.includeBack=true;
+  const layout=getCabinetLayout(cabinet,project),parts=generateParts(project);
+  assert.ok(layout.sections.every(section=>section.backMode==='global'));
+  assert.equal(parts.filter(part=>part.component==='brace'||part.component==='section-back').length,0);
+  const back=parts.find(part=>part.component==='back');
+  withSoftwareViewport(project,viewport=>{
+    viewport.setOptions({room:false,focusCabinet:true});viewport.setView('back');
+    assert.ok(viewport.hits.some(face=>face.partId===back.id&&face.component==='back'));
+    assert.equal(viewport.hits.filter(face=>face.component==='brace'||face.component==='section-back').length,0);
+  });
+});
+
+test('the thin back preset localizes only its exact generated aliases',()=>{
+  const aliases={ru:'Тонкий задник · 3 мм',tr:'Arkalık levhası · 3 mm',en:'Thin back panel · 3 mm'};
+  for(const source of Object.values(aliases))for(const language of Object.keys(aliases))assert.equal(translateMaterialName(source,language),aliases[language]);
+  assert.equal(translateMaterialName('Thin back panel · my workshop · 3 mm','tr'),'Thin back panel · my workshop · 3 mm');
+});
+
+test('independent inner rows share unchanged outer doors and render actual internal partitions, fronts and shelf strokes',()=>{
+  const project=createDefaultProject('ru'),cabinet=project.cabinets[0];
+  Object.assign(cabinet,{width:900,height:1200,depth:580,backThickness:8,backMaterialId:'hdf-back',layout:{id:'outer',kind:'section',front:'doors',doors:2,shelves:0,internalDrawerCount:7,interiorLayout:{id:'inner-rows',kind:'split',axis:'horizontal',sizes:[1,1],children:[
+    {id:'shelf-row',kind:'section',front:'open',shelves:0,depth:340,pullOutShelf:true},
+    {id:'drawer-row',kind:'section',front:'drawers',drawers:2,shelves:0,depth:560,openingMechanism:'push'},
+  ]}}});
+  const original=structuredClone(project),layout=getCabinetLayout(cabinet,project),parts=generateParts(project),drawers=getInternalDrawerLayout(cabinet,project),fronts=getFrontLayout(cabinet,project);
+  assert.equal(fronts.length,2);assert.ok(fronts.every(front=>front.kind==='door'&&front.sectionId==='outer'));
+  assert.equal(drawers.length,2,'explicit interior rows replace the old outer internalDrawerCount');assert.ok(drawers.every(drawer=>drawer.sectionId==='outer'&&drawer.interiorSectionId==='drawer-row'));
+  const innerParts=parts.filter(part=>part.interiorSectionId),shelf=innerParts.find(part=>part.component==='pull-out-shelf');
+  assert.ok(innerParts.some(part=>part.component==='interior-partition'));
+  withSoftwareViewport(project,viewport=>{
+    viewport.setView('front');viewport.setOptions({room:false,focusCabinet:true,doorsOpen:false,internalDrawersOpen:true,selection:false,dimensions:false});
+    const minZ=part=>Math.min(...viewport.hits.filter(face=>face.partId===part.id).flatMap(face=>face.points.map(point=>point[2])));
+    const stored=new Map(innerParts.map(part=>[part.id,minZ(part)]));
+    const front=drawers[0],pixel=viewport.camera.project([cabinet.x+front.x+front.width*.25,cabinet.y+cabinet.plinth+front.y+front.height/2,cabinet.z+8+front.depth+front.frontThickness]),frame=viewport.depthFrame,index=Math.floor(pixel[1]*frame.scale)*frame.width+Math.floor(pixel[0]*frame.scale);
+    assert.deepEqual([...frame.pixels.slice(index*4,index*4+4)],[180,140,100,255],'one common closed door masks the independently arranged internal drawers');
+    viewport.setOptions({doorsOpen:true,internalDrawersOpen:false});
+    const shelfSection=layout.internalSections.find(section=>section.id==='shelf-row');
+    assert.ok(Math.abs(minZ(shelf)-stored.get(shelf.id)-Math.min(shelfSection.usableDepth*.48,260))<.001,'the pull-out shelf stroke uses its own inset row depth');
+    for(const part of innerParts.filter(part=>part.component.startsWith('internal-drawer')))assert.equal(minZ(part),stored.get(part.id));
+    viewport.setOptions({internalDrawersOpen:true});
+    for(const part of innerParts.filter(part=>part.component.startsWith('internal-drawer'))){const drawer=drawers.find(drawer=>drawer.index===part.internalDrawerIndex);assert.ok(Math.abs(minZ(part)-stored.get(part.id)-Math.min(drawer.box.depth*.48,260))<.001);}
+  });
+  for(const language of ['ru','tr','en']){
+    const svg=createDrawingSvg(project,'interior',{cabinetId:cabinet.id,language});
+    assert.match(svg,/data-interior-section="shelf-row" data-parent-section-id="outer" data-section-mark="S1.1"/);
+    assert.match(svg,/data-interior-section="drawer-row" data-parent-section-id="outer" data-section-mark="S1.2"/);
+    assert.match(svg,/data-component="interior-partition"/);assert.match(svg,/data-section-axis="drawer-row"/);
+    const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language});
+    assert.match(html,/data-schedule-kind="interior-openings"/);assert.ok(html.includes('<td>I1</td><td>S1.2</td>'));assert.doesNotMatch(html,/>F3<\/td>/);
+    if(language!=='ru')assert.equal((html.match(/[А-Яа-яЁё][^<>]*/g)||[]).join('\n'),'','the interior partition and compartment prefixes translate completely');
+  }
+  assert.deepEqual(project,original);
 });

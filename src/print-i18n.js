@@ -17,6 +17,7 @@ const materialNames = MATERIAL_PRESETS.map(material => {
   const aliases = Object.values(localized).flatMap(name => ['мм','mm'].map(unit => name.replace(/(?:мм|mm)$/,unit)));
   return { aliases:new Set([material.name,...aliases]),localized };
 });
+materialNames.push({aliases:new Set(['Тонкий задник · 3 мм','Arkalık levhası · 3 mm','Thin back panel · 3 mm','Задняя плита · 3 мм','Back panel · 3 mm']),localized:{ru:'Тонкий задник · 3 мм',tr:'Arkalık levhası · 3 mm',en:'Thin back panel · 3 mm'}});
 
 /** Match whole verified catalogue names, including saved names in any supported
  * language. Merely resembling a factory name never renames a custom material. */
@@ -74,6 +75,7 @@ const phrases = [
   ['Внутренний ящик','İç çekmece','Internal drawer'],['Внутренний фасад','İç çekmece önü','Internal drawer front'],
   ['внутренние ящики','iç çekmeceler','internal drawers'],['Внутренние ящики выдвинуты','İç çekmeceler dışarıda','Internal drawers extended'],['Внутренние ящики закрыты','İç çekmeceler kapalı','Internal drawers closed'],
   ['Расход кромки, м','Kenar bandı tüketimi, m','Edge band length, m'],['Всего кромки','Toplam kenar bandı','Total edge band'],['м','m','m'],
+  ['Кромка по материалам','Malzemeye göre kenar bandı','Edge band by material'],['Кромка, м','Kenar bandı, m','Edge band, m'],
   ['Деталей с кромкой','Kenar bantlı parça sayısı','Parts with edge band'],['Расход кромки рассчитан по готовым размерам и выбранным сторонам каждой детали.','Kenar bandı tüketimi bitmiş ölçüler ve her parçanın seçilen kenarları üzerinden hesaplanır.','Edge band length is calculated from finished dimensions and the selected edges of each part.'],
   ['Внутренние фасады и короба находятся за дверями. I соответствует внутреннему чертежу; F обозначает только наружные фасады.','İç ön paneller ve kutular kapakların arkasındadır. I iç çizimle eşleşir; F yalnızca dış ön panelleri belirtir.','Internal fronts and boxes sit behind the doors. I references the interior drawing; F identifies only external fronts.'],
   ['Выберите шкаф для печати 3D-вида.','3B görünümü yazdırmak için bir dolap seçin.','Select a cabinet to print its 3D view.'],
@@ -107,6 +109,30 @@ const phrases = [
   ['Проверка','Kontrol','Fit check'],['Помещается','Sığıyor','Fits'],['Не помещается','Sığmıyor','Does not fit'],
   ['Поперечина','Kuşak','Brace'],['Ш × В × Толщина, мм','G × Y × Kalınlık, mm','W × H × Thickness, mm'],
   ['Низ от основания, мм','Dolap tabanından alt kenar, mm','Bottom edge above cabinet base, mm'],
+  ['Низ от основания секции, мм','Bölme tabanından alt kenar, mm','Bottom edge above section base, mm'],
+  ['Наполнение за общими дверями','Ortak kapakların arkasındaki iç düzen','Interior behind shared doors'],
+  ['Фурнитура','Donanım','Hardware'],['Ручки','Kulplar','Handles'],['Петли','Menteşeler','Hinges'],
+  ['Направляющие','Raylar','Drawer runners'],['Комплекты направляющих','Ray setleri','Runner sets'],
+  ['Комплект (пара)','Set (çift)','Set (pair)'],['шт.','adet','pcs.'],['Ед.','Birim','Unit'],['Количество','Adet','Quantity'],
+  ['Всего по проекту','Proje toplamı','Project total'],
+  ['Единицы указаны в ведомости.','Birimler listede belirtilmiştir.','Units are stated in the schedule.'],
+  ['Смета материалов и фурнитуры','Malzeme ve donanım maliyet hesabı','Material and hardware estimate'],
+  ['Ориентиры цен в Турции','Türkiye fiyat referansları','Turkey price references'],
+  ['Материал / фурнитура','Malzeme / donanım','Material / hardware'],['Цена за единицу, ₺','Birim fiyat, ₺','Unit price, ₺'],['Сумма, ₺','Tutar, ₺','Amount, ₺'],
+  ['Вручную','Elle girildi','Manual'],['Итого','Toplam','Total'],['Учтённая сумма','Hesaplanan tutar','Known amount'],['Смета неполная','Eksik maliyet hesabı','Incomplete estimate'],
+  ['Для строк с «—» задайте цену вручную.','«—» işaretli satırlar için fiyatı elle girin.','Enter prices manually for rows marked «—».'],
+  ['Не все детали размещены на листах; итоговая стоимость ещё не определена.','Tüm parçalar levhalara yerleştirilmedi; toplam maliyet henüz belirlenmedi.','Some parts have not been placed on sheets; the final cost is not yet determined.'],
+  ['Толщина детали отличается от выбранного материала. Выберите материал нужной толщины; цена другого листа не применяется.','Parça kalınlığı seçilen malzemeden farklıdır. Doğru kalınlıkta malzeme seçin; başka bir levhanın fiyatı uygulanmaz.','The part thickness differs from the selected material. Select material with the correct thickness; another sheet price is not applied.'],
+  ['Листы считаются целиком по карте раскроя. Цены — среднее доступных предложений, а не гарантированная цена покупки. Доставка, работа и монтаж не включены.','Levhalar kesim planına göre tam levha olarak sayılır. Fiyatlar mevcut tekliflerin ortalamasıdır; satın alma fiyatı garanti edilmez. Nakliye, işçilik ve montaj dahil değildir.','Full sheets are counted from the cutting plan. Prices are averages of available offers, not guaranteed purchase prices. Delivery, labour and installation are excluded.'],
+  ['Для фурнитуры указан расход по проекту; минимальные упаковки поставщика не учитываются. Исходная цена кромки приведена с НДС 20%.','Donanım miktarı proje ihtiyacına göredir; tedarikçinin minimum ambalaj miktarı hesaba katılmaz. Kenar bandının başlangıç referans fiyatına %20 KDV dahildir.','Hardware quantities reflect project usage; supplier minimum pack sizes are excluded. The initial edge band reference price includes 20% VAT.'],
+  ['Источники цен','Fiyat kaynakları','Price sources'],['Без НДС','KDV hariç','VAT excluded'],['С НДС','KDV dahil','VAT included'],['НДС не указан','KDV belirtilmedi','VAT unspecified'],
+  ['лист','levha','sheet'],['компл. (пара)','set (çift)','set (pair)'],['Кромка','Kenar bandı','Edge band'],
+  ['Один комплект направляющих — пара для одного ящика или выдвижной полки.','Bir ray seti, bir çekmece veya çekilir raf için bir çifttir.','One runner set is one pair for a drawer or a pull-out shelf.'],
+  ['Количество петель по высоте — предварительный расчёт. Нагрузку и механизм подъёмной двери проверьте по выбранной фурнитуре.','Yüksekliğe göre menteşe sayısı ön hesaptır. Yükü ve yukarı açılan kapak mekanizmasını seçilen donanıma göre kontrol edin.','Hinge quantities based on height are preliminary. Check the load and lift-up door mechanism against the selected hardware.'],
+  ['Внутренние проёмы обозначены номером наружной секции и отсека: S1.1, S1.2. Наружные фасады обозначены F, внутренние фасады ящиков — I.','İç açıklıklar dış bölme ve iç bölme numarasıyla gösterilir: S1.1, S1.2. Dış ön paneller F, iç çekmece önleri I ile gösterilir.','Internal openings use the outer section and compartment number: S1.1, S1.2. Outer fronts are F; internal drawer fronts are I.'],
+  ['Высота цоколя, мм','Baza yüksekliği, mm','Plinth height, mm'],
+  ['Низ проёма от основания, мм','Dolap tabanından açıklık altı, mm','Opening bottom above cabinet base, mm'],
+  ['Высота местной поперечины измеряется от нижнего чистого уровня её секции.','Yerel kuşağın yüksekliği, bulunduğu bölmenin net alt seviyesinden ölçülür.','A local brace height is measured from the clear bottom level of its section.'],
   ['Деталь / секция','Parça / bölme','Part / section'],['Раскрой: Ш × В, мм','Kesim: G × Y, mm','Cut size: W × H, mm'],
   ['Кромка, мм','Kenar bandı, mm','Edge band, mm'],['верх','üst','top'],['низ','alt','bottom'],['лево','sol','left'],['право','sağ','right'],
   ['Все размеры в миллиметрах','Tüm ölçüler milimetredir','All dimensions are in millimetres'],
@@ -139,6 +165,7 @@ const phrases = [
 const vocabulary = new Map(phrases.map(([ru,tr,en]) => [ru,{tr,en}]));
 const prefixes = [
   ['Низ от основания шкафа:','Dolap tabanından alt kenar:','Bottom edge above cabinet base:'],
+  ['Низ от основания секции:','Bölme tabanından alt kenar:','Bottom edge above section base:'],
   ['Ниша с зазорами:','Boşluklar dahil niş:','Niche including clearances:'],
   ['Проём','Açıklık','Opening'],['Полезная глубина','Kullanılabilir derinlik','Usable depth'],
   ['Корпус без фасада:','Ön panelsiz gövde:','Carcass excluding front:'],['Помещение:','Oda:','Room:'],
@@ -168,7 +195,8 @@ const partTerms = [
   ['Задняя стенка выреза','Köşe kesimi arka paneli','Cutout rear panel'],['Задняя стенка','Arka panel','Back panel'],
   ['задняя стенка выреза','köşe kesimi arka paneli','cutout rear panel'],['задняя стенка','arka panel','back panel'],
   ['Горизонтальная перегородка','Yatay ara panel','Horizontal divider'],['Вертикальная перегородка','Dikey ara panel','Vertical divider'],
-  ['Цокольная планка','Baza ön paneli','Plinth front'],['Задняя перемычка','Arka kuşak','Rear brace'],
+  ['внутренняя горизонтальная перегородка','iç yatay ara panel','internal horizontal divider'],['внутренняя вертикальная перегородка','iç dikey ara panel','internal vertical divider'],
+  ['Цокольная планка','Baza ön paneli','Plinth front'],['Задняя перемычка','Arka kuşak','Rear brace'],['задняя перемычка','arka kuşak','rear brace'],
   ['выдвижная полка','çekilir raf','pull-out shelf'],['Полка','Raf','Shelf'],['полка','raf','shelf'],
   ['Фасад ящика','Çekmece önü','Drawer front'],['Дверь','Kapak','Door'],
   ['боковина левая','sol yan panel','left side'],['боковина правая','sağ yan panel','right side'],
@@ -179,12 +207,16 @@ const partTerms = [
  * of "Секция N · user name · component" exactly, even if it contains dots. */
 export function translatePartName(name, language = 'ru') {
   const value = String(name ?? ''), lang = printLanguage(language);
+  const sectionInterior=/^Секция (\d+)(?: · (.*))? · (внутренний отсек \d+ · [^·]+)$/.exec(value);
+  if(sectionInterior)return `${{ru:'Секция',tr:'Bölme',en:'Section'}[lang]} ${sectionInterior[1]}${sectionInterior[2]?` · ${translateBuiltInName(sectionInterior[2],lang,'section')}`:''} · ${translatePartName(sectionInterior[3],lang)}`;
   const sectionDrawer = /^Секция (\d+)(?: · (.*))? · ((?:Ящик|Внутренний ящик) \d+ · (?:боковина левая|боковина правая|передняя стенка|задняя стенка|дно|фасад))$/.exec(value);
   if (sectionDrawer) return `${{ru:'Секция',tr:'Bölme',en:'Section'}[lang]} ${sectionDrawer[1]}${sectionDrawer[2] ? ` · ${translateBuiltInName(sectionDrawer[2],lang,'section')}` : ''} · ${translatePartName(sectionDrawer[3],lang)}`;
   const section = /^Секция (\d+)(?: · (.*))? · ([^·]+)$/.exec(value);
   if (section) return `${{ru:'Секция',tr:'Bölme',en:'Section'}[lang]} ${section[1]}${section[2] ? ` · ${translateBuiltInName(section[2],lang,'section')}` : ''} · ${translatePartName(section[3],lang)}`;
   const internal = /^Внутренний ящик (\d+) · (.*)$/.exec(value);
   if(internal)return `${{ru:'Внутренний ящик',tr:'İç çekmece',en:'Internal drawer'}[lang]} ${internal[1]} · ${internal[2]==='фасад'?{ru:'фасад',tr:'ön panel',en:'front'}[lang]:translatePartName(internal[2],lang)}`;
+  const compartment=/^внутренний отсек (\d+) · (.*)$/.exec(value);
+  if(compartment)return `${{ru:'внутренний отсек',tr:'iç bölme',en:'internal compartment'}[lang]} ${compartment[1]} · ${translatePartName(compartment[2],lang)}`;
   const drawer = /^Ящик (\d+) · (.*)$/.exec(value);
   if (drawer) return `${{ru:'Ящик',tr:'Çekmece',en:'Drawer'}[lang]} ${drawer[1]} · ${translatePartName(drawer[2],lang)}`;
   const segment = /^(.*) · участок (\d+)$/.exec(value);

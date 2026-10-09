@@ -79,6 +79,76 @@ test('sides-to-floor setting and its construction hint translate and restore', (
   assert.equal(explanation.nodeValue, hint);
 });
 
+test('section plinth and back brace controls localize and restore without rewriting user text', () => {
+  const phrases = [
+    ['Цоколь в этой секции', 'Bu bölmedeki baza', 'Plinth in this section'],
+    ['Высота цоколя секции', 'Bölme baza yüksekliği', 'Section plinth height'],
+    ['Без цоколя', 'Bazasız', 'No plinth'],
+    ['Как у шкафа', 'Dolap ayarıyla aynı', 'Use cabinet setting'],
+    ['Общий задник на весь шкаф', 'Tüm dolabı kaplayan arka panel', 'Full cabinet back panel'],
+    ['Выключите общий задник, чтобы настроить заднюю стенку или поперечины секции.', 'Bölmenin arka panelini veya kayıtlarını ayarlamak için dolabın ortak arka panelini kapatın.', 'Turn off the full cabinet back panel to configure a section back panel or braces.'],
+    ['Поперечины секции', 'Bölme kayıtları', 'Section braces'],
+    ['Добавить поперечину', 'Kayıt ekle', 'Add brace'],
+    ['Высота от дна секции', 'Bölme tabanından yükseklik', 'Height from section bottom'],
+    ['Толщина поперечины', 'Kayıt kalınlığı', 'Brace thickness'],
+    ['Отсек до пола', 'Zemine kadar bölme', 'Floor-level section'],
+    ['Сзади секции', 'Bölmenin arkasında', 'At the back of the section'],
+    ['Нет свободного места для поперечины в секции.', 'Bölmede kayıt için boş yer yok.', 'No free space for a brace in this section.'],
+  ];
+  for (const [ru, tr, en] of phrases) {
+    assert.equal(translateText(ru, 'tr'), tr); assert.equal(translateText(ru, 'en'), en);
+    const label = text(ru), root = new Element('label', { title: ru }, [label]);
+    applyTranslations(root, 'tr'); assert.equal(root.textContent, tr);
+    applyTranslations(root, 'en'); assert.equal(root.textContent, en);
+    applyTranslations(root, 'ru'); assert.equal(root.textContent, ru); assert.equal(root.getAttribute('title'), ru);
+  }
+  for (const phrase of [
+    'Секция: высота цоколя: ожидается число от 0 до 6000.',
+    'Поперечины секции: допустимо не более 40 объектов.',
+    'Поперечина секции: высота от дна секции: ожидается число от 0 до 6000.',
+    'Поперечина секции: материал не найден.',
+  ]) for (const language of ['tr', 'en']) assert.doesNotMatch(translateText(phrase, language), /[А-Яа-яЁё]/u);
+});
+
+test('shared-door interior controls, schema feedback and the unbranded thin back preset localize consistently', () => {
+  const phrases = [
+    ['Внутреннее наполнение', 'İç düzen', 'Internal layout'],
+    ['Внутреннее наполнение секции', 'Bölmenin iç düzeni', 'Section internal layout'],
+    ['Выберите внутреннюю секцию · перетаскивайте перегородки · колесо — масштаб', 'İç bölme seçin · bölme panellerini sürükleyin · tekerlek ile yakınlaştırın', 'Select an internal section · drag partitions · scroll to zoom'],
+    ['Цоколь и задняя конструкция настраиваются для выбранной секции.', 'Baza ve arka yapı, seçili bölme için ayarlanır.', 'The plinth and rear construction are configured for the selected section.'],
+    ['Внутри секции с дверями нажмите «Внутреннее наполнение»: разделите отсеки и разместите полки и ящики за общими дверями.', 'Kapaklı bölmede «İç düzen» düğmesine basın: ortak kapakların arkasındaki bölmeleri ayırın, rafları ve çekmeceleri yerleştirin.', 'In a door section, choose «Internal layout»: divide the compartments and arrange shelves and drawers behind the shared doors.'],
+    ['Вернуться к дверям', 'Kapaklara dön', 'Back to doors'],
+    ['Создать внутренние отсеки', 'İç bölmeler oluştur', 'Create internal compartments'],
+    ['Настроить внутренние отсеки', 'İç bölmeleri düzenle', 'Configure internal compartments'],
+    ['Внутренний отсек', 'İç bölme', 'Internal compartment'],
+    ['Одни двери закрывают все внутренние отсеки. Полки и ящики настраиваются внутри.', 'Ortak kapaklar tüm iç bölmeleri kapatır. Raflar ve çekmeceler içeride düzenlenir.', 'One set of doors covers all internal compartments. Shelves and drawers are configured inside.'],
+    ['Удалить внутренний отсек', 'İç bölmeyi sil', 'Delete internal compartment'],
+    ['Секция с общими дверями', 'Ortak kapaklı bölme', 'Section with shared doors'],
+    ['Ящики внутри', 'İç çekmeceler', 'Drawers inside'],
+    ['Полки внутри отсека', 'İç bölmedeki raflar', 'Shelves inside compartment'],
+  ];
+  for (const [ru, tr, en] of phrases) {
+    assert.equal(translateText(ru, 'tr'), tr); assert.equal(translateText(ru, 'en'), en);
+    const root = new Element('button', { 'aria-label': ru }, [text(ru)]);
+    applyTranslations(root, 'tr'); assert.equal(root.textContent, tr);
+    applyTranslations(root, 'en'); assert.equal(root.textContent, en);
+    applyTranslations(root, 'ru'); assert.equal(root.textContent, ru); assert.equal(root.getAttribute('aria-label'), ru);
+  }
+  assert.equal(defaultName('thinBack', 'ru'), 'Тонкий задник · 3 мм');
+  assert.equal(defaultName('thinBack', 'tr'), 'Arkalık levhası · 3 mm');
+  assert.equal(defaultName('thinBack', 'en'), 'Thin back panel · 3 mm');
+  assert.equal(defaultName('thinBackType', 'ru'), 'Тонкая древесноволокнистая панель');
+  assert.equal(defaultName('thinBackType', 'tr'), 'Lif levha');
+  assert.equal(defaultName('thinBackType', 'en'), 'Fibreboard');
+  for (const phrase of [
+    'Внутренний отсек не может содержать технику.',
+    'Внутреннее наполнение нельзя вкладывать в другое внутреннее наполнение.',
+    'Внутреннее наполнение возможно только у секции с дверями.',
+    'Внутренний отсек: допустимы только открытые отсеки и ящики.',
+    'Внутренний отсек: глубина: ожидается число больше 0 до 3000.',
+  ]) for (const language of ['tr', 'en']) assert.doesNotMatch(translateText(phrase, language), /[А-Яа-яЁё]/u);
+});
+
 test('drawing zoom, 3D print and fixing-center controls translate in both languages', () => {
   const controls = [
     ['Приблизить чертёж', 'Çizimi yakınlaştır', 'Zoom in drawing'],
@@ -206,6 +276,22 @@ test('dynamic errors translate their template and preserve quoted custom project
     assert.ok(result.includes('50 mm'));
   }
   assert.equal(translateText(message, 'ru'), message);
+});
+
+test('section back, plinth and interior geometry messages translate while preserving the exact quoted section name', () => {
+  const name = '«Моя секция Özel»', messages = [
+    `задняя перемычка выходит за высоту секции ${name}; положение задаётся от низа чистого проёма.`,
+    'задняя перемычка не помещается по глубине корпуса или секции.',
+    `глубина секции ${name} превышает корпус или внешний проём.`,
+    `секция ${name} не касается основания корпуса; собственный цоколь применяется только к нижней секции.`,
+    `полки секции ${name} пересекают внутреннее наполнение; задайте их во внутренних отсеках.`,
+  ];
+  for (const message of messages) for (const language of ['tr', 'en']) {
+    const translated = translateText(message, language);
+    assert.doesNotMatch(translated.replace(/«[^»]*»/gu, ''), /[А-Яа-яЁё]/u, `${language}: ${message}`);
+    if (message.includes(name)) assert.ok(translated.includes(name), 'user section text is kept verbatim');
+    assert.equal(translateText(message, 'ru'), message);
+  }
 });
 
 test('cabinet extensions, internal drawer controls and edge totals use consistent terms', () => {
@@ -385,4 +471,28 @@ test('factory material naming preserves article identity, real gauges and source
   assert.deepEqual(localizeMaterialPreset(custom, 'en'), custom);
   const renamedFactory = { ...MATERIAL_PRESETS[0], name: 'Yıldız MDFLAM · Мой материал VT_068 · 18 мм' };
   assert.deepEqual(localizeMaterialPreset(renamedFactory, 'en'), renamedFactory);
+});
+
+test('door hardware and price controls translate completely while preserving numeric prices and user materials', () => {
+  const phrases = ['Фурнитура дверей', 'Петель на дверь', 'Рассчитать по высоте', 'Количество петель по высоте — предварительная оценка. Уточните его по массе двери и выбранной фурнитуре.', 'Секция с цоколем всегда имеет собственное дно.', 'шт.', 'компл. (пара)', 'Цены и смета', 'Цена листа', 'Цена ручки', 'Цена комплекта направляющих', 'Цена петли', 'Цена кромки за метр', 'Ориентир', 'Вручную', 'Цена не задана', 'Вернуть ориентиры', 'Цены сохраняются в файле проекта. Нулевая цена допустима для имеющихся запасов.', 'Цена за целый лист указанного размера.', 'Толщина детали отличается от выбранного материала. Выберите материал нужной толщины; цена другого листа не применяется.', 'Цены сохраняются в файле проекта и используются для новых проектов на этом компьютере. Нулевая цена допустима для имеющихся запасов.', 'Для фурнитуры указан расход по проекту; минимальные упаковки поставщика не учитываются. Исходная цена кромки приведена с НДС 20%.', 'число петель на дверь должно быть целым числом от 2 до 12.'];
+  for (const phrase of phrases) for (const language of ['tr', 'en']) {
+    const result = translateText(phrase, language);
+    assert.notEqual(result, phrase, `${language}: ${phrase}`);
+    assert.doesNotMatch(result, /[А-Яа-яЁё]/u, `${language}: ${phrase}`);
+  }
+  assert.equal(translateText('Цены и смета', 'tr'), 'Fiyatlar ve maliyet hesabı');
+  assert.equal(translateText('Петель на дверь', 'en'), 'Hinges per door');
+  const custom = new Element('strong', { 'data-user-text': '' }, [text('Моя белая плита')]);
+  const amount = new Element('input', { type: 'number', value: '0' });
+  const caption = new Element('span', {}, [text('Цены и смета')]);
+  const root = new Element('div', {}, [caption, custom, amount]);
+  for (const language of ['tr', 'en', 'ru', 'tr']) {
+    applyTranslations(root, language);
+    assert.equal(caption.textContent, translateText('Цены и смета', language));
+    assert.equal(custom.textContent, 'Моя белая плита');
+    assert.equal(amount.getAttribute('value'), '0');
+  }
+  const writes = caption.firstChild.writes;
+  applyTranslations(root, 'tr');
+  assert.equal(caption.firstChild.writes, writes, 'repeated observer passes do not rewrite unchanged prices dialog text');
 });

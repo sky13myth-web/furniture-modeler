@@ -26,6 +26,18 @@ const materialRef = (value, ids, label, optional = false) => {
   if (typeof value !== 'string' || !ids.has(value)) fail(`${label}: материал не найден.`);
 };
 
+const validateRearBraces = (braces, { label, itemLabel, positionLabel, materialIds, limit }) => {
+  collection(braces, label, limit);
+  const ids = new Set();
+  for (const brace of braces) {
+    record(brace, itemLabel); uniqueId(brace.id, ids, itemLabel);
+    finite(brace.y, positionLabel, 6000);
+    finite(brace.height, `${itemLabel}: высота`, 6000, true);
+    if (materialIds) materialRef(brace.materialId, materialIds, itemLabel, true);
+    else if (brace.materialId !== undefined) text(brace.materialId, `${itemLabel}: материал`);
+  }
+};
+
 export function validateDoorOpenings(openings, count) {
   if (openings === undefined) return;
   collection(openings, 'Направления открывания дверей', 8);
@@ -33,20 +45,33 @@ export function validateDoorOpenings(openings, count) {
   if (Array.from(openings).some(opening => !['left', 'right', 'up'].includes(opening))) fail('Направление двери должно быть left, right или up.');
 }
 
-export function validateLayoutSchema(layout) {
+export function validateHingesPerDoor(value, hasDoors) {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || value < 2 || value > 12) fail('Петель на дверь: ожидается целое число от 2 до 12.');
+  if (!hasDoors) fail('Количество петель можно задать только для секции с дверями.');
+}
+
+export function validateLayoutSchema(layout, { materialIds } = {}) {
   const ids = new Set(); let count = 0;
-  const visit = (node, depth = 0) => {
+  const visit = (node, depth = 0, interior = false) => {
     if (++count > 80 || depth > 10) fail('Секции: допустимо не более 80 узлов и 10 уровней.');
     record(node, 'секция'); uniqueId(node.id, ids, 'Секция');
     if (node.name !== undefined) text(node.name, 'Название секции');
+    validateHingesPerDoor(node.hingesPerDoor, node.kind === 'section' && node.front === 'doors');
+    if (interior) {
+      if (node.appliance !== undefined) fail('Внутренний отсек не может содержать технику.');
+      if (node.interiorLayout !== undefined) fail('Внутреннее наполнение нельзя вкладывать в другое внутреннее наполнение.');
+      if (node.depth !== undefined && node.depth !== null) finite(node.depth, 'Внутренний отсек: глубина', 3000, true);
+    } else if (node.interiorLayout !== undefined && node.kind !== 'section') fail('Внутреннее наполнение возможно только у секции с дверями.');
     if (node.kind === 'split') {
       if (!['horizontal', 'vertical'].includes(node.axis)) fail('Секции: неверная ось разделения.');
       collection(node.children, 'Дочерние секции', 20);
       if (node.children.length < 2) fail('Секции: разделитель должен содержать хотя бы две секции.');
       collection(node.sizes, 'Пропорции секций', 20);
       if (node.sizes.length !== node.children.length || node.sizes.some(size => typeof size !== 'number' || !Number.isFinite(size) || size <= 0)) fail('Секции: пропорции должны быть положительными и соответствовать числу секций.');
-      for (const child of node.children) visit(child, depth + 1);
+      for (const child of node.children) visit(child, depth + 1, interior);
     } else if (node.kind === 'section') {
+      if (interior && !['open', 'drawers'].includes(node.front)) fail('Внутренний отсек: допустимы только открытые отсеки и ящики.');
       if (!['open', 'doors', 'drawers'].includes(node.front)) fail('Секция: неверный тип фасада.');
       for (const [key, max] of [['doors', 8], ['drawers', 12], ['shelves', 20]]) {
         if (node[key] !== undefined && (!Number.isInteger(node[key]) || node[key] < 0 || node[key] > max)) fail(`Секция: ${key} должно быть целым числом от 0 до ${max}.`);
@@ -58,7 +83,9 @@ export function validateLayoutSchema(layout) {
       if (node.internalDrawerHingeGap !== undefined) finite(node.internalDrawerHingeGap, 'Отступ внутренних ящиков от петель', 200);
       if (node.openingMechanism !== undefined && !['handle', 'push'].includes(node.openingMechanism)) fail('Механизм открывания должен быть handle или push.');
       if (node.depth !== undefined && node.depth !== null) finite(node.depth, 'Секция: глубина', 3000, true);
-      if (node.back !== undefined && !['inherit', 'none', 'panel'].includes(node.back)) fail('Секция: неверный тип задней стенки.');
+      if (node.back !== undefined && !['inherit', 'none', 'panel', 'solid', 'braces'].includes(node.back)) fail('Секция: неверный тип задней стенки.');
+      if (node.plinthHeight !== undefined && node.plinthHeight !== null) finite(node.plinthHeight, 'Секция: высота цоколя', 6000);
+      if (node.rearBraces !== undefined) validateRearBraces(node.rearBraces, { label: 'Поперечины секции', itemLabel: 'Поперечина секции', positionLabel: 'Поперечина секции: высота от дна секции', materialIds, limit: 40 });
       if (node.floor !== undefined && !['inherit', 'open'].includes(node.floor)) fail('Секция: неверный тип основания.');
       if (node.pullOutShelf !== undefined) boolean(node.pullOutShelf, 'Секция: выдвижная полка');
       if (node.drawerHeights !== undefined) {
@@ -76,6 +103,10 @@ export function validateLayoutSchema(layout) {
           record(node.appliance.clearances, 'монтажные зазоры техники');
           for (const key of ['side', 'top', 'rear']) finite(node.appliance.clearances[key], `Монтажный зазор: ${key}`, 1000);
         }
+      }
+      if (!interior && node.interiorLayout !== undefined) {
+        if (node.front !== 'doors') fail('Внутреннее наполнение возможно только у секции с дверями.');
+        visit(node.interiorLayout, depth + 1, true);
       }
     } else fail('Секции: неверный тип узла.');
   };
@@ -128,6 +159,7 @@ export function checkImport(project) {
     finite(material.sheetHeight, 'Материал: длина листа', 10000, true);
     boolean(material.grain, 'Материал: направление текстуры');
     if (material.edgeBand !== undefined) finite(material.edgeBand, 'Материал: кромка', 3);
+    if (material.pricePerSheet !== undefined) finite(material.pricePerSheet, 'Материал: цена за лист, TRY', 1e9);
   }
 
   const cabinetIds = new Set();
@@ -153,8 +185,10 @@ export function checkImport(project) {
     for (const [key, label] of [['backThickness', 'толщина задней стенки'], ['drawerBottomThickness', 'толщина дна ящика']]) finite(cabinet[key], `Модуль: ${label}`, 60, true);
     for (const [key, label] of [['materialId', 'материал корпуса'], ['frontMaterialId', 'материал фасадов'], ['backMaterialId', 'материал задней стенки']]) materialRef(cabinet[key], materialIds, `Модуль: ${label}`);
     const layout = cabinet.layout;
-    if (layout !== undefined) validateLayoutSchema(layout);
-    const containsDrawers = node => node.kind === 'section' ? node.front === 'drawers' || node.internalDrawerCount > 0 : node.children.some(containsDrawers);
+    if (layout !== undefined) validateLayoutSchema(layout, { materialIds });
+    const containsDoors = node => node.kind === 'section' ? node.front === 'doors' : node.children.some(containsDoors);
+    validateHingesPerDoor(cabinet.hingesPerDoor, layout ? containsDoors(layout) : cabinet.doors > 0);
+    const containsDrawers = node => node.kind === 'section' ? node.front === 'drawers' || (node.interiorLayout ? containsDrawers(node.interiorLayout) : node.internalDrawerCount > 0) : node.children.some(containsDrawers);
     const drawers = layout ? containsDrawers(layout) : cabinet.drawers > 0;
     for (const [key, label] of [['drawerMaterialId', 'материал короба ящика'], ['drawerBottomMaterialId', 'материал дна ящика']]) materialRef(cabinet[key], materialIds, `Модуль: ${label}`, !drawers);
     if (cabinet.includeBack !== undefined) boolean(cabinet.includeBack, 'Модуль: задняя стенка');
@@ -162,14 +196,7 @@ export function checkImport(project) {
     if (cabinet.sidesToFloor !== undefined) boolean(cabinet.sidesToFloor, 'Модуль: боковины до пола');
     if (cabinet.openingMechanism !== undefined && !['handle', 'push'].includes(cabinet.openingMechanism)) fail('Механизм открывания должен быть handle или push.');
     if (cabinet.rearBraces !== undefined) {
-      collection(cabinet.rearBraces, 'Задние перемычки', 20);
-      const braceIds = new Set();
-      for (const brace of cabinet.rearBraces) {
-        record(brace, 'задняя перемычка'); uniqueId(brace.id, braceIds, 'Задняя перемычка');
-        finite(brace.y, 'Перемычка: от низа шкафа', 6000);
-        finite(brace.height, 'Перемычка: высота', 6000, true);
-        materialRef(brace.materialId, materialIds, 'Перемычка', true);
-      }
+      validateRearBraces(cabinet.rearBraces, { label: 'Задние перемычки', itemLabel: 'Задняя перемычка', positionLabel: 'Перемычка: от низа шкафа', materialIds, limit: 20 });
     }
     if (cabinet.rotation !== undefined && (typeof cabinet.rotation !== 'number' || !Number.isFinite(cabinet.rotation) || Math.abs(cabinet.rotation) > 180)) fail('Модуль: поворот должен быть от −180 до 180 градусов.');
     if (cabinet.cutout !== undefined && cabinet.cutout !== null) {
@@ -199,6 +226,12 @@ export function checkImport(project) {
   boolean(project.settings.allowRotate, 'Раскрой: разрешение поворота');
   boolean(project.settings.deductEdge, 'Раскрой: вычитание кромки');
   if (project.settings.printLanguage !== undefined && !['ru', 'tr', 'en'].includes(project.settings.printLanguage)) fail('Язык печати должен быть ru, tr или en.');
+  if (project.settings.pricing !== undefined) {
+    record(project.settings.pricing, 'цены фурнитуры');
+    for (const [key, label] of [['handlePrice', 'ручка'], ['guideSetPrice', 'направляющие, комплект'], ['hingePrice', 'петля'], ['edgeBandPricePerMeter', 'кромка за метр']]) {
+      if (project.settings.pricing[key] !== undefined) finite(project.settings.pricing[key], `Цена: ${label}, TRY`, 1e9);
+    }
+  }
   return project;
 }
 

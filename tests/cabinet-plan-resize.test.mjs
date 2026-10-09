@@ -6,7 +6,9 @@ import { resizeCabinetOnPlan } from '../src/cabinet-plan-resize.js';
 function fixture(overrides = {}) {
   const project = createDefaultProject(), cabinet = project.cabinets[0];
   project.room = { width: 3000, depth: 2500, height: 2800, windows: [], installationClearance: { walls: 10, ceiling: 20 } };
-  Object.assign(cabinet, { width: 900, height: 2200, depth: 620, x: 200, y: 0, z: 200, rotation: 0, plinth: 0, layout: createSection('open'), ...overrides });
+  // Explicit workshop rear stock keeps this scenario independent of factory
+  // catalog/default rear changes.
+  Object.assign(cabinet, { width: 900, height: 2200, depth: 620, x: 200, y: 0, z: 200, rotation: 0, plinth: 0, backThickness: 8, backMaterialId: 'hdf-back', layout: createSection('open'), ...overrides });
   return { project, cabinet };
 }
 const near = (actual, expected, tolerance = .02) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} ≈ ${expected}`);

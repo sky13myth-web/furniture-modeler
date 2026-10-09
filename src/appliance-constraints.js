@@ -5,6 +5,7 @@
  * worsening another axis; they remain invalid until completely repaired.
  */
 import { getCabinetLayout, getApplianceFit, getFrontLayout, getInternalDrawerLayout, validateProject, findLayoutNode, resizeSectionAdjacent, resizeDivider } from './engine.js';
+import { getInteriorLayout, resizeInteriorSection, resizeInteriorDivider } from './cabinet-interior.js';
 
 const AXES = ['width', 'height', 'depth'];
 const TOLERANCE = 1e-7;
@@ -37,6 +38,8 @@ function validGeometry(cabinet) {
     const node = pending.pop();
     if (!node || ++count > 80) return false;
     if (node.depth !== undefined && node.depth !== null && (!finite(node.depth) || node.depth < 0)) return false;
+    if (node.plinthHeight !== undefined && node.plinthHeight !== null && (!finite(node.plinthHeight) || node.plinthHeight < 0)) return false;
+    if (node.interiorLayout) pending.push(node.interiorLayout);
     if (node.kind === 'split') {
       if (!['horizontal', 'vertical'].includes(node.axis) || !Array.isArray(node.children) || node.children.length < 2) return false;
       if (node.sizes !== undefined && (!Array.isArray(node.sizes) || node.sizes.length !== node.children.length || node.sizes.some(size => !finite(size) || size <= 0))) return false;
@@ -62,15 +65,17 @@ function constraints(cabinet, project) {
     add('cabinet/cutout-width', 'carcass', null, 'width', cabinet.width - 2 * t - cabinet.cutout.width, POSITIVE_MINIMUM);
     add('cabinet/cutout-depth', 'carcass', null, 'depth', cabinet.depth - 2 * t - cabinet.cutout.depth, POSITIVE_MINIMUM);
   }
-  for (const section of layout.sections) {
-    for (const axis of AXES) add(`section/${section.id}/${axis}`, 'section', section.id, axis, section[axis], 50);
-    if (section.node.depth !== null && section.node.depth !== undefined) add(`section/${section.id}/depth-cap`, 'section', section.id, 'depth', layout.bodyDepth - section.node.depth, 0);
+  for (const section of [...layout.sections, ...layout.internalSections]) {
+    for (const axis of AXES) add(`section/${section.id}/${axis}`, 'section', section.id, axis, axis === 'depth' ? section.usableDepth : section[axis], 50);
+    const depthCap = section.parentSectionId ? layout.sections.find(item => item.id === section.parentSectionId).depth : layout.bodyDepth;
+    if (section.node.depth !== null && section.node.depth !== undefined) add(`section/${section.id}/depth-cap`, 'section', section.id, 'depth', depthCap - section.node.depth, 0);
     if (section.node.shelves > 0) add(`shelf/${section.id}/depth`, 'shelf', section.id, 'depth', section.usableDepth - 20, POSITIVE_MINIMUM);
     if (section.node.pullOutShelf) {
       add(`pull-out/${section.id}/width`, 'pull-out-shelf', section.id, 'width', section.width - 2 * runner, 50);
       add(`pull-out/${section.id}/depth`, 'pull-out-shelf', section.id, 'depth', section.usableDepth - 40, 50);
       add(`pull-out/${section.id}/height`, 'pull-out-shelf', section.id, 'height', section.height, t + 5);
     }
+    if (section.backMode === 'braces') for (const brace of section.node.rearBraces ?? []) add(`brace/${section.id}/${brace.id}/height`, 'brace', section.id, 'height', section.height - brace.y, brace.height);
   }
   for (const front of getFrontLayout(cabinet, project)) {
     const key = `front/${front.sectionId ?? 'legacy'}/${front.kind}/${front.index}`;
@@ -123,19 +128,21 @@ function outcome(cabinet, { clamped = false, possible = true, fraction = 1, diag
 function sameLayout(a, b) {
   if (!a || !b) return !a && !b;
   if (a.id !== b.id || a.kind !== b.kind || a.axis !== b.axis) return false;
-  if (a.kind !== 'split') return true;
+  if (a.kind !== 'split') return sameLayout(a.interiorLayout, b.interiorLayout);
   return a.children.length === b.children.length && a.children.every((child, i) => sameLayout(child, b.children[i]));
 }
 
 function geometryInterpolator(current, proposed, project, baselineProject) {
   if (!sameLayout(current.layout, proposed.layout)) return null;
   const oldGeometry = getCabinetLayout(current, baselineProject), newGeometry = getCabinetLayout(proposed, project);
-  const oldNodes = new Map(oldGeometry.nodes.map(node => [node.id, node]));
-  const newNodes = new Map(newGeometry.nodes.map(node => [node.id, node]));
+  const oldNodes = new Map([...oldGeometry.nodes, ...oldGeometry.internalNodes].map(node => [node.id, node]));
+  const newNodes = new Map([...newGeometry.nodes, ...newGeometry.internalNodes].map(node => [node.id, node]));
   const interpolateNodes = (before, after, target, fraction) => {
     // Inherited and explicit depth changes use their effective depth at each
     // endpoint so the first intermediate model has the original opening.
     if (before.depth !== after.depth) target.depth = lerp(oldNodes.get(before.id).depth, newNodes.get(after.id).depth, fraction);
+    if (before.plinthHeight !== after.plinthHeight) target.plinthHeight = lerp(before.plinthHeight ?? current.plinth ?? 0, after.plinthHeight ?? proposed.plinth ?? 0, fraction);
+    if (after.interiorLayout) interpolateNodes(before.interiorLayout, after.interiorLayout, target.interiorLayout, fraction);
     if (after.kind !== 'split') return;
     const dimension = after.axis === 'horizontal' ? 'height' : 'width';
     // Normalize arbitrary proportional weights to millimetres before blending.
@@ -236,6 +243,50 @@ export function resizeApplianceDivider(cabinet, id, axis, value, project) {
   if (!opening || divider.axis !== axis) return outcome(clone(cabinet), { possible: false, fraction: 0, reason: 'Перегородка не найдена.' }, project);
   const originalValue = axis === 'horizontal' ? opening.height : opening.width;
   return guardedResize(cabinet, project, value, originalValue, (next, requested) => resizeDivider(next, id, axis, requested, project));
+}
+
+// Pure interior edits enforce their adjacent-opening limits before a proposed
+// tree exists. Locate that limit first, then apply the full construction guard
+// so drawer boxes, rails and already-invalid saved data use the same policy.
+function constrainedInteriorResize(cabinet, parentId, id, axis, value, project, dividerEdit) {
+  const geometry = getCabinetLayout(cabinet, project), outer = geometry.sections.find(item => item.id === parentId);
+  const interior = outer && getInteriorLayout(outer, geometry.thickness);
+  const divider = dividerEdit && interior?.partitions.find(item => item.id === id || item.beforeChildId === id);
+  const opening = interior?.nodes.find(item => item.id === (dividerEdit ? divider?.beforeChildId : id));
+  if (!outer?.node.interiorLayout || !opening || !['horizontal', 'vertical'].includes(axis) || dividerEdit && divider.axis !== axis || !dividerEdit && opening.node.kind !== 'section' || !finite(value)) {
+    return outcome(clone(cabinet), { possible: false, fraction: 0, reason: dividerEdit ? 'Перегородка не найдена.' : 'Секция не найдена.' }, project);
+  }
+  const originalValue = axis === 'horizontal' ? opening.height : opening.width;
+  const propose = fraction => {
+    const next = clone(cabinet), nextOuter = getCabinetLayout(next, project).sections.find(item => item.id === parentId);
+    const tree = (dividerEdit ? resizeInteriorDivider : resizeInteriorSection)(nextOuter, id, axis, lerp(originalValue, value, fraction), geometry.thickness);
+    if (!tree) return null;
+    nextOuter.node.interiorLayout = tree;
+    return next;
+  };
+  let proposed = propose(1), fraction = 1, geometricClamp = false;
+  if (!proposed) {
+    proposed = propose(0);
+    if (!proposed) return outcome(clone(cabinet), { possible: false, fraction: 0, reason: 'Эту перегородку нельзя переместить.' }, project);
+    let low = 0, high = 1;
+    for (let iteration = 0; iteration < 48; iteration++) {
+      const mid = (low + high) / 2, next = propose(mid);
+      if (next) { low = mid; proposed = next; } else high = mid;
+    }
+    fraction = low; geometricClamp = true;
+  }
+  const result = constrainCabinetEdit(cabinet, proposed, project);
+  return geometricClamp ? { ...result, clamped: true, fraction: fraction * result.fraction, reason: result.reason ?? 'Размер ограничен конструкцией, техникой и монтажными зазорами.' } : result;
+}
+
+/** Displayed internal opening width/height; unrelated openings keep their edges. */
+export function resizeConstrainedInteriorSection(cabinet, parentId, id, axis, mm, project) {
+  return constrainedInteriorResize(cabinet, parentId, id, axis, mm, project, false);
+}
+
+/** mm is the top/left opening size before the physical interior divider. */
+export function resizeConstrainedInteriorDivider(cabinet, parentId, id, axis, mm, project) {
+  return constrainedInteriorResize(cabinet, parentId, id, axis, mm, project, true);
 }
 
 export function setApplianceSectionDepth(cabinet, id, value, project) {

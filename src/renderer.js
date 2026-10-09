@@ -1,6 +1,8 @@
 import * as engine from './engine.js';
 import { getRoomOutline } from './room-geometry.js';
 import { printLanguage, printNumber, translatePrintText, translatePartName, translateMaterialName, translateBuiltInName } from './print-i18n.js';
+import { getProjectHardwareSchedule } from './hardware.js';
+import { generateCostHTML as renderCostSummary } from './pricing.js';
 const { getFrontLayout } = engine;
 
 const VIEWS = {
@@ -200,7 +202,7 @@ export function layoutApplianceCallouts(annotations, { width, height, modelWidth
 
 function makeScene(project, options, direction) {
   const faces = [], lines = [], shadows = [], labels = [];
-  let currentCabinet = null;
+  let currentCabinet = null, currentLayout = null;
   const face = (points, color, normal, id = null, extras = {}) => {
     if (currentCabinet) {
       points = points.map(p => rotateCabinetPoint(currentCabinet, p));
@@ -231,9 +233,9 @@ function makeScene(project, options, direction) {
     const position = part.position, pw = number(part.finishedWidth, part.width), ph = number(part.finishedHeight, part.height), pt = number(part.thickness);
     if (!position || !part.orientation || /(?:Дверь \d+|Фасад ящика \d+)$/i.test(part.name)) return;
     const component = part.component || part.role || (/полка \d+$/i.test(part.name) ? 'shelf' : /задняя стенка(?: выреза)?$/i.test(part.name) ? 'back' : /^Возвратная/i.test(part.name) ? 'cutout-return' : part.partitionId || /перегородка \d+$/i.test(part.name) ? 'partition' : 'body');
-    const section = modelLayout(c, project).sections.find(s => s.id === part.sectionId);
+    const layout=currentLayout||modelLayout(c,project),section=part.interiorSectionId?layout.internalSections?.find(s=>s.id===part.interiorSectionId):layout.sections.find(s => s.id === part.sectionId);
     if (component === 'shelf' && (!c.layout || section?.node.front === 'drawers')) return;
-    const extras = { component, sectionId: part.sectionId, partId: part.id, braceId: part.braceId, internalDrawerIndex:part.internalDrawerIndex, noCutout: true };
+    const extras = { component, sectionId: part.sectionId, interiorSectionId:part.interiorSectionId, parentSectionId:part.parentSectionId, partId: part.id, braceId: part.braceId, internalDrawerIndex:part.internalDrawerIndex, noCutout: true };
     const internal=component.startsWith('internal-drawer')?engine.getInternalDrawerLayout(c,project).find(drawer=>drawer.sectionId===part.sectionId&&drawer.index===part.internalDrawerIndex):null;
     const slide = internal&&options.doorsOpen&&options.internalDrawersOpen ? Math.min(internal.box.depth*.48,260) : component === 'pull-out-shelf' && options.doorsOpen ? Math.min(number(section?.usableDepth, number(section?.depth, c.depth)) * .48, 260) : 0;
     const x = c.x + position.x, y = c.y + c.plinth + position.y, z = c.z + position.z + slide, color = material(project, part.materialId).color;
@@ -328,6 +330,7 @@ function makeScene(project, options, direction) {
     const c = cabinetData(project, raw), { x, y, z, width: w, height: h, depth: d, thickness: t, plinth: p, id } = c;
     currentCabinet = c;
     const layout = modelLayout(raw, project);
+    currentLayout=layout;
     const bodyY = y + p, bodyH = Math.max(t * 2, h - p), backT = c.backThickness, bodyZ = z + backT, bodyD = Math.max(t, d - backT), frontT = c.frontThickness;
     if (y <= .1) {
       const footprint = engine.getCabinetFootprint?.(raw) || [{ x: 0, z: 0 }, { x: w, z: 0 }, { x: w, z: d }, { x: 0, z: d }];
@@ -379,12 +382,16 @@ function makeScene(project, options, direction) {
     }
     if (p > 0) {
       const portals = layout.sections.filter(s => s.floorOpen || (s.node.floor === 'open' && s.y <= 0));
-      for (const [footX, footZ] of raw.sidesToFloor === true ? [] : [[35, 35], [w - 70, 35], [35, d - 75], [w - 70, d - 75]]) {
+      // Positional section panels define the support geometry. The old visual
+      // feet remain only for uniform legacy carcasses; local bases may be at
+      // different heights and must not receive invented full-height supports.
+      const localBases = layout.sections.some(s => s.floorEligible && s.node.plinthHeight != null);
+      for (const [footX, footZ] of raw.sidesToFloor === true || localBases ? [] : [[35, 35], [w - 70, 35], [35, d - 75], [w - 70, d - 75]]) {
         if (portals.some(s => footX < s.x + s.width && footX + 35 > s.x)) continue;
         box(x + footX, y + 4, z + footZ, 35, Math.max(5, p - 4), 35, '#6e6b61', id, { component: 'leg' });
       }
       const plinthGap = number(raw.gap, 2);
-      if (!modelParts.some(part => part.position && (part.role === 'plinth' || part.component === 'plinth' || /^Цокольная/i.test(part.name)))) {
+      if (!raw.layout && !modelParts.some(part => part.position && (part.role === 'plinth' || part.component === 'plinth' || /^Цокольная/i.test(part.name)))) {
         // Legacy files without positional plinth metadata still use their
         // original slab. Floor portals are excluded even in that fallback.
         const intervals = [plinthGap, w - plinthGap, ...portals.flatMap(s => [s.frontX, s.frontX + s.frontWidth])].sort((a, b) => a - b);
@@ -917,10 +924,10 @@ export class FurnitureViewport {
   drawSectionSelection(projectPoint) {
     const raw = (this.project.cabinets || []).find(c => c.id === this.selectedId);
     if (!raw) return;
-    const section = modelLayout(raw, this.project).sections.find(s => s.id === this.options.selectedSectionId);
+    const layout=modelLayout(raw,this.project), section=[...layout.sections,...(layout.internalSections||[])].find(s => s.id === this.options.selectedSectionId);
     if (!section) return;
-    const c = cabinetData(this.project, raw), sy = c.y + c.plinth + section.y, sx = c.x + section.x, sz = c.z + c.backThickness;
-    const pts = corners({ min: [sx, sy, sz], max: [sx + section.width, sy + section.height, sz + section.depth] }).map(p => projectPoint(rotateCabinetPoint(c, p)));
+    const c = cabinetData(this.project, raw), sy = c.y + c.plinth + section.y, sx = c.x + section.x, sz = c.z + c.backThickness + number(section.rearOffset);
+    const pts = corners({ min: [sx, sy, sz], max: [sx + section.width, sy + section.height, sz + number(section.usableDepth,section.depth)] }).map(p => projectPoint(rotateCabinetPoint(c, p)));
     const ctx = this.ctx;
     ctx.save(); ctx.strokeStyle = '#00b8a8'; ctx.lineWidth = 2.2;
     ctx.beginPath();
@@ -982,6 +989,12 @@ function svgTextBlock(position, lines, fontSize = 11, maxWidth = 210) {
   return `<g><rect x="${round(position[0] - width / 2)}" y="${round(position[1] - height / 2)}" width="${round(width)}" height="${height}" rx="3" fill="white" fill-opacity=".92"/>${lines.map((line, i) => `<text x="${round(position[0])}" y="${round(position[1] - height / 2 + 7 + fontSize + i * (fontSize + 3))}" text-anchor="middle" font-size="${fontSize}" fill="#334a40">${escape(line)}</text>`).join('')}</g>`;
 }
 
+function interiorSectionMark(layout,section){
+  if(!section)return '—';
+  const outer=layout.sections.findIndex(item=>item.id===section.parentSectionId),siblings=(layout.internalSections||[]).filter(item=>item.parentSectionId===section.parentSectionId);
+  return `S${outer+1}.${siblings.findIndex(item=>item.id===section.id)+1}`;
+}
+
 function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, language = 'ru', compact = false) {
   const t = text => translatePrintText(text, language), n = value => printNumber(number(value), language), unit = language === 'ru' ? 'мм' : 'mm';
   const layout = modelLayout(cabinet, source), bodyY = number(cabinet.y) + number(cabinet.plinth), x = number(cabinet.x), z = number(cabinet.z) + cabinetData(source, cabinet).backThickness;
@@ -990,7 +1003,9 @@ function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, la
     return engine.generateParts(source).filter(part => part.braceId || part.role === 'brace' || part.component === 'brace').map((part, i) => {
       const position = part.position, bottom = number(cabinet.plinth) + number(position.y);
       const point = camera.project([x + position.x + number(part.finishedWidth, part.width) / 2, bodyY + position.y + number(part.finishedHeight, part.height) / 2, number(cabinet.z) + position.z]);
-      return svgTextBlock(point, compact ? [`C${i + 1} · ${n(bottom)} ${unit}`] : [`C${i + 1} · ${n(part.width)} × ${n(part.height)} × ${n(part.thickness)} ${unit}`, `${t('Низ от основания шкафа:')} ${n(bottom)} ${unit}`], compact ? 9.2 : 10, 290);
+      const sectionIndex=layout.sections.findIndex(section=>section.id===part.sectionId), localBottom=!part.sectionId||part.braceBaseY == null ? null : number(position.y)-number(part.braceBaseY);
+      const mark=`C${i+1}${sectionIndex<0?'':` · S${sectionIndex+1}`}`;
+      return `<g data-brace-id="${escape(part.braceId||part.id)}"${part.sectionId?` data-section-id="${escape(part.sectionId)}"`:''} data-mount-cabinet-mm="${round(bottom)}"${localBottom==null?'':` data-mount-section-mm="${round(localBottom)}"`}>${svgTextBlock(point, compact ? [`${mark} · ${n(bottom)} ${unit}`] : [`${mark} · ${n(part.width)} × ${n(part.height)} × ${n(part.thickness)} ${unit}`, `${t('Низ от основания шкафа:')} ${n(bottom)} ${unit}`, ...(localBottom==null?[]:[`${t('Низ от основания секции:')} ${n(localBottom)} ${unit}`])], compact ? 9.2 : 10, 310)}</g>`;
     }).join('');
   }
   if (!['front', 'interior'].includes(view)) return '';
@@ -1011,10 +1026,15 @@ function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, la
     });
   } else {
     layout.sections.forEach((section, i) => {
-      const hasInternal=number(section.node.internalDrawerCount)>0;
+      const hasInternal=number(section.node.internalDrawerCount)>0||Boolean(section.node.interiorLayout);
       const position = camera.project([x + section.x + section.width / 2, bodyY + section.y + (hasInternal?section.height+16:section.height/2), z + section.depth]);
       const axis=mountingById.get(section.id), axisLine=axis?.height == null ? t(axis?.bottom == null?'Нет нижней оси крепления':'Нет пары осей крепления') : `A ${n(axis.height)} ${unit}`;
       if (!compact || section.height * camera.scale >= 19) output += svgTextBlock(position, compact||hasInternal ? [`S${i + 1} ${n(section.width)}×${n(section.height)}`] : [`S${i + 1} · ${translateBuiltInName(section.node.name,language,'section') || t('секция')}`, `${t('Проём')} ${n(section.width)} × ${n(section.height)} ${unit}`, `${t('Полезная глубина')} ${n(section.usableDepth ?? section.depth)} ${unit}`, ...(dimensions?[axisLine]:[])], compact||hasInternal ? 9.2 : Math.min(11, Math.max(8, section.width * camera.scale / 23)), 230);
+    });
+    (layout.internalSections||[]).forEach(section=>{
+      const mark=interiorSectionMark(layout,section),drawers=section.node.front==='drawers',position=camera.project([x+section.x+section.width/2,bodyY+section.y+(drawers?section.height+12:section.height/2),z+section.depth]);
+      const lines=compact||drawers?[`${mark} ${n(section.width)}×${n(section.height)}`]:[`${mark} · ${translateBuiltInName(section.node.name,language,'section')||t('секция')}`,`${t('Проём')} ${n(section.width)} × ${n(section.height)} ${unit}`,`${t('Полезная глубина')} ${n(section.usableDepth??section.depth)} ${unit}`];
+      output+=`<g data-interior-section="${escape(section.id)}" data-parent-section-id="${escape(section.parentSectionId)}" data-section-mark="${mark}" data-opening-width-mm="${round(section.width)}" data-opening-height-mm="${round(section.height)}">${svgTextBlock(position,lines,9.2,230)}</g>`;
     });
     engine.getInternalDrawerLayout(cabinet,source).forEach((drawer,index)=>{
       const position=camera.project([x+drawer.x+drawer.width/2,bodyY+drawer.y+drawer.height/2,z+drawer.depth]);
@@ -1022,21 +1042,28 @@ function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, la
     });
   }
   if (dimensions) {
+    layout.sections.filter(section=>section.floorEligible&&section.node.plinthHeight!=null&&number(section.effectivePlinth)!==number(cabinet.plinth)).forEach((section,index)=>{
+      const height=number(section.effectivePlinth), sx=x+section.x+section.width/2, sy=number(cabinet.y);
+      if(height<=0)return;
+      const a=camera.project([sx,sy,z+section.depth]), b=camera.project([sx,sy+height,z+section.depth]);
+      output+=`<g data-local-plinth="${escape(section.id)}" data-plinth-height-mm="${round(height)}"><title>${escape(t('Высота цоколя, мм'))}: ${n(height)}</title>${svgDimension(a,b,`P${n(height)}`,compact?10:14)}</g>`;
+    });
     const lanes=[[],[],[]];
     mountingAxes.forEach((axis,index)=>{
-      const section=layout.sections.find(section=>section.id===axis.id);
+      const section=[...layout.sections,...(view==='interior'?layout.internalSections||[]:[])].find(section=>section.id===axis.id);
       if (!section) return;
+      const mark=section.parentSectionId?interiorSectionMark(layout,section):`S${layout.sections.findIndex(item=>item.id===section.id)+1}`;
       const attributes=`data-section-axis="${escape(axis.id)}" data-axis-bottom-mm="${axis.bottom ?? 'missing'}" data-axis-top-mm="${axis.top ?? 'missing'}" data-axis-height-mm="${axis.height ?? 'missing'}"`;
       if (axis.height == null) {
         const p=camera.project([x+number(cabinet.width),bodyY+section.y+section.height/2,z+layout.bodyDepth]);
-        output+=`<g ${attributes}><text x="${round(p[0]+(compact?24:48))}" y="${round(p[1]+3)}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${compact?9.2:11}" fill="#586b63">S${index+1} A—</text></g>`;
+        output+=`<g ${attributes}><text x="${round(p[0]+(compact?24:48))}" y="${round(p[1]+3)}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${compact?9.2:11}" fill="#586b63">${mark} A—</text></g>`;
         return;
       }
       const lane=lanes.findIndex(intervals=>intervals.every(interval=>axis.top<=interval.bottom+.001 || axis.bottom>=interval.top-.001));
       if (lane<0) return;
       lanes[lane].push(axis);
       const a=camera.project([x+number(cabinet.width),number(cabinet.y)+axis.bottom,z+layout.bodyDepth]), b=camera.project([x+number(cabinet.width),number(cabinet.y)+axis.top,z+layout.bodyDepth]);
-      output+=`<g ${attributes}>${svgDimension(a,b,`S${index+1} A${n(axis.height)}`,(compact?15:48)+lane*(compact?15:28))}</g>`;
+      output+=`<g ${attributes}>${svgDimension(a,b,`${mark} A${n(axis.height)}`,(compact?15:48)+lane*(compact?15:28))}</g>`;
     });
     output+=`<text x="${compact?10:camera.width-8}" y="${compact?camera.height-1:18}" text-anchor="${compact?'start':'end'}" font-family="Arial, sans-serif" font-size="${compact?9.2:10}" fill="#586b63">A · ${escape(t('Между осями крепления'))}, ${unit}</text>`;
   }
@@ -1080,7 +1107,7 @@ export function createDrawingSvg(project, view = 'front', { cabinetId = null, di
   const geometry = items.map(item => {
     const points = item.screen.map(p => `${round(p[0])},${round(p[1])}`).join(' ');
     if (item.line) return `<polyline points="${points}" fill="none" stroke="${escape(item.color)}" stroke-width="${item.width}"/>`;
-    return `<polygon points="${points}"${item.component ? ` data-component="${escape(item.component)}"` : ''}${item.partId ? ` data-part-id="${escape(item.partId)}"` : ''}${item.sectionId ? ` data-section-id="${escape(item.sectionId)}"` : ''}${item.doorOpening ? ` data-door-opening="${item.doorOpening}" data-front-index="${number(item.frontIndex)+1}"` : ''}${item.wallIndex !== undefined ? ` data-wall-index="${item.wallIndex}"` : ''}${item.window ? ' data-window="true"' : ''}${item.openingKind ? ` data-opening-kind="${item.openingKind}" data-sill-mm="${number(item.openingSill)}"` : ''}${item.doorLeaf ? ' data-door-leaf="true"' : ''} fill="${escape(item.room ? colorShade(item.color, 1.025) : item.color)}" fill-opacity="${item.opacity ?? 1}" stroke="${item.stroke === 'transparent' ? 'none' : '#55594f'}" stroke-width="${item.id ? .9 : .55}"/>`;
+    return `<polygon points="${points}"${item.component ? ` data-component="${escape(item.component)}"` : ''}${item.partId ? ` data-part-id="${escape(item.partId)}"` : ''}${item.sectionId ? ` data-section-id="${escape(item.sectionId)}"` : ''}${item.interiorSectionId?` data-interior-section-id="${escape(item.interiorSectionId)}"`:''}${item.doorOpening ? ` data-door-opening="${item.doorOpening}" data-front-index="${number(item.frontIndex)+1}"` : ''}${item.wallIndex !== undefined ? ` data-wall-index="${item.wallIndex}"` : ''}${item.window ? ' data-window="true"' : ''}${item.openingKind ? ` data-opening-kind="${item.openingKind}" data-sill-mm="${number(item.openingSill)}"` : ''}${item.doorLeaf ? ' data-door-leaf="true"' : ''} fill="${escape(item.room ? colorShade(item.color, 1.025) : item.color)}" fill-opacity="${item.opacity ?? 1}" stroke="${item.stroke === 'transparent' ? 'none' : '#55594f'}" stroke-width="${item.id ? .9 : .55}"/>`;
   }).join('');
   const labels = selected ? cabinetDrawingAnnotations(source, drawingCabinet, view, camera, dimensions, language, compact) : (source.cabinets || []).map(c => {
     const cabinet = cabinetData(source, c);
@@ -1171,6 +1198,72 @@ function compactScheduleSheets(blocks, language) {
   return html;
 }
 
+function hardwarePrintBlocks(project,{cabinetId=null,language='tr'}={}){
+  const t=text=>translatePrintText(text,language),n=value=>printNumber(value,language);
+  const selected=(project.cabinets||[]).find(cabinet=>cabinet.id===cabinetId),source=selected?{...project,cabinets:[selected]}:project,schedule=getProjectHardwareSchedule(source);
+  const block=(name,totals,rows,kind='hardware')=>({kind,title:`${name} · ${t('Фурнитура')}`,intro:`${t('Один комплект направляющих — пара для одного ящика или выдвижной полки.')}${rows.some(row=>row.kind==='hinge'&&row.planned)?` ${t('Количество петель по высоте — предварительный расчёт. Нагрузку и механизм подъёмной двери проверьте по выбранной фурнитуре.')}`:''}`,headings:['№','Фурнитура','Количество','Ед.'],rows:[
+    ['1',t('Ручки'),n(totals.handles),t('шт.')],['2',t('Комплекты направляющих'),n(totals.guideSets),t('Комплект (пара)')],['3',t('Петли'),n(totals.hinges),t('шт.')],
+  ]});
+  const listed=selected||schedule.cabinets.length<2?schedule.cabinets:schedule.cabinets.filter(cabinet=>Object.values(cabinet.totals).some(quantity=>quantity>0));
+  const blocks=listed.map(cabinet=>block(translateBuiltInName(cabinet.cabinetName,language,'cabinet')||t('Корпус'),cabinet.totals,cabinet.rows));
+  if(!selected&&schedule.cabinets.length>1)blocks.push(block(t('Всего по проекту'),schedule.totals,schedule.rows,'hardware-total'));
+  if(!blocks.length)blocks.push(block(t('Всего по проекту'),schedule.totals,[], 'hardware-total'));
+  return blocks;
+}
+
+const HARDWARE_PRINT_CSS='.hardware-schedule{padding:9mm 14mm}.hardware-schedule h1{font:600 16px Arial,sans-serif;margin:0 0 7px}.hardware-schedule p{font:11px/1.5 Arial,sans-serif;margin:0 0 10px}.hardware-schedule table{width:100%;border-collapse:collapse;table-layout:fixed}.hardware-schedule td,.hardware-schedule th{font:10px/1.25 Arial,sans-serif;text-align:left;padding:5px 6px;border-bottom:1px solid #dce4de;overflow-wrap:anywhere}.hardware-schedule td:nth-child(1),.hardware-schedule th:nth-child(1){width:6%}.hardware-schedule td:nth-child(2),.hardware-schedule th:nth-child(2){width:28%}.hardware-schedule td:nth-child(3),.hardware-schedule th:nth-child(3){width:18%}.hardware-schedule article+article{margin-top:5mm}.hardware-schedule small{font:10px Arial,sans-serif;color:#718477}';
+
+/** Ready landscape sheets for the cutting/export document, using the exact
+ * same quantity schedule as the drawings and estimate. Runner quantity is
+ * measured in pairs; it is never multiplied into individual rails. */
+export function generateHardwareHTML(project,{cabinetId=null,language=project.settings?.printLanguage??'tr',compact=project.settings?.compactPrint!==false}={}){
+  language=printLanguage(language,'tr');
+  const blocks=hardwarePrintBlocks(project,{cabinetId,language}),html=compact?compactScheduleSheets(blocks,language):blocks.map(block=>tableSheets(block.title,block.intro,block.headings,block.rows,14,language)).join('');
+  return `<style>${HARDWARE_PRINT_CSS}</style>${html.replaceAll('class="sheet schedule','class="sheet schedule hardware-schedule').replaceAll(translatePrintText('все размеры в миллиметрах',language),translatePrintText('Единицы указаны в ведомости.',language))}`;
+}
+
+const COST_PRINT_CSS='.cost-sheet{padding:9mm 14mm}.cost-sheet .cost-summary h2,.cost-sheet .cost-sources h2{font:600 18px/1.2 Arial,sans-serif;margin:0 0 9px}.cost-sheet p{font:11px/1.5 Arial,sans-serif;margin:0 0 10px}.cost-sheet table{width:100%;border-collapse:collapse;table-layout:fixed}.cost-sheet .cost-summary td,.cost-sheet .cost-summary th{padding:5px 6px;text-align:left;border-bottom:1px solid #dce4de;font:10px/1.35 Arial,sans-serif;overflow-wrap:anywhere}.cost-sheet .cost-summary td:nth-child(1),.cost-sheet .cost-summary th:nth-child(1){width:45%}.cost-sheet .cost-summary td:nth-child(2),.cost-sheet .cost-summary th:nth-child(2){width:12%}.cost-sheet .cost-summary td:nth-child(3),.cost-sheet .cost-summary th:nth-child(3){width:13%}.cost-sheet .cost-summary td:nth-child(4),.cost-sheet .cost-summary th:nth-child(4),.cost-sheet .cost-summary td:nth-child(5),.cost-sheet .cost-summary th:nth-child(5){width:15%}.cost-sheet .cost-summary tfoot th{font-weight:600;background:#f0f5ef}.cost-sheet .cost-summary small{font-size:9px;display:inline;margin:0}.cost-sheet .cost-sources h3{font:600 12px Arial,sans-serif;margin:10px 0 7px}.cost-sheet .cost-sources ul{padding-left:5mm;margin:0}.cost-sheet .cost-sources li{font:10px/1.35 Arial,sans-serif;margin:0 0 6px;overflow-wrap:anywhere}.cost-sheet a{color:#167e75}.cost-sheet>.cost-page-number{font:10px Arial,sans-serif;color:#718477;display:block;margin-top:12px}';
+
+function costPrintSheets(project,{cabinetId=null,language='tr'}={}){
+  const html=renderCostSummary(project,{cabinetId,language}),body=/<tbody>([\s\S]*?)<\/tbody>/.exec(html);
+  if(!body)return '';
+  const rows=body[1].match(/<tr>[\s\S]*?<\/tr>/g)||[],prefix=html.slice(0,body.index)+'<tbody>';
+  let tail=html.slice(body.index+body[0].length),sourcePages='',details=/<details>[\s\S]*?<\/details>/.exec(tail)?.[0];
+  const text=html=>html.replace(/<[^>]*>/g,'');
+  const sourceRows=details?.match(/<li>[\s\S]*?<\/li>/g)||[],sourceRowHeight=row=>Math.max(1,Math.ceil(text(row).length/150))*13.5+6,sourceHeight=sourceRows.reduce((height,row)=>height+sourceRowHeight(row),25);
+  const noteHeight=[...tail.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)].reduce((height,match)=>height+Math.max(1,Math.ceil(text(match[1]).length*6.82/1016))*16.5+10,0);
+  const titleLength=text(/<h2>([\s\S]*?)<\/h2>/.exec(prefix)?.[1]||'').length,headerHeight=120+Math.max(0,Math.ceil(titleLength*18*.62/1016)-1)*22;
+  if(details){
+    // Keep the references beside a short estimate whenever a readable final
+    // row, total and notes still fit. Source count alone is not a page break.
+    if(sourceHeight+noteHeight+headerHeight+50>690){
+      tail=tail.replace(details,'');
+      let list=[],height=0;
+      const flush=()=>{if(!list.length)return;sourcePages+=`<section class="sheet schedule cost-sheet" data-schedule-kind="price-sources" data-estimated-content-height="${Math.ceil(height+60)}" data-content-height-limit="725"><article class="cost-sources"><h2>${escape(translatePrintText('Источники цен',language))}</h2><ul>${list.join('')}</ul></article></section>`;list=[];height=0;};
+      for(const row of sourceRows){const next=sourceRowHeight(row);if(list.length&&height+next>640)flush();list.push(row);height+=next;}flush();
+    }else tail=tail.replace(details,details.replace('<details>','<div class="cost-sources">').replace('</details>','</div>').replace('<summary>','<h3>').replace('</summary>','</h3>'));
+  }
+  const widths=[.45,.12,.13,.15,.15],rowHeight=row=>10+13.5*Math.max(1,...[...row.matchAll(/<td>([\s\S]*?)<\/td>/g)].map((cell,index)=>Math.ceil(text(cell[1]).length*6.2/(1016*widths[index]-12))));
+  const footerHeight=noteHeight+(tail.includes('cost-sources')?sourceHeight:0),lastBudget=Math.max(40,690-headerHeight-footerHeight),chunks=[];
+  let chunk=[],height=0;
+  for(const row of rows){const next=rowHeight(row);if(chunk.length&&height+next>710-headerHeight){chunks.push(chunk);chunk=[];height=0;}chunk.push(row);height+=next;}
+  chunks.push(chunk);
+  const last=chunks[chunks.length-1],lastHeight=()=>last.reduce((height,row)=>height+rowHeight(row),0),overflow=[];
+  while(last.length>1&&lastHeight()>lastBudget)overflow.push(last.shift());
+  if(overflow.length)chunks.splice(chunks.length-1,0,overflow);
+  return chunks.map((rows,index)=>{
+    const final=index===chunks.length-1,content=prefix+rows.join('')+'</tbody>'+(final?tail:'</table></section>'),estimated=headerHeight+rows.reduce((height,row)=>height+rowHeight(row),0)+(final?footerHeight:0);
+    return `<section class="sheet schedule cost-sheet" data-schedule-kind="cost" data-cost-row-count="${rows.length}" data-estimated-content-height="${Math.ceil(estimated)}" data-content-height-limit="725">${content}${chunks.length>1?`<small class="cost-page-number">${index+1} / ${chunks.length}</small>`:''}</section>`;
+  }).join('')+sourcePages;
+}
+
+/** Reusable cost sheets for both drawings and the cutting export. Long tables
+ * retain their rows, and the total appears only on the final estimate sheet. */
+export function generateCostPrintHTML(project,{cabinetId=null,language=project.settings?.printLanguage??'tr'}={}){
+  language=printLanguage(language,'tr');
+  return `<style>${COST_PRINT_CSS}</style>${costPrintSheets(project,{cabinetId,language})}`;
+}
+
 /** Five projections, opening/facade measurements and actual cutting components. */
 function buildDrawingHTML(project, { cabinetId = null, language = project.settings?.printLanguage ?? 'tr', compact = project.settings?.compactPrint !== false } = {}) {
   language = printLanguage(language,'tr');
@@ -1186,25 +1279,29 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
     const geometry = selected ? modelLayout(selected,project) : null, fronts = selected ? getFrontLayout(selected,project) : [];
     const scale = selected ? Math.min(184 / (selected.width + 18),215 / selected.height) : 0;
     const readable = (width,height,label) => height * scale >= 22 && width * scale >= label.length * 9.2 * .54 + 2;
-    const six = selected && geometry.sections.length <= 6 && fronts.length <= 8 && !selected.rearBraces?.length && !engine.getInternalDrawerLayout(selected,project).length && !geometry.sections.some(s=>s.node.appliance) && geometry.sections.every((s,i)=>readable(s.width,s.height,`S${i+1} ${n(s.width)}×${n(s.height)}`)) && fronts.every((f,i)=>readable(f.width,f.height,`F${i+1} ${n(f.width)}×${n(f.height)}`));
+    const six = selected && geometry.sections.length <= 6 && fronts.length <= 8 && !geometry.internalSections?.length && !selected.rearBraces?.length && !engine.getInternalDrawerLayout(selected,project).length && !geometry.sections.some(s=>s.node.appliance||s.node.rearBraces?.length||(s.floorEligible&&s.node.plinthHeight!=null&&number(s.effectivePlinth)!==number(selected.plinth))) && geometry.sections.every((s,i)=>readable(s.width,s.height,`S${i+1} ${n(s.width)}×${n(s.height)}`)) && fronts.every((f,i)=>readable(f.width,f.height,`F${i+1} ${n(f.width)}×${n(f.height)}`));
     const count = six ? 6 : 2, columns = six ? 3 : 2, panel = six ? { width:350,height:335,padding:35 } : { width:530,height:676,padding:55 };
     for (let offset=0;offset<views.length;offset+=count) sheets += `<section class="sheet projection-sheet" data-projections="${Math.min(count,views.length-offset)}"><header><h1>${escape(title)} · ${t('Ортогональные виды')}</h1><p>${t('Все размеры в миллиметрах')} · ${t('Размеры проёмов, фасадов и деталей — в ведомостях')}</p></header><div class="projection-grid" style="grid-template-columns:repeat(${columns},1fr);grid-template-rows:repeat(${six?2:1},1fr)">${views.slice(offset,offset+count).map(view=>`<div class="projection-panel">${createDrawingSvg(project,view,{cabinetId,dimensions:true,language,compact:panel})}</div>`).join('')}</div></section>`;
   } else sheets = views.map(view => `<section class="sheet">${createDrawingSvg(project, view, { cabinetId, dimensions: true, language })}</section>`).join('');
   if (selected) {
     const layout = modelLayout(selected, project);
     const mountingById=new Map(engine.getSectionMountingAxes(selected,project).map(axis=>[axis.id,axis]));
-    const openings = layout.sections.map((section, index) => [`S${index + 1}`, translateBuiltInName(section.node.name,language,'section') || t('Секция'), `${n(section.width)} × ${n(section.height)}`, mountingById.get(section.id)?.height == null ? '—' : n(mountingById.get(section.id).height), n(section.usableDepth ?? section.depth), t(section.node.front === 'doors' ? 'Двери' : section.node.front === 'drawers' ? 'Ящики' : 'Открытая'), section.node.appliance ? `${translateBuiltInName(section.node.appliance.label,language,'appliance') || t('Оборудование')} ${sizeText(section.node.appliance,language)}` : '—']);
+    const localBases=layout.sections.some(section=>section.floorEligible&&section.node.plinthHeight!=null);
+    const openings = layout.sections.map((section, index) => [`S${index + 1}`, translateBuiltInName(section.node.name,language,'section') || t('Секция'), `${n(section.width)} × ${n(section.height)}`, mountingById.get(section.id)?.height == null ? '—' : n(mountingById.get(section.id).height), n(section.usableDepth ?? section.depth), t(section.node.front === 'doors' ? 'Двери' : section.node.front === 'drawers' ? 'Ящики' : 'Открытая'), section.node.appliance ? `${translateBuiltInName(section.node.appliance.label,language,'appliance') || t('Оборудование')} ${sizeText(section.node.appliance,language)}` : '—', ...(localBases?[section.floorEligible?n(section.effectivePlinth):'—',n(number(selected.plinth)+section.y)]:[])]);
     const openingIntro=`${t('Чистый геометрический проём между панелями. Полезная глубина учитывает задний вырез; монтажные зазоры оборудования задаются отдельно.')} ${t('Оси винтов проходят по центру толщины горизонтальных плит. Это расстояние между осями, а не высота проёма.')} ${t('Нет нижней плиты — нет нижней оси крепления.')}`;
-    const openingBlock = {kind:'openings',title:`${title} · ${t('внутренние секции')}`,intro:openingIntro,headings:['Секция', 'Название', 'Проём: Ш × В, мм', 'Между осями крепления, мм', 'Полезная глубина, мм', 'Содержимое', 'Оборудование: Ш × В × Г, мм'],rows:openings};
+    const openingBlock = {kind:'openings',title:`${title} · ${t('внутренние секции')}`,intro:openingIntro,headings:['Секция', 'Название', 'Проём: Ш × В, мм', 'Между осями крепления, мм', 'Полезная глубина, мм', 'Содержимое', 'Оборудование: Ш × В × Г, мм',...(localBases?['Высота цоколя, мм','Низ проёма от основания, мм']:[])],rows:openings};
     const fronts = getFrontLayout(selected, project).map((front, index) => [`F${index + 1}`, t(front.kind === 'door' ? 'Дверь' : 'Фасад ящика'), `S${Math.max(0, layout.sections.findIndex(section => front.sectionId ? section.id === front.sectionId : section.node.front === (front.kind === 'door' ? 'doors' : 'drawers'))) + 1}`, n(front.width), n(front.height), n(cabinetData(project, selected).frontThickness), front.kind==='door'?t(doorOpeningText(doorOpening(front))):'—',t(front.openingMechanism==='push'?'Нажимной push-to-open':'Ручка')]);
     const frontBlock = {kind:'fronts',title:`${title} · ${t('фасады')}`,intro:'Обозначения F соответствуют фронтальному чертежу. Размеры фасадов учитывают заданный зазор и накладку.',headings:['Фасад', 'Тип', 'Секция', 'Ширина, мм', 'Высота, мм', 'Толщина, мм','Направление открытия','Механизм открытия'],rows:fronts};
     const blocks=[openingBlock,frontBlock];
+    if(layout.internalSections?.length)blocks.push({kind:'interior-openings',title:`${title} · ${t('Наполнение за общими дверями')}`,intro:'Внутренние проёмы обозначены номером наружной секции и отсека: S1.1, S1.2. Наружные фасады обозначены F, внутренние фасады ящиков — I.',headings:['Секция','Название','Проём: Ш × В, мм','Между осями крепления, мм','Полезная глубина, мм','Содержимое'],rows:layout.internalSections.map(section=>[interiorSectionMark(layout,section),translateBuiltInName(section.node.name,language,'section')||t('Секция'),`${n(section.width)} × ${n(section.height)}`,mountingById.get(section.id)?.height==null?'—':n(mountingById.get(section.id).height),n(section.usableDepth??section.depth),t(section.node.front==='drawers'?'Ящики':'Открытая')])});
     const internal=engine.getInternalDrawerLayout(selected,project);
-    if(internal.length)blocks.push({kind:'internal-fronts',title:`${title} · ${t('внутренние ящики')}`,intro:'Внутренние фасады и короба находятся за дверями. I соответствует внутреннему чертежу; F обозначает только наружные фасады.',headings:['Фасад','Секция','Ширина, мм','Высота, мм','Толщина, мм','Механизм открытия'],rows:internal.map((drawer,index)=>[`I${index+1}`,`S${Math.max(0,layout.sections.findIndex(section=>section.id===drawer.sectionId))+1}`,n(drawer.width),n(drawer.height),n(drawer.frontThickness),t(drawer.openingMechanism==='push'?'Нажимной push-to-open':'Ручка')])});
+    if(internal.length)blocks.push({kind:'internal-fronts',title:`${title} · ${t('внутренние ящики')}`,intro:'Внутренние фасады и короба находятся за дверями. I соответствует внутреннему чертежу; F обозначает только наружные фасады.',headings:['Фасад','Секция','Ширина, мм','Высота, мм','Толщина, мм','Механизм открытия'],rows:internal.map((drawer,index)=>[`I${index+1}`,drawer.interiorSectionId?interiorSectionMark(layout,layout.internalSections.find(section=>section.id===drawer.interiorSectionId)):`S${Math.max(0,layout.sections.findIndex(section=>section.id===drawer.sectionId))+1}`,n(drawer.width),n(drawer.height),n(drawer.frontThickness),t(drawer.openingMechanism==='push'?'Нажимной push-to-open':'Ручка')])});
+    blocks.push(...hardwarePrintBlocks(project,{cabinetId,language}));
     sheets += compact ? compactScheduleSheets(blocks,language) : blocks.map(block=>schedule(block.title,block.intro,block.headings,block.rows)).join('');
   } else {
     const cabinets = (project.cabinets || []).map((c, index) => [index + 1, translateBuiltInName(c.name,language,'cabinet') || t('Корпус'), n(c.width), n(c.height), n(c.depth), translateMaterialName(material(project, c.materialId).name,language) || t('МДФ')]);
     sheets += schedule(title, 'Ведомость корпусов. Глубина корпуса указана без накладного фасада.', ['№', 'Корпус', 'Ширина, мм', 'Высота, мм', 'Глубина, мм', 'Материал'], cabinets);
+    sheets += generateHardwareHTML(project,{language,compact});
   }
   const appliances = (source.cabinets || []).flatMap(cabinet => modelLayout(cabinet, source).sections.flatMap((section, index) => {
     const appliance = section.node.appliance;
@@ -1217,8 +1314,10 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
   const parts = engine.generateParts(source);
   const braces = parts.filter(part => part.braceId || part.role === 'brace' || part.component === 'brace');
   if (selected && braces.length) {
-    const braceRows = braces.map((part, index) => [`C${index + 1}`, translatePartName(part.name,language), `${n(part.width)} × ${n(part.height)} × ${n(part.thickness)}`, n(number(selected.plinth) + number(part.position.y)), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ')]);
-    sheets += schedule(`${title} · ${t('задние поперечины')}`, 'Высота монтажа измеряется от общего основания шкафа, включая цоколь. Обозначения C соответствуют виду сзади.', ['Поперечина', 'Название', 'Ш × В × Толщина, мм', 'Низ от основания, мм', 'Материал'], braceRows);
+    const layout=modelLayout(selected,project), localBraces=braces.some(part=>part.sectionId);
+    const braceRows = braces.map((part, index) => [`C${index + 1}`, translatePartName(part.name,language), `${n(part.width)} × ${n(part.height)} × ${n(part.thickness)}`, n(number(selected.plinth) + number(part.position.y)), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ'),...(localBraces?[part.sectionId?`S${layout.sections.findIndex(section=>section.id===part.sectionId)+1}`:'—',!part.sectionId||part.braceBaseY==null?'—':n(number(part.position.y)-number(part.braceBaseY))]:[])]);
+    const intro='Высота монтажа измеряется от общего основания шкафа, включая цоколь. Обозначения C соответствуют виду сзади.';
+    sheets += schedule(`${title} · ${t('задние поперечины')}`, `${t(intro)}${localBraces?` ${t('Высота местной поперечины измеряется от нижнего чистого уровня её секции.')}`:''}`, ['Поперечина', 'Название', 'Ш × В × Толщина, мм', 'Низ от основания, мм', 'Материал',...(localBraces?['Секция','Низ от основания секции, мм']:[])], braceRows);
   }
   const cutRows = parts.map((part, index) => [index + 1, translatePartName(part.name,language), `${n(part.width)} × ${n(part.height)}`, n(part.thickness), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ'), Object.entries(part.edges || {}).filter(([, edge]) => number(edge) > 0).map(([side, edge]) => `${t({ top: 'верх', bottom: 'низ', left: 'лево', right: 'право' }[side] || side)} ${n(edge)}`).join('; ') || '—',n(engine.getPartEdgeBanding(part).lengthMeters)]);
   const partTitle = `${title} · ${t('детали и короба ящиков')}`, partIntro = 'Точные размеры каждой детали раскроя из инженерной модели. Короба ящиков перечислены отдельно от фасадов. Для L-деталей далее приведён контур.', partHeadings = ['№', 'Деталь / секция', 'Раскрой: Ш × В, мм', 'Толщина, мм', 'Материал', 'Кромка, мм','Расход кромки, м'];
@@ -1249,6 +1348,7 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
   } else sheets += schedule(partTitle,partIntro,partHeadings,cutRows,12);
   if(!edgeAttached)sheets+=edgePage;
   if (selected) for (const part of parts.filter(part => part.outline)) sheets += `<section class="sheet">${createPartSvg(part, project, {language})}</section>`;
+  sheets += costPrintSheets(project,{cabinetId,language});
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escape(title)} — чертежи</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;background:#e8ece7;font:14px Arial,sans-serif;color:#263e35}.toolbar{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:#fff;position:sticky;top:0;box-shadow:0 1px 8px #0001}.toolbar button{background:#167e75;color:#fff;border:0;border-radius:6px;padding:10px 18px;cursor:pointer;font:inherit}.sheet{width:297mm;height:210mm;margin:16px auto;background:#fff;break-after:page;page-break-after:always}.sheet svg{display:block;width:100%;height:100%}.schedule{padding:12mm 16mm}.schedule h1{font-size:20px;line-height:1.2;margin:0 0 10px}.schedule p{color:#607468;font-size:11px;line-height:1.5;margin:0 0 18px}.schedule table{width:100%;border-collapse:collapse;table-layout:fixed}.schedule th{text-align:left;color:#496156;font-size:10px}.schedule td,.schedule th{padding:8px 6px;border-bottom:1px solid #dce4de;font-size:10px;line-height:1.35;overflow-wrap:anywhere;vertical-align:top}.schedule th:nth-child(1),.schedule td:nth-child(1){width:6%}.schedule th:nth-child(2),.schedule td:nth-child(2){width:28%}.schedule th:nth-child(3),.schedule td:nth-child(3){width:18%}.schedule small{display:block;margin-top:16px;font-size:10px;color:#718477}.sheet:last-child{break-after:auto;page-break-after:auto}@media print{body{background:#fff}.toolbar{display:none}.sheet{margin:0;box-shadow:none}}@media screen and (max-width:1150px){.sheet{width:94vw;height:auto;aspect-ratio:297/210}.schedule{height:auto;min-height:70vw}}</style></head><body><div class="toolbar"><span>${escape(title)} · чертежи, фасады и детали · мм</span><button onclick="window.print()">Печать / сохранить PDF</button></div>${sheets}</body></html>`;
 }
 
@@ -1265,7 +1365,8 @@ export function generateDrawingHTML(project, options = {}) {
     .replace(' — чертежи</title>',` — ${t('чертежи')}</title>`)
     .replace(' · чертежи, фасады и детали · мм</span>',` · ${t('чертежи, фасады и детали')} · ${language==='ru'?'мм':'mm'}</span>`)
     .replace('>Печать / сохранить PDF</button>',`>${t('Печать / сохранить PDF')}</button>`)
-    .replace('<style>',`<style>${gridCSS}${edgeCSS}`);
+    .replace('<style>',`<style>${gridCSS}${edgeCSS}`)
+    .replace('</style>',`${HARDWARE_PRINT_CSS}${COST_PRINT_CSS}</style>`);
 }
 
 /** One landscape A4 sheet of the selected cabinet's captured current 3D view.

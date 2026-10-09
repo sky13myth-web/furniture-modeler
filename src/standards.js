@@ -43,6 +43,14 @@ export const MATERIAL_PRESETS = [
   { id: 'yildiz-gloss-white-18', name: 'Yıldız Kapak Panel · High Gloss White HG_068 · 18 мм', type: 'MDF с глянцевым покрытием', color: '#f1f1eb', thickness: 18, sheetWidth: 1220, sheetHeight: 2800, grain: false, edgeBand: 1, manufacturer: 'Yıldız Entegre', decorCode: 'HG_068', sourceUrl: 'https://www.yildizentegre.com/en/products/front-panel/hg-white-hg-068' },
 ];
 
+// A requested thin back-panel allowance, kept separate from the verified
+// Yıldız factory articles. The workshop chooses the actual fibreboard product.
+export const THIN_BACK_PRESET = {
+  id: 'thin-back-3', name: 'Arkalık levhası · 3 mm', type: 'Lif levha',
+  color: '#e7dfcf', thickness: 3, sheetWidth: 2100, sheetHeight: 2800,
+  grain: false, edgeBand: 0
+};
+
 export const HARDWARE_PRESETS = [
   {
     id: 'side-13', name: 'Боковые направляющие · 13 мм', drawerSlideGap: 13, gap: 2,

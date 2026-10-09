@@ -2,7 +2,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import {createDefaultProject,generateParts,optimizeCutting} from '../src/engine.js';
 import {checkImport} from '../src/project-io.js';
 import {createDrawingSvg,generateDrawingHTML} from '../src/renderer.js';
-import {createLaundryExample} from '../src/examples.js';
+import {createLaundryExample,createInteriorExample} from '../src/examples.js';
 
 const project=createDefaultProject();
 checkImport(project);
@@ -35,3 +35,11 @@ await save('internal-drawers.atolye.json',JSON.stringify({application:'ATÖLYE',
 await save('internal-drawers.html',generateDrawingHTML(internal,{cabinetId:internal.cabinets[0].id}));
 for(const view of ['front','interior'])
   await save(`internal-drawers-${view}.svg`,createDrawingSvg(internal,view,{cabinetId:internal.cabinets[0].id}));
+
+const compartments=createInteriorExample();
+checkImport(compartments);
+await save('interior-compartments.atolye.json',JSON.stringify({application:'ATÖLYE',version:2,project:compartments},null,2));
+for(const view of ['front','interior','back','left','right','top'])
+  await save(`interior-compartments-${view}.svg`,createDrawingSvg(compartments,view,{cabinetId:compartments.cabinets[0].id}));
+await save('interior-compartments.html',generateDrawingHTML(compartments,{cabinetId:compartments.cabinets[0].id}));
+await save('interior-compartments-cutting.json',JSON.stringify(optimizeCutting(generateParts(compartments),compartments.materials,compartments.settings),null,2));

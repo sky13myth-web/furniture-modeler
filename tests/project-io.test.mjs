@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDefaultProject, validateProject } from '../src/engine.js';
-import { checkImport, csvCell } from '../src/project-io.js';
+import { checkImport, csvCell, validateLayoutSchema, validateHingesPerDoor } from '../src/project-io.js';
 import { remapWindows } from '../src/room-geometry.js';
 
 const changed = mutator => {
@@ -226,6 +226,77 @@ test('floor portals, absent bottoms, rear braces and pull-out shelves roundtrip 
   }
 });
 
+test('section plinths and back modes roundtrip without replacing inherited or inactive settings', () => {
+  const project = createDefaultProject(), cabinet = project.cabinets[0], nodes = cabinet.layout.children;
+  cabinet.rearBraces = [{ id: 'old-cabinet-brace', y: 2000, height: 100, materialId: cabinet.materialId }];
+  const legacyBraces = structuredClone(cabinet.rearBraces);
+  nodes[0].plinthHeight = null; nodes[0].back = 'solid';
+  nodes[1].plinthHeight = 0; nodes[1].back = 'panel';
+  nodes[2].plinthHeight = 180; nodes[2].back = 'braces';
+  nodes[2].rearBraces = [{ id: 'section-brace', y: 250, height: 80, materialId: cabinet.materialId }];
+  for (const includeBack of [true, false]) {
+    cabinet.includeBack = includeBack;
+    const restored = JSON.parse(JSON.stringify(project)), before = structuredClone(restored);
+    freeze(restored);
+    assert.equal(checkImport(restored), restored);
+    assert.deepEqual(restored, before, 'inactive local backs and plinth data are retained verbatim');
+    assert.deepEqual(restored.cabinets[0].rearBraces, legacyBraces, 'legacy cabinet braces are not moved into a section');
+  }
+  for (const back of ['inherit', 'none', 'panel', 'solid', 'braces']) {
+    nodes[0].back = back; assert.doesNotThrow(() => checkImport(project));
+  }
+  delete nodes[0].plinthHeight;
+  assert.equal(checkImport(project).cabinets[0].layout.children[0].plinthHeight, undefined);
+  for (const value of [-1, 6001, '100', false, {}, NaN, Infinity]) {
+    nodes[0].plinthHeight = value;
+    assert.throws(() => checkImport(project), /Секция: высота цоколя/);
+  }
+  nodes[0].plinthHeight = 6000; assert.doesNotThrow(() => checkImport(project));
+  for (const value of [null, true, 'rails', [], {}]) {
+    nodes[0].back = value; assert.throws(() => checkImport(project), /тип задней стенки/);
+  }
+});
+
+test('section braces validate their bounded geometry and material references independently of the global back', () => {
+  const base = createDefaultProject(), cabinet = base.cabinets[0], node = cabinet.layout.children[2];
+  node.back = 'braces'; node.rearBraces = [{ id: 'brace', y: 0, height: 100, materialId: cabinet.materialId }];
+  const invalid = [
+    [n => { n.rearBraces = null; }, /Поперечины секции: ожидается список/],
+    [n => { n.rearBraces = [null]; }, /Поперечина секции/],
+    [n => { n.rearBraces[0].id = ''; }, /идентификатор/],
+    [n => { n.rearBraces.push({ ...n.rearBraces[0] }); }, /повторяющийся/],
+    [n => { n.rearBraces[0].y = -1; }, /высота от дна секции/],
+    [n => { n.rearBraces[0].y = 6001; }, /высота от дна секции/],
+    [n => { n.rearBraces[0].y = '100'; }, /высота от дна секции/],
+    [n => { n.rearBraces[0].height = 0; }, /высота/],
+    [n => { n.rearBraces[0].height = Infinity; }, /высота/],
+    [n => { n.rearBraces[0].height = 6001; }, /высота/],
+    [n => { n.rearBraces[0].materialId = 'missing'; }, /материал не найден/],
+    [n => { n.rearBraces[0].materialId = null; }, /материал не найден/],
+    [n => { n.rearBraces = Array.from({ length: 41 }, (_, index) => ({ id: `brace-${index}`, y: 0, height: 80 })); }, /не более 40/],
+  ];
+  for (const includeBack of [true, false]) for (const [mutate, pattern] of invalid) {
+    const project = structuredClone(base); project.cabinets[0].includeBack = includeBack;
+    mutate(project.cabinets[0].layout.children[2]); assert.throws(() => checkImport(project), pattern);
+  }
+  delete node.rearBraces[0].materialId;
+  assert.doesNotThrow(() => checkImport(base), 'an absent brace material inherits the cabinet material');
+  assert.doesNotThrow(() => validateLayoutSchema(cabinet.layout), 'standalone engine validation needs no material catalogue');
+  node.rearBraces[0].materialId = 18;
+  assert.throws(() => validateLayoutSchema(cabinet.layout), /материал/);
+});
+
+test('forty section braces and reused IDs in different section scopes survive JSON without geometry repair', () => {
+  const project = createDefaultProject(), nodes = project.cabinets[0].layout.children;
+  nodes[0].back = 'braces'; nodes[2].back = 'braces';
+  nodes[0].rearBraces = Array.from({ length: 40 }, (_, index) => ({ id: `brace-${index}`, y: index * 100, height: 80 }));
+  nodes[2].rearBraces = [{ id: 'brace-0', y: 6000, height: 6000 }];
+  nodes[2].floor = 'open'; nodes[2].plinthHeight = 220;
+  const restored = JSON.parse(JSON.stringify(project));
+  assert.deepEqual(checkImport(restored), project, 'physical overlaps or an ignored open-floor plinth remain engine warnings rather than destructive import repairs');
+  assert.equal(restored.cabinets[0].layout.children[0].rearBraces.length, 40);
+});
+
 test('door wall openings roundtrip while untyped older openings remain windows', () => {
   const project = createDefaultProject();
   assert.equal(project.room.windows[0].kind, undefined);
@@ -376,4 +447,131 @@ test('internal drawers, configurable hinge allowance and push opening roundtrip 
   node.openingMechanism = 'handle';
   delete project.cabinets[0].drawerMaterialId;
   assert.throws(() => checkImport(project), /материал короба ящика/);
+});
+
+const innerLeaf = (id, extra = {}) => ({ id, kind: 'section', front: 'open', shelves: 0, ...extra });
+const innerSplit = (id, axis, children) => ({ id, kind: 'split', axis, children, sizes: children.map(() => 1) });
+const interiorProject = interiorLayout => {
+  const project = createDefaultProject();
+  project.cabinets[0].layout = { id: 'shared-doors', kind: 'section', front: 'doors', doors: 2, shelves: 0, interiorLayout };
+  return project;
+};
+
+test('shelves and drawers behind shared outer doors preserve the independent inner tree and legacy settings', () => {
+  const tree = innerSplit('inside', 'horizontal', [innerLeaf('shelves', { shelves: 3 }), innerSplit('bottom', 'vertical', [innerLeaf('drawer-bank', { front: 'drawers', drawers: 2, openingMechanism: 'push' }), innerLeaf('pull-out', { pullOutShelf: true })])]);
+  const project = interiorProject(tree), node = project.cabinets[0].layout;
+  node.internalDrawerCount = 4; node.internalDrawerHingeGap = 25; node.doorOpenings = ['left', 'right'];
+  const restored = JSON.parse(JSON.stringify(project)), before = structuredClone(restored);
+  freeze(restored);
+  assert.equal(checkImport(restored), restored); assert.deepEqual(restored, before);
+  assert.equal(restored.cabinets[0].layout.internalDrawerCount, 4, 'unused legacy settings are retained for compatibility');
+  assert.deepEqual(restored.cabinets[0].layout.interiorLayout, tree);
+  assert.doesNotThrow(() => validateLayoutSchema(project.cabinets[0].layout));
+});
+
+test('interior schema rejects inner doors, equipment, recursive interiors and duplicate IDs across the whole cabinet', () => {
+  const base = interiorProject(innerSplit('inside', 'horizontal', [innerLeaf('top'), innerLeaf('bottom', { front: 'drawers', drawers: 2 })]));
+  for (const [mutate, pattern] of [
+    [n => { n.interiorLayout = null; }, /Неверный формат/],
+    [n => { n.front = 'open'; }, /только у секции с дверями/],
+    [n => { n.interiorLayout.children[0].front = 'doors'; }, /только открытые отсеки и ящики/],
+    [n => { n.interiorLayout.children[0].appliance = { type: 'washer', width: 600, height: 850, depth: 600 }; }, /не может содержать технику/],
+    [n => { n.interiorLayout.appliance = null; }, /не может содержать технику/],
+    [n => { n.interiorLayout.children[0].interiorLayout = innerLeaf('nested'); }, /нельзя вкладывать/],
+    [n => { n.interiorLayout.children[0].id = n.id; }, /повторяющийся/],
+    [n => { n.interiorLayout.children[0].id = n.interiorLayout.children[1].id; }, /повторяющийся/],
+    [n => { n.interiorLayout.axis = 'diagonal'; }, /ось разделения/],
+    [n => { n.interiorLayout.sizes = [0, 1]; }, /пропорции/],
+    [n => { n.interiorLayout.children[1].drawers = 1.5; }, /целым числом/],
+    [n => { n.interiorLayout.children[0].pullOutShelf = 'true'; }, /выдвижная полка/],
+    [n => { n.interiorLayout.depth = '500'; }, /Внутренний отсек: глубина/],
+  ]) {
+    const project = structuredClone(base); mutate(project.cabinets[0].layout); assert.throws(() => checkImport(project), pattern);
+  }
+  const outer = createDefaultProject();
+  outer.cabinets[0].layout.children[0].interiorLayout = innerLeaf(outer.cabinets[0].layout.children[2].id);
+  assert.throws(() => checkImport(outer), /повторяющийся/, 'an inner ID cannot collide with a different outer section');
+});
+
+test('the eighty-node and ten-level budgets include both outer and inner compartments', () => {
+  const children = [18, 18, 18, 20].map((count, group) => innerSplit(`group-${group}`, 'horizontal', Array.from({ length: count }, (_, index) => innerLeaf(`leaf-${group}-${index}`))));
+  const project = interiorProject(innerSplit('inside', 'vertical', children));
+  assert.doesNotThrow(() => checkImport(project), 'one outer node plus 79 inner nodes reaches the shared budget exactly');
+  children[0].children.push(innerLeaf('eighty-first')); children[0].sizes.push(1);
+  assert.throws(() => checkImport(project), /80 узлов/);
+  const chain = count => {
+    let node = innerLeaf('deepest');
+    for (let index = 0; index < count; index++) node = innerSplit(`level-${index}`, 'vertical', [node, innerLeaf(`side-${index}`)]);
+    return node;
+  };
+  assert.doesNotThrow(() => checkImport(interiorProject(chain(9))), 'outer depth 0 plus inner depth 1 through 10 fits');
+  assert.throws(() => checkImport(interiorProject(chain(10))), /10 уровней/);
+});
+
+test('drawer materials follow actual interior drawers while inactive legacy drawer counts do not require them', () => {
+  const project = interiorProject(innerLeaf('shelves', { shelves: 3 })), cabinet = project.cabinets[0];
+  cabinet.layout.internalDrawerCount = 2;
+  delete cabinet.drawerMaterialId; delete cabinet.drawerBottomMaterialId;
+  assert.doesNotThrow(() => checkImport(project), 'an explicit shelf-only interior overrides the retained legacy drawer count');
+  cabinet.layout.interiorLayout.front = 'drawers'; cabinet.layout.interiorLayout.drawers = 2;
+  assert.throws(() => checkImport(project), /материал короба ящика/);
+  cabinet.drawerMaterialId = cabinet.materialId;
+  assert.throws(() => checkImport(project), /материал дна ящика/);
+  cabinet.drawerBottomMaterialId = cabinet.backMaterialId;
+  assert.doesNotThrow(() => checkImport(project));
+});
+
+test('hinge overrides round-trip for door sections and legacy cabinets without mutating the project', () => {
+  const project = createDefaultProject();
+  project.cabinets[0].hingesPerDoor = 4;
+  const door = project.cabinets[0].layout.children.find(node => node.front === 'doors');
+  door.hingesPerDoor = 12;
+  const restored = JSON.parse(JSON.stringify(project)), original = structuredClone(restored);
+  freeze(restored);
+  assert.equal(checkImport(restored), restored);
+  assert.deepEqual(restored, original);
+  assert.doesNotThrow(() => checkImport(changed(p => { p.cabinets[0].hingesPerDoor = 2; })));
+  assert.doesNotThrow(() => validateHingesPerDoor(undefined, false));
+});
+
+test('hinge count rejects coercion, invalid bounds and overrides on non-door geometry', () => {
+  for (const value of [null, '3', 1, 13, 2.5, NaN, Infinity]) {
+    rejects(p => { p.cabinets[0].hingesPerDoor = value; }, /целое число от 2 до 12/);
+    const project = createDefaultProject();
+    project.cabinets[0].layout.children.find(node => node.front === 'doors').hingesPerDoor = value;
+    assert.throws(() => checkImport(project), /целое число от 2 до 12/);
+  }
+  rejects(p => { p.cabinets[1].hingesPerDoor = 3; }, /только для секции с дверями/);
+  for (const choose of [layout => layout, layout => layout.children.find(node => node.front === 'drawers')]) {
+    const project = createDefaultProject();
+    choose(project.cabinets[0].layout).hingesPerDoor = 3;
+    assert.throws(() => checkImport(project), /только для секции с дверями/);
+  }
+  const project = interiorProject(innerLeaf('inner-drawers', { front: 'drawers', drawers: 2, hingesPerDoor: 3 }));
+  assert.throws(() => checkImport(project), /только для секции с дверями/);
+});
+
+test('manual TRY prices preserve zero stock costs, fractional quotes and auto reset through JSON', () => {
+  const project = createDefaultProject();
+  project.materials[0].pricePerSheet = 0;
+  project.materials[1].pricePerSheet = 1245.67;
+  project.settings.pricing = { handlePrice: 0, guideSetPrice: 267.41, hingePrice: 1e9, edgeBandPricePerMeter: 6.156 };
+  const restored = JSON.parse(JSON.stringify(project)), original = structuredClone(restored);
+  freeze(restored);
+  assert.equal(checkImport(restored), restored);
+  assert.deepEqual(restored, original);
+  delete project.materials[0].pricePerSheet;
+  delete project.settings.pricing.handlePrice;
+  assert.doesNotThrow(() => checkImport(project), 'deleting a manual rate restores the automatic reference');
+  assert.doesNotThrow(() => checkImport(createDefaultProject()), 'older projects need no pricing fields');
+});
+
+test('manual price import rejects strings, negatives, nonfinite values and malformed rate records', () => {
+  for (const value of [null, '0', -0.01, 1e9 + 1, NaN, Infinity, true]) {
+    rejects(p => { p.materials[0].pricePerSheet = value; }, /цена за лист/);
+    for (const key of ['handlePrice', 'guideSetPrice', 'hingePrice', 'edgeBandPricePerMeter']) {
+      rejects(p => { p.settings.pricing = { [key]: value }; }, /Цена:/);
+    }
+  }
+  for (const value of [null, [], 'prices', 42]) rejects(p => { p.settings.pricing = value; }, /цены фурнитуры/);
 });

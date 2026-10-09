@@ -22,3 +22,12 @@ export function createLaundryExample(language='tr'){
  localize(cabinet.layout);
  return project;
 }
+
+/** One pair of tall doors covers shelves and a separate drawer compartment. */
+export function createInteriorExample(language='tr'){
+ const project=createDefaultProject(language),cabinet=project.cabinets[0];
+ project.name=({ru:'Внутреннее наполнение · пример',tr:'İç düzen · örnek',en:'Interior compartments · example'})[language]??'İç düzen · örnek';
+ Object.assign(cabinet,{name:({ru:'Шкаф с общими дверями',tr:'Ortak kapaklı dolap',en:'Cabinet with shared doors'})[language]??'Ortak kapaklı dolap',width:900,height:2200,depth:620,x:450,z:10,plinth:100,includeBack:false});
+ cabinet.layout={...createSection('doors'),id:'interior-outer',back:'braces',internalDrawerHingeGap:20,rearBraces:[{id:'interior-brace-bottom',y:0,height:100,materialId:cabinet.materialId},{id:'interior-brace-top',y:1964,height:100,materialId:cabinet.materialId}],interiorLayout:{id:'interior-layout',kind:'split',axis:'horizontal',sizes:[3,2],children:[{...createSection('open'),id:'interior-shelves',shelves:3},{...createSection('drawers'),id:'interior-drawers',drawers:2}]}};
+ return project;
+}

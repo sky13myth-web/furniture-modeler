@@ -33,6 +33,81 @@ add(`
 Редактировать этот шкаф|Bu dolabı düzenle|Edit this cabinet
 Габариты шкафа|Dolap ölçüleri|Cabinet dimensions
 Высота цоколя|Baza yüksekliği|Plinth height
+Цоколь в этой секции|Bu bölmedeki baza|Plinth in this section
+Высота цоколя секции|Bölme baza yüksekliği|Section plinth height
+Без цоколя|Bazasız|No plinth
+Общий задник на весь шкаф|Tüm dolabı kaplayan arka panel|Full cabinet back panel
+Выключите общий задник, чтобы настроить заднюю стенку или поперечины секции.|Bölmenin arka panelini veya kayıtlarını ayarlamak için dolabın ortak arka panelini kapatın.|Turn off the full cabinet back panel to configure a section back panel or braces.
+Поперечины секции|Bölme kayıtları|Section braces
+Поперечина секции|Bölme kaydı|Section brace
+Высота от дна секции|Bölme tabanından yükseklik|Height from section bottom
+Толщина поперечины|Kayıt kalınlığı|Brace thickness
+Отсек до пола|Zemine kadar bölme|Floor-level section
+Сзади секции|Bölmenin arkasında|At the back of the section
+Нет свободного места для поперечины в секции.|Bölmede kayıt için boş yer yok.|No free space for a brace in this section.
+Секция: высота цоколя|Bölme: baza yüksekliği|Section: plinth height
+Поперечина секции: высота от дна секции|Bölme kaydı: bölme tabanından yükseklik|Section brace: height from section bottom
+Низ от основания секции, мм|Bölme tabanından alt kenar, mm|Bottom edge above section base, mm
+Низ от основания секции:|Bölme tabanından alt kenar:|Bottom edge above section base:
+Высота цоколя, мм|Baza yüksekliği, mm|Plinth height, mm
+Внутреннее наполнение|İç düzen|Internal layout
+Внутреннее наполнение секции|Bölmenin iç düzeni|Section internal layout
+Выберите внутреннюю секцию · перетаскивайте перегородки · колесо — масштаб|İç bölme seçin · bölme panellerini sürükleyin · tekerlek ile yakınlaştırın|Select an internal section · drag partitions · scroll to zoom
+Внутри секции с дверями нажмите «Внутреннее наполнение»: разделите отсеки и разместите полки и ящики за общими дверями.|Kapaklı bölmede «İç düzen» düğmesine basın: ortak kapakların arkasındaki bölmeleri ayırın, rafları ve çekmeceleri yerleştirin.|In a door section, choose «Internal layout»: divide the compartments and arrange shelves and drawers behind the shared doors.
+Цоколь и задняя конструкция настраиваются для выбранной секции.|Baza ve arka yapı, seçili bölme için ayarlanır.|The plinth and rear construction are configured for the selected section.
+Вернуться к дверям|Kapaklara dön|Back to doors
+Создать внутренние отсеки|İç bölmeler oluştur|Create internal compartments
+Настроить внутренние отсеки|İç bölmeleri düzenle|Configure internal compartments
+Одни двери закрывают все внутренние отсеки. Полки и ящики настраиваются внутри.|Ortak kapaklar tüm iç bölmeleri kapatır. Raflar ve çekmeceler içeride düzenlenir.|One set of doors covers all internal compartments. Shelves and drawers are configured inside.
+Удалить внутренний отсек|İç bölmeyi sil|Delete internal compartment
+Секция с общими дверями|Ortak kapaklı bölme|Section with shared doors
+Фурнитура дверей|Kapak donanımı|Door hardware
+Петель на дверь|Kapak başına menteşe|Hinges per door
+Рассчитать по высоте|Yüksekliğe göre hesapla|Estimate from height
+Количество петель по высоте — предварительная оценка. Уточните его по массе двери и выбранной фурнитуре.|Yüksekliğe göre menteşe sayısı bir ön tahmindir. Kapak ağırlığına ve seçilen donanıma göre doğrulayın.|The hinge count based on height is a preliminary estimate. Check it against the door weight and selected hardware.
+Секция с цоколем всегда имеет собственное дно.|Bazalı bölmenin her zaman kendi alt paneli vardır.|A section with a plinth always has its own bottom panel.
+Фурнитура|Donanım|Hardware
+Цены и смета|Fiyatlar ve maliyet hesabı|Prices and cost estimate
+Цена листа|Levha fiyatı|Sheet price
+Цена ручки|Kulp fiyatı|Handle price
+Цена комплекта направляющих|Ray takımı fiyatı|Guide set price
+Цена петли|Menteşe fiyatı|Hinge price
+Цена кромки за метр|Metre başına kenar bandı fiyatı|Edge band price per metre
+Ориентир|Referans|Reference
+Вручную|Manuel|Manual
+Цена не задана|Fiyat belirtilmedi|Price not set
+Вернуть ориентиры|Referans fiyatları geri yükle|Restore reference prices
+Цены сохраняются в файле проекта. Нулевая цена допустима для имеющихся запасов.|Fiyatlar proje dosyasına kaydedilir. Mevcut stoklar için sıfır fiyat kullanılabilir.|Prices are saved in the project file. A zero price is allowed for existing stock.
+Цены сохраняются в файле проекта и используются для новых проектов на этом компьютере. Нулевая цена допустима для имеющихся запасов.|Fiyatlar proje dosyasına kaydedilir ve bu bilgisayardaki yeni projelerde kullanılır. Mevcut stoklar için sıfır fiyat kullanılabilir.|Prices are saved in the project file and used for new projects on this computer. A zero price is allowed for existing stock.
+Цена за целый лист указанного размера.|Belirtilen ölçüdeki tam levhanın fiyatı.|Price for one full sheet of the stated size.
+Толщина детали отличается от выбранного материала. Выберите материал нужной толщины; цена другого листа не применяется.|Parça kalınlığı seçilen malzemeden farklıdır. Doğru kalınlıkta malzeme seçin; başka levhanın fiyatı uygulanmaz.|The part thickness differs from the selected material. Choose a material with the required thickness; the price of another sheet is not applied.
+Для фурнитуры указан расход по проекту; минимальные упаковки поставщика не учитываются. Исходная цена кромки приведена с НДС 20%.|Donanım miktarı proje ihtiyacına göredir; tedarikçinin minimum ambalaj miktarı hesaba katılmaz. Kenar bandının başlangıç referans fiyatına %20 KDV dahildir.|Hardware quantities reflect project usage; supplier minimum pack sizes are excluded. The initial edge band reference price includes 20% VAT.
+Ориентиры — выборка опубликованных предложений поставщиков, а не средняя цена по всей Турции. Декор, способ оплаты и выбранная модель меняют цену.|Referanslar, tedarikçilerin yayımlanan tekliflerinden alınan örneklerdir; Türkiye genelinin ortalaması değildir. Dekor, ödeme şekli ve seçilen model fiyatı değiştirir.|References sample published supplier offers and are not a nationwide Turkish average. Decor, payment method and model affect the price.
+Цена материала пересчитывается по площади листа. Цена другой толщины или отделки автоматически не выводится.|Malzeme fiyatı levha alanına göre hesaplanır. Farklı kalınlık veya yüzey fiyatı otomatik olarak türetilmez.|Material prices are scaled by sheet area. Prices for other thicknesses or finishes are not inferred automatically.
+число петель на дверь должно быть целым числом от 2 до 12.|kapak başına menteşe sayısı 2 ile 12 arasında tam sayı olmalıdır.|the hinge count per door must be an integer from 2 to 12.
+шт.|adet|pcs
+компл. (пара)|takım (çift)|set (pair)
+Петель на дверь: ожидается целое число от 2 до 12.|Kapak başına menteşe: 2 ile 12 arasında tam sayı bekleniyor.|Hinges per door: an integer from 2 to 12 is required.
+Количество петель можно задать только для секции с дверями.|Menteşe sayısı yalnızca kapaklı bölme için ayarlanabilir.|A hinge count can be set only for a section with doors.
+Ящики внутри|İç çekmeceler|Drawers inside
+Полки внутри отсека|İç bölmedeki raflar|Shelves inside compartment
+Внутренний отсек|İç bölme|Internal compartment
+Внутренние отсеки|İç bölmeler|Internal compartments
+Внутренний отсек: глубина|İç bölme: derinlik|Internal compartment: depth
+Внутренний отсек не может содержать технику.|İç bölme cihaz içeremez.|An internal compartment cannot contain an appliance.
+Внутреннее наполнение нельзя вкладывать в другое внутреннее наполнение.|İç düzen başka bir iç düzenin içine yerleştirilemez.|An internal layout cannot be nested inside another internal layout.
+Внутреннее наполнение возможно только у секции с дверями.|İç düzen yalnızca kapaklı bir bölmede kullanılabilir.|An internal layout requires an outer section with doors.
+Внутренний отсек: допустимы только открытые отсеки и ящики.|İç bölmede yalnızca açık bölmeler ve çekmeceler kullanılabilir.|An internal compartment can contain only open compartments or drawers.
+задняя перемычка выходит за высоту секции|arka kayıt bölme yüksekliğinin dışına çıkıyor|the rear brace extends beyond the height of section
+положение задаётся от низа чистого проёма.|konum net açıklığın altından ölçülür.|its position is measured from the bottom of the clear opening.
+задняя перемычка не помещается по глубине корпуса или секции.|arka kayıt gövde veya bölme derinliğine sığmıyor.|the rear brace does not fit within the carcass or section depth.
+глубина секции|bölme derinliği|section depth
+превышает корпус или внешний проём.|gövdeyi veya dış açıklığı aşıyor.|exceeds the carcass or outer opening.
+не касается основания корпуса; собственный цоколь применяется только к нижней секции.|gövde tabanına değmiyor; ayrı baza yalnızca alt bölmeye uygulanır.|does not touch the carcass base; a separate plinth applies only to a bottom section.
+полки секции|bölme rafları|shelves in section
+пересекают внутреннее наполнение; задайте их во внутренних отсеках.|iç düzenle çakışıyor; rafları iç bölmelerde ayarlayın.|overlap the internal layout; configure them inside the internal compartments.
+Тонкий задник · 3 мм|Arkalık levhası · 3 mm|Thin back panel · 3 mm
+Тонкая древесноволокнистая панель|Lif levha|Fibreboard
 Высота потолка|Tavan yüksekliği|Ceiling height
 Дно корпуса|Gövde alt paneli|Carcass bottom
 Задняя стенка|Arka panel|Back panel
@@ -724,6 +799,7 @@ const generatedNames = {
   project: 'Новый проект', defaultProject: 'Шкаф · İstanbul', cabinet: 'Шкаф',
   base: 'Новая тумба', wall: 'Новый навесной шкаф', tall: 'Новый пенал',
   defaultCabinet: 'Шкаф с ящиками в середине', material: 'Новый МДФ',
+  thinBack: 'Тонкий задник · 3 мм', thinBackType: 'Тонкая древесноволокнистая панель',
   upperSection: 'Верхняя секция', drawerSection: 'Ящики в середине', lowerSection: 'Нижняя секция',
   washer: 'Стиральная машина', dryer: 'Сушильная машина', boiler: 'Бойлер', customAppliance: 'Своё оборудование', copy: 'копия',
 };

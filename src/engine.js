@@ -5,8 +5,9 @@
 
 import { getRoomOutline, polygonIsSimple, polygonContained, polygonBoundaryDistance, polygonsOverlap, polygonArea, roomBounds, wallLength, cabinetFootprint, getCabinetFootprint as localFootprint } from './room-geometry.js';
 import { validateLayoutSchema, validateDoorOpenings } from './project-io.js';
-import { MATERIAL_PRESETS } from './standards.js';
+import { MATERIAL_PRESETS, THIN_BACK_PRESET } from './standards.js';
 import { defaultName, localizeMaterialPreset } from './i18n.js';
+import { getInteriorLayout } from './cabinet-interior.js';
 
 export const ENGINE_ASSUMPTIONS = [
   'Все размеры в миллиметрах. Общая высота включает цоколь; открытая нижняя секция может продолжаться до низа шкафа с удалением своего дна и участка цоколя.',
@@ -17,7 +18,8 @@ export const ENGINE_ASSUMPTIONS = [
   'Короба ящиков: зазор направляющих указан на одну сторону, глубина меньше полезной глубины своей секции на 40 мм; передняя и задняя стенки между боковинами; дно накладное.',
   'Внутренние ящики за дверями имеют отдельный отступ для петель (исходно 20 мм с каждой стороны) и свободные 50 мм сверху. Ручка модели выступает на 16 мм: внутренний фасад и короб отодвинуты на этот размер, а push-to-open не требует такого отступа. Настройки нужно сверить с выбранной фурнитурой.',
   'Высота короба ящика на 40 мм меньше фасада, включая толщину дна. Цокольная планка на 10 мм ниже цоколя; регулируемые опоры и фурнитура не входят в раскрой.',
-  'Задние перемычки задаются высотой установки от низа всего шкафа. Выдвижная полка — отдельная панель с боковыми зазорами направляющих; крепления и прочность не рассчитываются.',
+  'Нижние секции могут иметь отдельную высоту цоколя; открытый проём до пола удаляет своё дно и цоколь. Полный задник имеет приоритет над локальными задниками и перемычками. Локальные перемычки задаются от чистого низа своей секции, старые общие — от низа всего шкафа.',
+  'Внутренние отсеки за общими дверями имеют собственные перегородки, полки и ящики. Выдвижная полка — отдельная панель с боковыми зазорами направляющих; крепления и прочность не рассчитываются.',
   'Направление текстуры идёт вдоль высоты детали; детали с текстурой не поворачиваются. Раскрой эвристический, использует ограничивающие прямоугольники фигурных деталей и не гарантирует минимальное число листов.',
   'Метраж кромки считается по выбранным внешним сторонам готовой детали. У фигурных деталей внутренние ступени выреза автоматически не оклеиваются.',
   'Типовые параметры производства в Турции — настраиваемые. Соответствие конкретным TS/EN, классу эмиссии и требованиям фурнитуры подтверждается поставщиком и технологом.'
@@ -202,16 +204,24 @@ export function getCabinetLayout(cabinet, project = { materials: [] }) {
     if (node.kind !== 'split' || !Array.isArray(node.children) || node.children.length < 2) {
       const floorEligible = Math.abs(rect.y - bottomOrigin) < EPSILON;
       const floorOpen = floorEligible && node.floor === 'open';
-      const floorExtra = floorOpen ? rect.y + number(cabinet.plinth) : 0;
-      const sectionRect = floorOpen ? { ...rect, y: -number(cabinet.plinth) || 0, height: rect.height + floorExtra } : rect;
+      const effectivePlinth = floorOpen ? 0 : floorEligible && node.plinthHeight !== null && node.plinthHeight !== undefined ? Math.max(0, number(node.plinthHeight)) : number(cabinet.plinth);
+      const bottomPanelY = effectivePlinth - number(cabinet.plinth);
+      const hasBottom = floorEligible && !floorOpen && (cabinet.includeBottom !== false || effectivePlinth > 0);
+      const actualY = floorOpen ? -number(cabinet.plinth) : floorEligible ? bottomPanelY + (hasBottom ? thickness : 0) : rect.y;
+      const floorExtra = rect.y - actualY;
+      const sectionRect = { ...rect, y: actualY || 0, height: rect.height + floorExtra };
       const left = Math.abs(rect.x - thickness) < EPSILON ? gap : rect.x - thickness / 2 + gap / 2;
-      const bottom = floorOpen ? sectionRect.y + gap : floorEligible ? gap : rect.y - thickness / 2 + gap / 2;
+      const bottom = floorOpen ? sectionRect.y + gap : floorEligible ? bottomPanelY + gap : rect.y - thickness / 2 + gap / 2;
       const right = Math.abs(rect.x + rect.width - width + thickness) < EPSILON ? width - gap : rect.x + rect.width + thickness / 2 - gap / 2;
       const top = Math.abs(rect.y + rect.height - bodyHeight + thickness) < EPSILON ? bodyHeight - gap : rect.y + rect.height + thickness / 2 - gap / 2;
       const cutout = cabinet.cutout;
       const overlapsNotch = cutout && (cutout.corner === 'back-right' ? rect.x + rect.width > width - number(cutout.width) - thickness : rect.x < number(cutout.width) + thickness);
-      const rearOffset = overlapsNotch ? Math.max(0, number(cutout.depth)) : 0;
-      sections.push({ id: node.id, node, ...sectionRect, floorEligible, floorOpen, floorExtra, rearOffset, usableDepth: Math.max(0, depth - rearOffset), frontX: left, frontY: bottom, frontWidth: right - left, frontHeight: top - bottom });
+      const notchRearOffset = overlapsNotch ? Math.max(0, number(cutout.depth)) : 0;
+      const backMode = cabinet.includeBack !== false ? 'global' : ['solid', 'panel'].includes(node.back) ? 'solid' : node.back === 'braces' ? 'braces' : 'none';
+      const rearPanelThickness = backMode === 'global' ? backThickness(cabinet, project) : backMode === 'solid' ? number(cabinet.backThickness, number(stockById(project, cabinet.backMaterialId)?.thickness, 8)) : 0;
+      const rearInset = backMode === 'solid' ? rearPanelThickness : 0;
+      const rearOffset = notchRearOffset + rearInset;
+      sections.push({ id: node.id, node, ...sectionRect, floorEligible, floorOpen, floorExtra, effectivePlinth, bottomPanelY, hasBottom, backMode, rearPanelThickness, rearInset, notchRearOffset, rearOffset, usableDepth: Math.max(0, depth - rearOffset), frontX: left, frontY: bottom, frontWidth: right - left, frontHeight: top - bottom });
       return;
     }
     const horizontal = node.axis === 'horizontal';
@@ -234,14 +244,22 @@ export function getCabinetLayout(cabinet, project = { materials: [] }) {
     });
   };
   visit(layout, { x: thickness, y: bottomOrigin, width: Math.max(0, width - 2 * thickness), height: Math.max(0, bodyHeight - thickness - bottomOrigin), depth: bodyDepth });
-  const floorSections = sections.filter(section => section.floorOpen);
   for (const partition of partitions) {
     if (partition.axis !== 'vertical' || Math.abs(partition.y - bottomOrigin) > EPSILON) continue;
-    if (floorSections.some(section => Math.abs(section.x + section.width - partition.x) < EPSILON || Math.abs(section.x - partition.x - partition.width) < EPSILON)) {
-      partition.height += partition.y + number(cabinet.plinth); partition.y = -number(cabinet.plinth) || 0; partition.floorExtended = true;
+    const adjacent = sections.filter(section => section.floorEligible && (Math.abs(section.x + section.width - partition.x) < EPSILON || Math.abs(section.x - partition.x - partition.width) < EPSILON));
+    if (adjacent.length) {
+      const bottom = Math.min(...adjacent.map(section => section.y));
+      partition.height += partition.y - bottom;
+      partition.floorExtended = bottom < partition.y - EPSILON;
+      partition.y = bottom || 0;
     }
   }
-  return { sections, partitions, nodes, thickness, bodyHeight, bodyDepth };
+  const internalSections = [], internalPartitions = [], internalNodes = [];
+  for (const section of sections) if (section.node.front === 'doors' && section.node.interiorLayout) {
+    const interior = getInteriorLayout(section, thickness);
+    internalSections.push(...interior.sections); internalPartitions.push(...interior.partitions); internalNodes.push(...interior.nodes);
+  }
+  return { sections, partitions, nodes, internalSections, internalPartitions, internalNodes, thickness, bodyHeight, bodyDepth };
 }
 
 /**
@@ -255,7 +273,7 @@ export function getSectionMountingAxes(cabinet, project = { materials: [] }) {
   const panels = generateParts({ ...project, cabinets: [cabinet] }).filter(part =>
     part.orientation === 'horizontal' && (part.partitionId || part.name === 'Крышка' || part.name.startsWith('Дно корпуса')));
   const plinth = number(cabinet.plinth), back = backThickness(cabinet, project);
-  return layout.sections.map(section => {
+  return [...layout.sections, ...layout.internalSections].map(section => {
     const covers = panel => panel.position.x <= section.x + EPSILON &&
       panel.position.x + panel.finishedWidth >= section.x + section.width - EPSILON &&
       panel.position.z < back + section.depth + EPSILON &&
@@ -265,7 +283,7 @@ export function getSectionMountingAxes(cabinet, project = { materials: [] }) {
     const bottom = bottomPanel ? round(plinth + bottomPanel.position.y + bottomPanel.thickness / 2) : null;
     const top = topPanel ? round(plinth + topPanel.position.y + topPanel.thickness / 2) : null;
     return {
-      id: section.id, bottom, top,
+      id: section.id, ...(section.parentSectionId ? { parentSectionId: section.parentSectionId } : {}), bottom, top,
       height: bottom !== null && top !== null ? round(top - bottom) : null,
       openingHeight: round(section.height),
       bottomThickness: bottomPanel?.thickness ?? null,
@@ -287,6 +305,7 @@ export function splitSection(cabinet, id, axis) {
   if (!found || found.node.kind !== 'section') return false;
   const first = { ...found.node, id: uid('section') };
   const second = createSection('open');
+  if (axis === 'horizontal' && first.plinthHeight !== undefined) { second.plinthHeight = first.plinthHeight; delete first.plinthHeight; }
   if (axis === 'horizontal' && first.floor === 'open') {
     first.floor = 'inherit'; second.floor = 'open';
     second.back = first.back ?? 'inherit'; second.depth = first.depth ?? null;
@@ -451,14 +470,14 @@ export function createDefaultProject(language = 'tr') {
       // IDs are stable internal roles. Display names, thicknesses and sources
       // belong to the confirmed factory article, never to an assumed HDF/MDF.
       const aliases = { 'yildiz-white-18': 'mdf-white', 'yildiz-oak-18': 'mdf-oak', 'yildiz-black-18': 'mdf-sage', 'yildiz-white-8': 'hdf-back' };
-      return MATERIAL_PRESETS.map(material => ({ ...localizeMaterialPreset(material, namingLanguage), id: aliases[material.id] ?? material.id }));
+      return [...MATERIAL_PRESETS.map(material => ({ ...localizeMaterialPreset(material, namingLanguage), id: aliases[material.id] ?? material.id })), { ...THIN_BACK_PRESET, name: defaultName('thinBack', namingLanguage), type: defaultName('thinBackType', namingLanguage) }];
     })(),
     cabinets: [],
     settings: { kerf: 3, margin: 10, allowRotate: true, deductEdge: false, printLanguage: 'tr' }
   };
   const common = {
-    materialId: 'mdf-white', backMaterialId: 'hdf-back', drawerMaterialId: 'mdf-white', drawerBottomMaterialId: 'hdf-back',
-    doors: 0, drawers: 0, shelves: 0, plinth: 100, gap: 2, backThickness: 8, drawerSlideGap: 13, drawerBottomThickness: 8, edgeBand: 1,
+    materialId: 'mdf-white', backMaterialId: 'thin-back-3', drawerMaterialId: 'mdf-white', drawerBottomMaterialId: 'hdf-back',
+    doors: 0, drawers: 0, shelves: 0, plinth: 100, gap: 2, backThickness: 3, drawerSlideGap: 13, drawerBottomThickness: 8, edgeBand: 1,
     y: 0, z: 10, rotation: 0, includeBack: true, includeBottom: true, sidesToFloor: true, rearBraces: []
   };
   project.cabinets = [
@@ -494,7 +513,7 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   const exactThickness = thickness => materials.find(item => number(item.thickness) === thickness)?.id;
   const backMaterialId = exactThickness(3) ?? materials.find(item => item.id === 'hdf-back')?.id ?? exactThickness(8) ?? material?.id;
   const drawerMaterialId = exactThickness(16) ?? material?.id;
-  const drawerBottomMaterialId = exactThickness(6) ?? backMaterialId;
+  const drawerBottomMaterialId = exactThickness(6) ?? exactThickness(8) ?? backMaterialId;
   const existing = project.cabinets ?? [];
   const cabinet = {
     id: uid('cabinet'), type: supportedType, doors: 2, drawers: 0, gap: 2, ...preset,
@@ -582,26 +601,38 @@ export function getInternalDrawerLayout(cabinet, project = { materials: [] }) {
   const back = backThickness(cabinet, project), gap = Math.max(0, number(cabinet.gap, 2));
   const runner = Math.max(0, number(cabinet.drawerSlideGap, 13));
   const result = [];
-  for (const section of getCabinetLayout(cabinet, project).sections) {
-    const count = Math.min(12, integer(section.node.internalDrawerCount));
-    if (!count || section.node.front !== 'doors') continue;
-    const hingeGap = Math.max(0, number(section.node.internalDrawerHingeGap, 20));
-    const mechanism = openingMechanism(section.node), handleProjection = mechanism === 'handle' ? 16 : 0;
-    const height = (section.height - 50 - gap * (count + 1)) / count;
-    let cursor = section.y + section.height - 50 - gap;
-    for (let index = 0; index < count; index++) {
-      cursor -= height;
-      result.push({
-        kind: 'internal-drawer', index, sectionId: section.id,
-        x: round(section.x + hingeGap + gap), y: round(cursor),
-        width: round(section.width - 2 * hingeGap - 2 * gap), height: round(height),
-        depth: round(section.depth - panels - gap - handleProjection), frontThickness: panels,
-        hingeGap, handleProjection, openingMechanism: mechanism,
-        box: { x: round(section.x + hingeGap + runner), y: round(cursor + 20), z: round(back + section.rearOffset + 20),
-          width: round(section.width - 2 * hingeGap - 2 * runner), height: round(height - 40 - bottom),
-          depth: round(section.usableDepth - 40 - panels - gap - handleProjection), panelThickness: panels, bottomThickness: bottom }
-      });
-      cursor -= gap;
+  const layout = getCabinetLayout(cabinet, project);
+  for (const outer of layout.sections) {
+    if (outer.node.front !== 'doors') continue;
+    const openings = outer.node.interiorLayout ? layout.internalSections.filter(section => section.parentSectionId === outer.id && section.node.front === 'drawers') : [outer];
+    let globalIndex = 0;
+    for (const section of openings) {
+      const internal = section !== outer;
+      const count = Math.min(12, internal ? integer(section.node.drawers, 2) : integer(section.node.internalDrawerCount));
+      if (!count) continue;
+      const hingeGap = Math.max(0, number(outer.node.internalDrawerHingeGap, 20));
+      const leftHinge = Math.abs(section.x - outer.x) < EPSILON ? hingeGap : 0;
+      const rightHinge = Math.abs(section.x + section.width - outer.x - outer.width) < EPSILON ? hingeGap : 0;
+      const mechanism = openingMechanism(internal ? section.node : outer.node), handleProjection = mechanism === 'handle' ? 16 : 0;
+      const availableHeight = section.height - 50 - gap * (count + 1);
+      const weights = Array.isArray(section.node.drawerHeights) && section.node.drawerHeights.length === count ? section.node.drawerHeights.map(value => Math.max(EPSILON, number(value, 1))) : Array(count).fill(1);
+      const sum = weights.reduce((sum, value) => sum + value, 0);
+      let cursor = section.y + section.height - 50 - gap;
+      for (let index = 0; index < count; index++) {
+        const height = availableHeight * weights[index] / sum;
+        cursor -= height;
+        result.push({
+          kind: 'internal-drawer', index: globalIndex++, sectionId: outer.id, ...(internal ? { interiorSectionId: section.id } : {}),
+          x: round(section.x + leftHinge + gap), y: round(cursor),
+          width: round(section.width - leftHinge - rightHinge - 2 * gap), height: round(height),
+          depth: round(section.depth - panels - gap - handleProjection), frontThickness: panels,
+          hingeGap, handleProjection, openingMechanism: mechanism,
+          box: { x: round(section.x + leftHinge + runner), y: round(cursor + 20), z: round(back + section.rearOffset + 20),
+            width: round(section.width - leftHinge - rightHinge - 2 * runner), height: round(height - 40 - bottom),
+            depth: round(section.usableDepth - 40 - panels - gap - handleProjection), panelThickness: panels, bottomThickness: bottom }
+        });
+        cursor -= gap;
+      }
     }
   }
   return result;
@@ -645,40 +676,33 @@ export function generateParts(project) {
     const layout = cabinet.layout ? getCabinetLayout(cabinet, project) : null;
     const floorSections = layout?.sections.filter(section => section.floorOpen) ?? [];
     const horizontal = (name, x, z, panelWidth, panelDepth, y, sectionId, extra = {}) => {
-      const shape = horizontalContour(cabinet, x, z, panelWidth, panelDepth, thickness, back);
-      addPart(name, shape.width, shape.height, thickness, cabinet.materialId, ['bottom'], { ...(sectionId ? { sectionId } : {}), ...(shape.outline ? { outline: shape.outline } : {}), position: { x: shape.x, y, z: shape.z }, orientation: 'horizontal', ...extra });
+      const { clipRearInset = 0, ...metadata } = extra;
+      const shapeCabinet = clipRearInset > 0 && cabinet.cutout ? { ...cabinet, cutout: { ...cabinet.cutout, depth: number(cabinet.cutout.depth) + clipRearInset } } : cabinet;
+      const shape = horizontalContour(shapeCabinet, x, z, panelWidth, panelDepth, thickness, back);
+      addPart(name, shape.width, shape.height, thickness, cabinet.materialId, ['bottom'], { ...(sectionId ? { sectionId } : {}), ...(shape.outline ? { outline: shape.outline } : {}), position: { x: shape.x, y, z: shape.z }, orientation: 'horizontal', ...metadata });
     };
     const leftDepth = hasCutout && !rightCutout ? number(cabinet.depth) - cutDepth : bodyDepth;
     const rightDepth = hasCutout && rightCutout ? number(cabinet.depth) - cutDepth : bodyDepth;
-    const leftFloor = cabinet.sidesToFloor === true || floorSections.some(section => Math.abs(section.x - thickness) < EPSILON);
-    const rightFloor = cabinet.sidesToFloor === true || floorSections.some(section => Math.abs(section.x + section.width - width + thickness) < EPSILON);
     const floorY = -number(cabinet.plinth) || 0;
-    addPart('Боковина левая', leftDepth, bodyHeight + (leftFloor ? number(cabinet.plinth) : 0), thickness, cabinet.materialId, ['left'], { position: { x: 0, y: leftFloor ? floorY : 0, z: hasCutout && !rightCutout ? cutDepth : back }, orientation: 'vertical-depth' });
-    addPart('Боковина правая', rightDepth, bodyHeight + (rightFloor ? number(cabinet.plinth) : 0), thickness, cabinet.materialId, ['left'], { position: { x: width - thickness, y: rightFloor ? floorY : 0, z: hasCutout && rightCutout ? cutDepth : back }, orientation: 'vertical-depth' });
+    const lowerSide = match => cabinet.sidesToFloor === true ? floorY : Math.min(0, ...(layout?.sections ?? []).filter(section => section.floorEligible && match(section)).map(section => section.hasBottom ? section.bottomPanelY : section.y));
+    const leftY = lowerSide(section => Math.abs(section.x - thickness) < EPSILON), rightY = lowerSide(section => Math.abs(section.x + section.width - width + thickness) < EPSILON);
+    addPart('Боковина левая', leftDepth, bodyHeight - leftY, thickness, cabinet.materialId, ['left'], { position: { x: 0, y: leftY, z: hasCutout && !rightCutout ? cutDepth : back }, orientation: 'vertical-depth' });
+    addPart('Боковина правая', rightDepth, bodyHeight - rightY, thickness, cabinet.materialId, ['left'], { position: { x: width - thickness, y: rightY, z: hasCutout && rightCutout ? cutDepth : back }, orientation: 'vertical-depth' });
     horizontal('Крышка', thickness, back, insideWidth, bodyDepth, bodyHeight - thickness);
-    if (cabinet.includeBottom !== false) {
+    if (cabinet.includeBottom !== false || layout?.sections.some(section => section.hasBottom) || !layout && number(cabinet.plinth) > 0) {
       const intervals = retainedFloorIntervals(cabinet, layout, thickness);
-      intervals.forEach((interval, index) => horizontal(intervals.length === 1 && !floorSections.length ? 'Дно корпуса' : `Дно корпуса · участок ${index + 1}`, interval.x, back, interval.width, bodyDepth, 0));
+      intervals.forEach((interval, index) => horizontal(intervals.length === 1 && !floorSections.length ? 'Дно корпуса' : `Дно корпуса · участок ${index + 1}`, interval.x, back, interval.width, bodyDepth, interval.y ?? 0, interval.sectionId, { role: 'bottom', component: 'bottom' }));
     }
-    const returnFloor = cabinet.sidesToFloor === true || floorSections.some(section => section.x <= (rightCutout ? width - cutWidth : cutWidth) && section.x + section.width >= (rightCutout ? width - cutWidth : cutWidth));
-    if (hasCutout) addPart('Возвратная боковина выреза', Math.max(0, cutDepth - back), bodyHeight + (returnFloor ? number(cabinet.plinth) : 0), thickness, cabinet.materialId, ['left'], { position: { x: rightCutout ? width - cutWidth - thickness : cutWidth, y: returnFloor ? floorY : 0, z: back }, orientation: 'vertical-depth' });
+    const returnY = lowerSide(section => section.x <= (rightCutout ? width - cutWidth : cutWidth) && section.x + section.width >= (rightCutout ? width - cutWidth : cutWidth));
+    if (hasCutout) addPart('Возвратная боковина выреза', Math.max(0, cutDepth - back), bodyHeight - returnY, thickness, cabinet.materialId, ['left'], { position: { x: rightCutout ? width - cutWidth - thickness : cutWidth, y: returnY, z: back }, orientation: 'vertical-depth' });
     const label = section => `Секция ${layout.sections.indexOf(section) + 1}${section.node.name ? ` · ${section.node.name}` : ''}`;
-    const retainedBack = section => section.node.back === 'panel' || (section.node.back !== 'none' && cabinet.includeBack !== false);
-    const uniformBack = !layout || !floorSections.length && layout.sections.every(section => retainedBack(section));
-    if (back > 0 && uniformBack) {
-      addPart('Задняя стенка', hasCutout ? width - cutWidth : width, bodyHeight, back, cabinet.backMaterialId, [], { position: { x: hasCutout && !rightCutout ? cutWidth : 0, y: 0, z: 0 }, orientation: 'vertical-width' });
-      if (hasCutout) addPart('Задняя стенка выреза', cutWidth, bodyHeight, back, cabinet.backMaterialId, [], { position: { x: rightCutout ? width - cutWidth : 0, y: 0, z: cutDepth }, orientation: 'vertical-width' });
+    if (back > 0 && cabinet.includeBack !== false) {
+      const rearY = Math.min(0, ...(layout?.sections ?? []).filter(section => section.floorEligible).map(section => section.floorOpen ? section.y : section.bottomPanelY));
+      addPart('Задняя стенка', hasCutout ? width - cutWidth : width, bodyHeight - rearY, back, cabinet.backMaterialId, [], { role: 'back', component: 'back', position: { x: hasCutout && !rightCutout ? cutWidth : 0, y: rearY, z: 0 }, orientation: 'vertical-width' });
+      if (hasCutout) addPart('Задняя стенка выреза', cutWidth, bodyHeight - rearY, back, cabinet.backMaterialId, [], { role: 'back', component: 'back', position: { x: rightCutout ? width - cutWidth : 0, y: rearY, z: cutDepth }, orientation: 'vertical-width' });
     } else if (layout) {
-      const panelBack = number(cabinet.backThickness, 3);
-      for (const section of layout.sections.filter(retainedBack)) {
-        const mainLeft = hasCutout && !rightCutout ? Math.max(section.frontX, cutWidth) : section.frontX;
-        const mainRight = hasCutout && rightCutout ? Math.min(section.frontX + section.frontWidth, width - cutWidth) : section.frontX + section.frontWidth;
-        if (mainRight > mainLeft) addPart(`${label(section)} · задняя стенка`, mainRight - mainLeft, section.frontHeight, panelBack, cabinet.backMaterialId, [], { sectionId: section.id, position: { x: mainLeft, y: section.frontY, z: 0 }, orientation: 'vertical-width' });
-        if (hasCutout) {
-          const notchLeft = rightCutout ? Math.max(section.frontX, width - cutWidth) : section.frontX;
-          const notchRight = rightCutout ? section.frontX + section.frontWidth : Math.min(section.frontX + section.frontWidth, cutWidth);
-          if (notchRight > notchLeft) addPart(`${label(section)} · задняя стенка выреза`, notchRight - notchLeft, section.frontHeight, panelBack, cabinet.backMaterialId, [], { sectionId: section.id, position: { x: notchLeft, y: section.frontY, z: cutDepth }, orientation: 'vertical-width' });
-        }
+      for (const section of layout.sections.filter(section => section.backMode === 'solid')) {
+        for (const [index, segment] of sectionRearSegments(cabinet, section, thickness, back).entries()) addPart(`${label(section)} · задняя стенка${index ? ' выреза' : ''}`, segment.width, section.height, section.rearPanelThickness, cabinet.backMaterialId, [], { sectionId: section.id, role: 'section-back', component: 'section-back', position: { x: segment.x, y: section.y, z: segment.z }, orientation: 'vertical-width' });
       }
     }
     if (layout) {
@@ -692,19 +716,45 @@ export function generateParts(project) {
         }
       }
       for (const section of layout.sections) {
-        for (let index = 0; index < integer(section.node.shelves); index++) horizontal(`${label(section)} · полка ${index + 1}`, section.x + 2, back, section.width - 4, section.depth - 20, section.y + section.height * (index + 1) / (integer(section.node.shelves) + 1), section.id);
+        if (section.node.interiorLayout) continue;
+        for (let index = 0; index < integer(section.node.shelves); index++) horizontal(`${label(section)} · полка ${index + 1}`, section.x + 2, back + section.rearInset, section.width - 4, section.depth - section.rearInset - 20, section.y + section.height * (index + 1) / (integer(section.node.shelves) + 1), section.id, { clipRearInset: section.rearInset });
         if (section.node.pullOutShelf) {
           const slide = number(cabinet.drawerSlideGap, 13);
           addPart(`${label(section)} · выдвижная полка`, section.width - 2 * slide, section.usableDepth - 40, thickness, cabinet.materialId, ['bottom', 'left', 'right'], { sectionId: section.id, role: 'pull-out-shelf', component: 'pull-out-shelf', pullOutShelf: true, openingMechanism: openingMechanism(section.node), position: { x: section.x + slide, y: section.y + 5, z: back + section.rearOffset + 20 }, orientation: 'horizontal' });
         }
       }
+      for (const partition of layout.internalPartitions) {
+        const outer = layout.sections.find(section => section.id === partition.parentSectionId);
+        const index = layout.internalPartitions.filter(item => item.parentSectionId === outer.id && item.axis === partition.axis).indexOf(partition) + 1;
+        const extras = { sectionId: outer.id, interiorSectionId: partition.parentId, parentSectionId: outer.id, partitionId: partition.id, component: 'interior-partition', role: 'interior-partition' };
+        if (partition.axis === 'horizontal') horizontal(`${label(outer)} · внутренняя горизонтальная перегородка ${index}`, partition.x, back + outer.rearInset, partition.width, partition.depth - outer.rearInset, partition.y, outer.id, { ...extras, clipRearInset: outer.rearInset });
+        else {
+          const overlapsNotch = hasCutout && (rightCutout ? partition.x + partition.width > width - cutWidth : partition.x < cutWidth + thickness);
+          const start = back + outer.rearInset + (overlapsNotch ? cutDepth : 0);
+          addPart(`${label(outer)} · внутренняя вертикальная перегородка ${index}`, partition.depth - (start - back), partition.height, thickness, cabinet.materialId, ['left'], { ...extras, position: { x: partition.x, y: partition.y, z: start }, orientation: 'vertical-depth' });
+        }
+      }
+      for (const section of layout.internalSections) {
+        const outer = layout.sections.find(item => item.id === section.parentSectionId);
+        const prefix = `${label(outer)} · внутренний отсек ${layout.internalSections.filter(item => item.parentSectionId === outer.id).indexOf(section) + 1}`;
+        const extras = { sectionId: outer.id, interiorSectionId: section.id, parentSectionId: outer.id };
+        for (let index = 0; index < integer(section.node.shelves); index++) horizontal(`${prefix} · полка ${index + 1}`, section.x + 2, back + outer.rearInset, section.width - 4, section.depth - outer.rearInset - 20, section.y + section.height * (index + 1) / (integer(section.node.shelves) + 1), outer.id, { ...extras, role: 'interior-shelf', component: 'interior-shelf', clipRearInset: outer.rearInset });
+        if (section.node.pullOutShelf) {
+          const slide = number(cabinet.drawerSlideGap, 13);
+          addPart(`${prefix} · выдвижная полка`, section.width - 2 * slide, section.usableDepth - 40, thickness, cabinet.materialId, ['bottom', 'left', 'right'], { ...extras, role: 'pull-out-shelf', component: 'pull-out-shelf', pullOutShelf: true, openingMechanism: openingMechanism(section.node), position: { x: section.x + slide, y: section.y + 5, z: back + section.rearOffset + 20 }, orientation: 'horizontal' });
+        }
+      }
     } else for (let index = 0; index < integer(cabinet.shelves); index++) horizontal(`Полка ${index + 1}`, thickness + 2, back, insideWidth - 4, bodyDepth - 20, thickness + (bodyHeight - 2 * thickness) * (index + 1) / (integer(cabinet.shelves) + 1));
-    if (number(cabinet.plinth) > 10) {
+    if (number(cabinet.plinth) > 10 || layout?.sections.some(section => section.floorEligible && section.effectivePlinth > 10)) {
       const gap = number(cabinet.gap, 2);
-      const intervals = floorSections.length ? mergeIntervals(layout.sections.filter(section => section.floorEligible && !section.floorOpen).map(section => ({ x: section.frontX, width: section.frontWidth })), gap + EPSILON) : [{ x: gap, width: width - 2 * gap }];
-      intervals.forEach((interval, index) => addPart(intervals.length === 1 && !floorSections.length ? 'Цокольная планка' : `Цокольная планка · участок ${index + 1}`, interval.width, number(cabinet.plinth) - 10, thickness, cabinet.materialId, ['top', 'left', 'right'], { role: 'plinth', component: 'plinth', position: { x: interval.x, y: -number(cabinet.plinth), z: number(cabinet.depth) - 65 }, orientation: 'vertical-width' }));
+      const sources = layout ? layout.sections.filter(section => section.floorEligible && !section.floorOpen && section.effectivePlinth > 10).map(section => ({ x: section.frontX, width: section.frontWidth, y: section.effectivePlinth, sectionIds: [section.id] })) : [{ x: gap, width: width - 2 * gap, y: number(cabinet.plinth), sectionIds: [] }];
+      const intervals = mergeLevelIntervals(sources, gap + EPSILON);
+      intervals.forEach((interval, index) => addPart(intervals.length === 1 && !floorSections.length ? 'Цокольная планка' : `Цокольная планка · участок ${index + 1}`, interval.width, interval.y - 10, thickness, cabinet.materialId, ['top', 'left', 'right'], { ...(interval.sectionIds.length === 1 ? { sectionId: interval.sectionIds[0] } : {}), role: 'plinth', component: 'plinth', position: { x: interval.x, y: -number(cabinet.plinth) || 0, z: number(cabinet.depth) - 65 }, orientation: 'vertical-width' }));
     }
-    for (const [index, panel] of rearBracePanels(cabinet, project).entries()) addPart(`Задняя перемычка ${index + 1}`, panel.width, panel.height, panel.thickness, panel.materialId, ['top', 'bottom'], { braceId: panel.braceId, role: 'brace', component: 'brace', position: { x: panel.x, y: panel.y, z: panel.z }, orientation: 'vertical-width' });
+    for (const [index, panel] of rearBracePanels(cabinet, project, layout).entries()) {
+      const section = panel.sectionId ? layout.sections.find(section => section.id === panel.sectionId) : null;
+      addPart(section ? `${label(section)} · задняя перемычка ${panel.localIndex + 1}` : `Задняя перемычка ${index + 1}`, panel.width, panel.height, panel.thickness, panel.materialId, ['top', 'bottom'], { ...(panel.sectionId ? { sectionId: panel.sectionId } : {}), braceId: panel.braceId, braceBaseY: panel.braceBaseY, role: 'brace', component: 'brace', position: { x: panel.x, y: panel.y, z: panel.z }, orientation: 'vertical-width' });
+    }
     for (const front of getFrontLayout(cabinet, project)) {
       const section = layout?.sections.find(item => item.id === front.sectionId);
       const prefix = section ? `${label(section)} · ` : '';
@@ -731,7 +781,7 @@ export function generateParts(project) {
       const section = layout.sections.find(item => item.id === front.sectionId), box = front.box;
       const prefix = `${label(section)} · Внутренний ящик ${front.index + 1} · `;
       const panelMaterialId = cabinet.drawerMaterialId ?? cabinet.materialId;
-      const extras = { sectionId: front.sectionId, internalDrawerIndex: front.index, openingMechanism: front.openingMechanism, component: 'internal-drawer-box', role: 'internal-drawer-box' };
+      const extras = { sectionId: front.sectionId, ...(front.interiorSectionId ? { interiorSectionId: front.interiorSectionId, parentSectionId: front.sectionId } : {}), internalDrawerIndex: front.index, openingMechanism: front.openingMechanism, component: 'internal-drawer-box', role: 'internal-drawer-box' };
       addPart(prefix + 'фасад', front.width, front.height, front.frontThickness, panelMaterialId, ['top', 'bottom', 'left', 'right'], { ...extras, component: 'internal-drawer-front', role: 'internal-drawer-front', position: { x: front.x, y: front.y, z: back + front.depth }, orientation: 'vertical-width' });
       addPart(prefix + 'боковина левая', box.depth, box.height, box.panelThickness, panelMaterialId, ['top'], { ...extras, position: { x: box.x, y: box.y + box.bottomThickness, z: box.z }, orientation: 'vertical-depth' });
       addPart(prefix + 'боковина правая', box.depth, box.height, box.panelThickness, panelMaterialId, ['top'], { ...extras, position: { x: box.x + box.width - box.panelThickness, y: box.y + box.bottomThickness, z: box.z }, orientation: 'vertical-depth' });
@@ -757,33 +807,78 @@ function mergeIntervals(intervals, tolerance = EPSILON) {
   return merged;
 }
 
+function mergeLevelIntervals(intervals, tolerance = EPSILON) {
+  const merged = [];
+  for (const source of intervals.filter(item => item.width > EPSILON).sort((a, b) => a.x - b.x)) {
+    const last = merged.at(-1), ids = source.sectionIds ?? [];
+    if (last && Math.abs(last.y - source.y) < EPSILON && source.x <= last.x + last.width + tolerance) {
+      last.width = Math.max(last.width, source.x + source.width - last.x);
+      last.sectionIds = [...new Set([...last.sectionIds, ...ids])];
+    } else merged.push({ ...source, sectionIds: [...ids] });
+  }
+  return merged.map(item => ({ ...item, ...(item.sectionIds.length === 1 ? { sectionId: item.sectionIds[0] } : {}) }));
+}
+
 function retainedFloorIntervals(cabinet, layout, thickness) {
   const left = thickness, right = number(cabinet.width) - thickness;
-  const cuts = mergeIntervals((layout?.sections ?? []).filter(section => section.floorOpen).map(section => {
-    const before = layout.partitions.some(partition => partition.floorExtended && Math.abs(partition.x + partition.width - section.x) < EPSILON) ? thickness : 0;
-    const after = layout.partitions.some(partition => partition.floorExtended && Math.abs(partition.x - section.x - section.width) < EPSILON) ? thickness : 0;
+  const cuts = mergeIntervals((layout?.sections ?? []).filter(section => section.floorEligible && !section.hasBottom).map(section => {
+    const before = layout.partitions.some(partition => partition.axis === 'vertical' && partition.y <= section.y + EPSILON && Math.abs(partition.x + partition.width - section.x) < EPSILON) ? thickness : 0;
+    const after = layout.partitions.some(partition => partition.axis === 'vertical' && partition.y <= section.y + EPSILON && Math.abs(partition.x - section.x - section.width) < EPSILON) ? thickness : 0;
     const x = Math.max(left, section.x - before), end = Math.min(right, section.x + section.width + after);
     return { x, width: end - x };
   }));
   const result = []; let cursor = left;
   for (const cut of cuts) { if (cut.x > cursor + EPSILON) result.push({ x: cursor, width: cut.x - cursor }); cursor = Math.max(cursor, cut.x + cut.width); }
   if (cursor < right - EPSILON) result.push({ x: cursor, width: right - cursor });
-  return result;
+  if (!layout) return result;
+  const closed = layout.sections.filter(section => section.hasBottom);
+  const strips = [];
+  for (const interval of result) {
+    const end = interval.x + interval.width;
+    const breaks = [...new Set([interval.x, end, ...closed.flatMap(section => [section.x, section.x + section.width])].filter(x => x >= interval.x && x <= end))].sort((a, b) => a - b);
+    for (let index = 0; index < breaks.length - 1; index++) {
+      const x = breaks[index], width = breaks[index + 1] - x, center = x + width / 2;
+      let sections = closed.filter(section => center >= section.x - EPSILON && center <= section.x + section.width + EPSILON);
+      if (!sections.length) sections = closed.filter(section => Math.abs(section.x - breaks[index + 1]) < EPSILON || Math.abs(section.x + section.width - x) < EPSILON);
+      const y = sections.length ? Math.min(...sections.map(section => section.bottomPanelY)) : 0;
+      strips.push({ x, width, y, sectionIds: sections.filter(section => Math.abs(section.bottomPanelY - y) < EPSILON).map(section => section.id) });
+    }
+  }
+  return mergeLevelIntervals(strips);
 }
 
-function rearBracePanels(cabinet, project) {
+function sectionRearSegments(cabinet, section, thickness, back) {
+  if (!cabinet.cutout) return [{ x: section.x, width: section.width, z: back }];
+  const width = number(cabinet.width), cw = number(cabinet.cutout.width), cd = number(cabinet.cutout.depth);
+  const left = section.x, right = section.x + section.width;
+  const spans = cabinet.cutout.corner === 'back-right'
+    ? [[left, Math.min(right, width - cw - thickness), back], [Math.max(left, width - cw), right, cd + back]]
+    : [[Math.max(left, cw + thickness), right, back], [left, Math.min(right, cw), cd + back]];
+  return spans.filter(([a, b]) => b - a > EPSILON).map(([a, b, z]) => ({ x: a, width: b - a, z }));
+}
+
+function rearBracePanels(cabinet, project, layout = cabinet.layout ? getCabinetLayout(cabinet, project) : null) {
   const panels = [], thickness = bodyThickness(cabinet, project), width = number(cabinet.width), back = backThickness(cabinet, project);
   const braces = Array.isArray(cabinet.rearBraces) ? cabinet.rearBraces.slice(0, 20) : [];
   for (const brace of braces) {
     if (!brace || !positive(brace.height)) continue;
     const materialId = brace.materialId ?? cabinet.materialId;
     const panelThickness = number(stockById(project, materialId)?.thickness, thickness);
-    const common = { braceId: brace.id, y: number(brace.y) - number(cabinet.plinth), height: number(brace.height), thickness: panelThickness, materialId };
+    const common = { braceId: brace.id, braceBaseY: -number(cabinet.plinth), y: number(brace.y) - number(cabinet.plinth), height: number(brace.height), thickness: panelThickness, materialId };
     if (!cabinet.cutout) panels.push({ ...common, x: thickness, z: back, width: width - 2 * thickness });
     else {
       const cw = number(cabinet.cutout.width), cd = number(cabinet.cutout.depth), right = cabinet.cutout.corner === 'back-right';
       panels.push({ ...common, x: right ? thickness : cw + thickness, z: back, width: width - cw - 2 * thickness });
       panels.push({ ...common, x: right ? width - cw : thickness, z: cd + back, width: cw - thickness });
+    }
+  }
+  for (const section of layout?.sections ?? []) {
+    if (section.backMode !== 'braces') continue;
+    for (const [localIndex, brace] of (Array.isArray(section.node.rearBraces) ? section.node.rearBraces.slice(0, 40) : []).entries()) {
+      if (!brace || !positive(brace.height)) continue;
+      const materialId = brace.materialId ?? cabinet.materialId;
+      const common = { sectionId: section.id, localIndex, braceId: brace.id, braceBaseY: section.y, y: section.y + number(brace.y), height: number(brace.height), thickness: number(stockById(project, materialId)?.thickness, thickness), materialId };
+      for (const segment of sectionRearSegments(cabinet, section, thickness, back)) panels.push({ ...common, ...segment });
     }
   }
   return panels.filter(panel => panel.width > 0);
@@ -856,11 +951,12 @@ export function validateProject(project) {
     if (cabinet.includeBottom !== undefined && typeof cabinet.includeBottom !== 'boolean') error('состояние нижней панели должно быть логическим.');
     if (cabinet.sidesToFloor !== undefined && typeof cabinet.sidesToFloor !== 'boolean') error('боковины до пола должны быть включены или выключены.');
     if (cabinet.openingMechanism !== undefined && !['handle', 'push'].includes(cabinet.openingMechanism)) error('механизм открывания должен быть handle или push.');
+    if (cabinet.hingesPerDoor !== undefined && (!Number.isInteger(cabinet.hingesPerDoor) || cabinet.hingesPerDoor < 2 || cabinet.hingesPerDoor > 12)) error('число петель на дверь должно быть целым числом от 2 до 12.');
     let layoutValid = true;
-    if (cabinet.layout) { try { validateLayoutSchema(cabinet.layout); } catch (problem) { error(problem.message); layoutValid = false; } }
+    if (cabinet.layout) { try { validateLayoutSchema(cabinet.layout, { materialIds }); } catch (problem) { error(problem.message); layoutValid = false; } }
     try { validateDoorOpenings(cabinet.doorOpenings, cabinet.doors ?? 0); } catch (problem) { error(problem.message); }
     const layout = cabinet.layout && layoutValid ? getCabinetLayout(cabinet, project) : null;
-    const hasDrawers = layout ? layout.sections.some(section => section.node.front === 'drawers' || section.node.internalDrawerCount > 0) : integer(cabinet.drawers) > 0;
+    const hasDrawers = layout ? layout.sections.some(section => section.node.front === 'drawers' || !section.node.interiorLayout && section.node.internalDrawerCount > 0) || layout.internalSections.some(section => section.node.front === 'drawers') : integer(cabinet.drawers) > 0;
     for (const [key, label] of [['width', 'ширина'], ['height', 'высота'], ['depth', 'глубина']]) {
       if (!positive(cabinet[key])) error(`${label} должна быть больше нуля.`);
     }
@@ -896,11 +992,20 @@ export function validateProject(project) {
       if (!Number.isFinite(brace.y) || brace.y < 0 || !positive(brace.height) || brace.y + brace.height > number(cabinet.height) + EPSILON) error('задняя перемычка выходит за высоту шкафа; положение задаётся от низа всего шкафа.');
       if (!materialIds.has(brace.materialId ?? cabinet.materialId)) error('материал задней перемычки не найден.');
     }
-    const bracePanels = rearBracePanels(cabinet, project);
-    for (const panel of bracePanels) if (panel.z + panel.thickness > number(cabinet.depth) + EPSILON) error('задняя перемычка не помещается по глубине корпуса.');
+    for (const section of layout?.sections ?? []) if (section.backMode === 'braces') {
+      for (const brace of section.node.rearBraces ?? []) {
+        if (brace.y + brace.height > section.height + EPSILON) error(`задняя перемычка выходит за высоту секции «${section.node.name ?? section.id}»; положение задаётся от низа чистого проёма.`);
+        if (!materialIds.has(brace.materialId ?? cabinet.materialId)) error('материал задней перемычки не найден.');
+      }
+    }
+    const bracePanels = rearBracePanels(cabinet, project, layout);
+    for (const panel of bracePanels) {
+      const section = layout?.sections.find(item => item.id === panel.sectionId);
+      if (panel.z + panel.thickness > (section ? backThickness(cabinet, project) + section.depth : number(cabinet.depth)) + EPSILON) error('задняя перемычка не помещается по глубине корпуса или секции.');
+    }
     for (let index = 0; index < bracePanels.length; index++) for (let next = index + 1; next < bracePanels.length; next++) {
       const a = bracePanels[index], b = bracePanels[next];
-      if (a.braceId !== b.braceId && boxesOverlap({ ...a, depth: a.thickness }, { ...b, depth: b.thickness })) error('задние перемычки пересекаются; измените их положение или высоту.');
+      if ((a.braceId !== b.braceId || a.sectionId !== b.sectionId) && boxesOverlap({ ...a, depth: a.thickness }, { ...b, depth: b.thickness })) error('задние перемычки пересекаются; измените их положение или высоту.');
     }
     if (!positive(cabinet.backThickness)) error('толщина задней стенки должна быть больше нуля.');
     const placement = validateCabinetPlacement(cabinet, project);
@@ -911,14 +1016,17 @@ export function validateProject(project) {
     const shelfAreaHeight = integer(cabinet.drawers) > 0 && integer(cabinet.doors) > 0 ? number(getFrontLayout(cabinet).find(front => front.kind === 'door')?.height) : bodyHeight;
     if (integer(cabinet.shelves) > 0 && (shelfAreaHeight - 2 * thickness) / (integer(cabinet.shelves) + 1) < 80) warn('между полками остаётся менее 80 мм; проверьте полезную высоту секции дверей.');
     if (!layout && integer(cabinet.shelves) > 0 && insideWidth > 1000) warn('пролёт полки больше 1000 мм; требуется проверить прогиб и предусмотреть перегородку или опоры.');
-    for (const section of layout?.sections ?? []) {
+    for (const section of [...layout?.sections ?? [], ...layout?.internalSections ?? []]) {
       const sectionName = section.node.name ?? section.id;
-      if (section.width < 50 || section.height < 50 || section.depth < 50) error(`секция «${sectionName}» слишком мала; требуется хотя бы 50 мм полезного размера.`);
-      if (section.node.depth !== null && section.node.depth !== undefined && section.node.depth > bodyDepth) error(`глубина секции «${sectionName}» превышает корпус.`);
+      if (section.width < 50 || section.height < 50 || section.usableDepth < 50) error(`секция «${sectionName}» слишком мала; требуется хотя бы 50 мм полезного размера.`);
+      const depthLimit = section.parentSectionId ? layout.sections.find(item => item.id === section.parentSectionId).depth : bodyDepth;
+      if (section.node.depth !== null && section.node.depth !== undefined && section.node.depth > depthLimit) error(`глубина секции «${sectionName}» превышает корпус или внешний проём.`);
       if (section.node.floor === 'open' && !section.floorEligible) warn(`секция «${sectionName}» не касается основания корпуса; открытый проём до пола применяется только к нижней секции.`);
+      if (section.node.plinthHeight != null && !section.floorEligible) warn(`секция «${sectionName}» не касается основания корпуса; собственный цоколь применяется только к нижней секции.`);
       if (section.node.pullOutShelf && (section.node.front !== 'open' || section.width - 2 * number(cabinet.drawerSlideGap, 13) < 50 || section.usableDepth - 40 < 50 || section.height < thickness + 5)) error(`выдвижная полка не помещается в открытую секцию «${sectionName}».`);
       if (section.node.front === 'drawers' && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают короба ящиков.`);
-      if (section.node.internalDrawerCount > 0 && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают внутренние ящики за дверями.`);
+      if (!section.node.interiorLayout && section.node.internalDrawerCount > 0 && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают внутренние ящики за дверями.`);
+      if (section.node.interiorLayout && (integer(section.node.shelves) > 0 || section.node.pullOutShelf)) error(`полки секции «${sectionName}» пересекают внутреннее наполнение; задайте их во внутренних отсеках.`);
       if (integer(section.node.shelves) > 0 && section.width > 1000) warn(`пролёт полки секции «${sectionName}» больше 1000 мм; проверьте прогиб и опоры.`);
       if (integer(section.node.shelves) > 0 && section.height / (integer(section.node.shelves) + 1) < 80) warn(`между полками секции «${sectionName}» остаётся менее 80 мм.`);
       if (section.node.appliance) {
