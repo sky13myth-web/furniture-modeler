@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDefaultProject, createSection, getCabinetLayout, getFrontLayout, getInternalDrawerLayout, generateParts, getSectionMountingAxes, validateProject, optimizeCutting } from '../src/engine.js';
 import { resizeInteriorDivider } from '../src/cabinet-interior.js';
+import { createInteriorFromSection } from '../src/cabinet-interior.js';
+import { getRodLayout } from '../src/engine.js';
+import { checkImport } from '../src/project-io.js';
 import { constrainCabinetEdit, resizeConstrainedInteriorSection, resizeConstrainedInteriorDivider } from '../src/appliance-constraints.js';
 
 function fixture() {
@@ -17,6 +20,62 @@ function interior() {
   ] };
 }
 const errors = p => validateProject(p).filter(item => item.level === 'error');
+
+test('removing outer doors retains inner shelves, rods, partitions and drawers with no hinge side allowance', () => {
+  const { project, c } = fixture(); c.layout.interiorLayout = interior();
+  c.layout.interiorLayout.children[0].shelves = 0;
+  c.layout.interiorLayout.children[0].rods = [{ id: 'hanging', y: 1000, frontInset: 300 }];
+  const before = getCabinetLayout(c, project), rods = getRodLayout(c, project), drawers = getInternalDrawerLayout(c, project), parts = generateParts(project);
+  const proposed = structuredClone(c); proposed.layout.front = 'open';
+  const result = constrainCabinetEdit(c, proposed, project);
+  assert.equal(result.possible, true); assert.equal(result.clamped, false);
+  const next = result.cabinet, after = getCabinetLayout(next, project);
+  assert.deepEqual(after.internalSections.map(s => [s.id, s.x, s.y, s.width, s.height]), before.internalSections.map(s => [s.id, s.x, s.y, s.width, s.height]));
+  assert.deepEqual(after.internalPartitions, before.internalPartitions);
+  assert.deepEqual(getRodLayout(next, project), rods);
+  assert.equal(getFrontLayout(next, project).length, 0);
+  assert.deepEqual(getInternalDrawerLayout(next, project).map((d, i) => [d.box.width - drawers[i].box.width, d.width - drawers[i].width, d.hingeGap]), [[40, 40, 0], [40, 40, 0], [40, 40, 0]]);
+  assert.equal(generateParts({ ...project, cabinets: [next] }).length, parts.length - 2);
+  assert.deepEqual(errors({ ...project, cabinets: [next] }), []);
+  assert.equal(checkImport({ ...project, cabinets: [next] }).cabinets[0], next);
+});
+
+test('legacy internal drawers also remain after removing doors and their optional data roundtrips', () => {
+  const { project, c } = fixture(); c.layout.internalDrawerCount = 2;
+  const closed = getInternalDrawerLayout(c, project);
+  c.layout.front = 'open';
+  const open = getInternalDrawerLayout(c, project);
+  assert.equal(open.length, 2); assert.equal(open[0].box.width - closed[0].box.width, 40);
+  assert.equal(open[0].hingeGap, 0); assert.equal(generateParts(project).filter(p => p.internalDrawerIndex !== undefined).length, 12);
+  assert.deepEqual(errors(project), []);
+  assert.deepEqual(checkImport(JSON.parse(JSON.stringify(project))), project);
+});
+
+test('explicit interior conversion keeps the physical upper rods and separates a legacy lower drawer stack', () => {
+  const { project, c } = fixture(); c.layout.internalDrawerCount = 2;
+  c.layout.rods = [{ id: 'upper', y: 2040, frontInset: 300, diameter: 25 }];
+  assert.deepEqual(errors(project), []);
+  const section = getCabinetLayout(c, project).sections[0], before = structuredClone(project), rods = getRodLayout(c, project);
+  const tree = createInteriorFromSection(section, 18); assert.ok(tree);
+  assert.equal(tree.children[0].front, 'open'); assert.equal(tree.children[1].drawers, 2);
+  const proposed = structuredClone(c); proposed.layout.interiorLayout = tree; delete proposed.layout.rods; delete proposed.layout.internalDrawerCount;
+  const result = constrainCabinetEdit(c, proposed, project);
+  assert.equal(result.possible, true); assert.deepEqual(errors({ ...project, cabinets: [result.cabinet] }), []);
+  const convertedRod = getRodLayout(result.cabinet, project)[0];
+  assert.deepEqual([convertedRod.x, convertedRod.y, convertedRod.z, convertedRod.length], [rods[0].x, rods[0].y, rods[0].z, rods[0].length]);
+  assert.ok(convertedRod.interiorSectionId); assert.equal(getInternalDrawerLayout(result.cabinet, project).length, 2);
+  assert.deepEqual(project, before);
+  const unsafe = { ...section, node: { ...section.node, rods: [{ id: 'low', y: 15, frontInset: 600, diameter: 20 }] } };
+  assert.equal(createInteriorFromSection(unsafe, 18), null);
+});
+
+test('interior conversion of a plain opening preserves rods, shelves and pull-out metadata without migration by import', () => {
+  const { project, c } = fixture(); Object.assign(c.layout, { front: 'open', shelves: 1, pullOutShelf: true, rods: [{ id: 'rod', y: 1500, frontInset: 300 }] });
+  const section = getCabinetLayout(c, project).sections[0], before = structuredClone(section.node), tree = createInteriorFromSection(section, 18);
+  assert.equal(tree.front, 'open'); assert.equal(tree.shelves, 1); assert.equal(tree.pullOutShelf, true); assert.deepEqual(tree.rods, before.rods);
+  tree.rods[0].y = 1; assert.deepEqual(section.node, before);
+  assert.equal(createInteriorFromSection({ ...section, node: { ...section.node, interiorLayout: tree } }), null);
+});
 
 test('an imported interior drawer leaf without an explicit count uses the schema default of two', () => {
   const { project, c } = fixture();

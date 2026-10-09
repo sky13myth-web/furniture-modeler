@@ -152,8 +152,8 @@
       },
       {
         "id": "thin-back-3",
-        "name": "Arkalık levhası · 3 mm",
-        "type": "Lif levha",
+        "name": "Sert lif levha · arkalık · 3 mm",
+        "type": "Sert lif levha",
         "color": "#e7dfcf",
         "thickness": 3,
         "sheetWidth": 2100,

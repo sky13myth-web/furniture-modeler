@@ -18,6 +18,10 @@ const materialNames = MATERIAL_PRESETS.map(material => {
   return { aliases:new Set([material.name,...aliases]),localized };
 });
 materialNames.push({aliases:new Set(['Тонкий задник · 3 мм','Arkalık levhası · 3 mm','Thin back panel · 3 mm','Задняя плита · 3 мм','Back panel · 3 mm']),localized:{ru:'Тонкий задник · 3 мм',tr:'Arkalık levhası · 3 mm',en:'Thin back panel · 3 mm'}});
+// Explicit hardboard is a separate unbranded preset. Historical generic thin
+// fibreboard names keep their original material identity when printed.
+const hardboardNames={ru:'ДВП · задник · 3 мм',tr:'Sert lif levha · arkalık · 3 mm',en:'Hardboard · back panel · 3 mm'};
+materialNames.push({aliases:new Set(Object.values(hardboardNames).flatMap(name=>['мм','mm'].map(unit=>name.replace(/(?:мм|mm)$/,unit)))),localized:hardboardNames});
 
 /** Match whole verified catalogue names, including saved names in any supported
  * language. Merely resembling a factory name never renames a custom material. */
@@ -112,6 +116,21 @@ const phrases = [
   ['Низ от основания секции, мм','Bölme tabanından alt kenar, mm','Bottom edge above section base, mm'],
   ['Наполнение за общими дверями','Ortak kapakların arkasındaki iç düzen','Interior behind shared doors'],
   ['Фурнитура','Donanım','Hardware'],['Ручки','Kulplar','Handles'],['Петли','Menteşeler','Hinges'],
+  ['3D-вид помещения','Odanın 3B görünümü','Room 3D view'],['Печать 3D-вида помещения','Odanın 3B görünümünü yazdır','Print room 3D view'],
+  ['Ведомость корпусов','Gövde listesi','Carcass schedule'],
+  ['ДВП','Sert lif levha','Hardboard'],['Тонкая древесноволокнистая панель','Lif levha','Fibreboard'],
+  ['Внутреннее наполнение','İç düzen','Internal layout'],
+  ['I обозначает внутренние фасады ящиков; F — наружные фасады. Размеры коробов приведены в деталировке.','I iç çekmece önlerini, F dış ön panelleri gösterir. Çekmece kutularının ölçüleri parça listesinde verilmiştir.','I identifies internal drawer fronts; F identifies external fronts. Drawer box dimensions are given in the part schedule.'],
+  ['Штанги для одежды','Giysi askı boruları','Clothes rails'],['Штанга','Askı borusu','Clothes rail'],
+  ['Держатели штанги','Askı borusu tutucuları','Rod holders'],['Держатели перекладин','Askı borusu tutucuları','Rod holders'],
+  ['Держатели штанг','Askı borusu tutucuları','Rod holders'],['Суммарная длина штанг','Toplam askı borusu uzunluğu','Total clothes rail length'],
+  ['Держатели штанги, шт.','Askı borusu tutucuları, adet','Rod holders, pcs.'],
+  ['Длина, мм','Uzunluk, mm','Length, mm'],['Высота оси от дна секции','Bölme altından eksen yüksekliği','Axis height above section bottom'],
+  ['Отступ оси от переднего края','Ön kenardan eksen mesafesi','Axis distance from front edge'],
+  ['Ещё шкафов:','Diğer dolap sayısı:','More cabinets:'],
+  ['Длина реза, мм','Kesim uzunluğu, mm','Cut length, mm'],['Диаметр, мм','Çap, mm','Diameter, mm'],
+  ['Высота установки, мм','Montaj yüksekliği, mm','Installation height, mm'],['Отступ от фасада, мм','Ön panelden mesafe, mm','Distance from front, mm'],
+  ['Штанги считаются отдельно от листовых материалов.','Askı boruları levha malzemelerinden ayrı hesaplanır.','Clothes rails are counted separately from sheet materials.'],
   ['Направляющие','Raylar','Drawer runners'],['Комплекты направляющих','Ray setleri','Runner sets'],
   ['Комплект (пара)','Set (çift)','Set (pair)'],['шт.','adet','pcs.'],['Ед.','Birim','Unit'],['Количество','Adet','Quantity'],
   ['Всего по проекту','Proje toplamı','Project total'],

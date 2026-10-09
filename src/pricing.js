@@ -8,7 +8,7 @@ const validPrice=value=>typeof value==='number'&&Number.isFinite(value)&&value>=
 const escape=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const category=material=>{
   if(material.type==='MDFLAM')return 'mdflam';
-  if(material.id==='thin-back-3')return 'thin-back';
+  if(material.type==='MDF'&&Number(material.thickness)===3)return 'thin-back';
   if(material.decorCode==='MAT_068')return 'front-matt';
   if(material.decorCode==='HG_068')return 'front-gloss';
   return null;
@@ -24,7 +24,7 @@ export function getMaterialPrice(material,{thickness=material.thickness}={}){
 }
 
 export function getPriceSettings(project){
-  return Object.fromEntries(['handlePrice','guideSetPrice','hingePrice','edgeBandPricePerMeter'].map(key=>{
+  return Object.fromEntries(['handlePrice','guideSetPrice','hingePrice','edgeBandPricePerMeter','rodPricePerMeter','rodHolderPrice'].map(key=>{
     const manual=validPrice(project.settings?.pricing?.[key]);
     const value=manual?project.settings.pricing[key]:HARDWARE_PRICE_REFERENCES[key]?.price??null;
     return [key,{price:value===null?null:money(value),manual,reference:manual?null:HARDWARE_PRICE_REFERENCES[key]??null}];
@@ -46,6 +46,8 @@ export function getProjectCostEstimate(project,{cabinetId=null}={}){
   add('handles','Ручки',hardware.totals.handles,'pcs',prices.handlePrice);
   add('guideSets','Комплекты направляющих',hardware.totals.guideSets,'pair',prices.guideSetPrice);
   add('hinges','Петли',hardware.totals.hinges,'pcs',prices.hingePrice);
+  add('rods','Штанги для одежды',hardware.totals.rodLengthMeters,'meter',prices.rodPricePerMeter);
+  add('rodHolders','Держатели штанг',hardware.totals.rodHolders,'pcs',prices.rodHolderPrice);
   add('edge','Кромка',edge.lengthMeters,'meter',prices.edgeBandPricePerMeter);
   for(const row of rows)row.cost=row.unitPrice===null?null:money(row.quantity*row.unitPrice);
   const knownTotal=money(rows.reduce((sum,row)=>sum+(row.cost??0),0));

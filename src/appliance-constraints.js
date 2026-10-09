@@ -4,8 +4,9 @@
  * universal washer/dryer size. Existing invalid openings may improve without
  * worsening another axis; they remain invalid until completely repaired.
  */
-import { getCabinetLayout, getApplianceFit, getFrontLayout, getInternalDrawerLayout, validateProject, findLayoutNode, resizeSectionAdjacent, resizeDivider } from './engine.js';
+import { getCabinetLayout, getApplianceFit, getFrontLayout, getInternalDrawerLayout, getRodLayout, validateProject, findLayoutNode, resizeSectionAdjacent, resizeDivider } from './engine.js';
 import { getInteriorLayout, resizeInteriorSection, resizeInteriorDivider } from './cabinet-interior.js';
+import { getRodLimits } from './cabinet-rods.js';
 
 const AXES = ['width', 'height', 'depth'];
 const TOLERANCE = 1e-7;
@@ -39,6 +40,7 @@ function validGeometry(cabinet) {
     if (!node || ++count > 80) return false;
     if (node.depth !== undefined && node.depth !== null && (!finite(node.depth) || node.depth < 0)) return false;
     if (node.plinthHeight !== undefined && node.plinthHeight !== null && (!finite(node.plinthHeight) || node.plinthHeight < 0)) return false;
+    if (node.rods !== undefined && (!Array.isArray(node.rods) || node.rods.length > 12 || node.rods.some(rod => !rod || !finite(rod.y) || rod.y < 0 || !finite(rod.frontInset) || rod.frontInset < 0 || rod.length != null && (!finite(rod.length) || rod.length <= 0) || rod.diameter !== undefined && (!finite(rod.diameter) || rod.diameter <= 0)))) return false;
     if (node.interiorLayout) pending.push(node.interiorLayout);
     if (node.kind === 'split') {
       if (!['horizontal', 'vertical'].includes(node.axis) || !Array.isArray(node.children) || node.children.length < 2) return false;
@@ -95,6 +97,7 @@ function constraints(cabinet, project) {
     add(`${key}/box-depth`, 'internal-drawer', front.sectionId, 'depth', front.box.depth - 2 * front.box.panelThickness, POSITIVE_MINIMUM);
   }
   for (const brace of cabinet.rearBraces ?? []) add(`brace/${brace.id}/height`, 'brace', null, 'height', cabinet.height - brace.y, brace.height);
+  for (const limit of getRodLimits(getRodLayout(cabinet, project))) add(limit.key, limit.kind, limit.sectionId, limit.axis, limit.available, limit.required);
   return rows;
 }
 
@@ -102,7 +105,7 @@ function constraints(cabinet, project) {
 // inequality (for example a brace intersecting an appliance). Placement is
 // intentionally excluded; the studio applies its separate placement policy.
 function constructionErrors(cabinet, project) {
-  const geometryError = /недостаточно внутреннего пространства|вырез должен быть меньше|слишком мала|глубина секции.*превышает корпус|выдвижная полка не помещается|фасады не помещаются|короб ящика не помещается|внутренний ящик за дверями не помещается|задняя перемычка (выходит|не помещается|пересекает)|задние перемычки пересекаются|полки секции.*пересекают/u;
+  const geometryError = /недостаточно внутреннего пространства|вырез должен быть меньше|слишком мала|глубина секции.*превышает корпус|выдвижная полка не помещается|фасады не помещаются|короб ящика не помещается|внутренний ящик за дверями не помещается|задняя перемычка (выходит|не помещается|пересекает)|задние перемычки пересекаются|полки секции.*пересекают|штанг[аи]/u;
   return validateProject({ ...project, cabinets: [cabinet] }).filter(item => item.level === 'error' && item.cabinetId === cabinet.id && geometryError.test(item.message)).map(item => item.message.replace(/^«[^»]*»:\s*/u, '').replace(/«[^»]*»/gu, '«объект»'));
 }
 

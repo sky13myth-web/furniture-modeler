@@ -134,12 +134,12 @@ test('shared-door interior controls, schema feedback and the unbranded thin back
     applyTranslations(root, 'en'); assert.equal(root.textContent, en);
     applyTranslations(root, 'ru'); assert.equal(root.textContent, ru); assert.equal(root.getAttribute('aria-label'), ru);
   }
-  assert.equal(defaultName('thinBack', 'ru'), 'Тонкий задник · 3 мм');
-  assert.equal(defaultName('thinBack', 'tr'), 'Arkalık levhası · 3 mm');
-  assert.equal(defaultName('thinBack', 'en'), 'Thin back panel · 3 mm');
-  assert.equal(defaultName('thinBackType', 'ru'), 'Тонкая древесноволокнистая панель');
-  assert.equal(defaultName('thinBackType', 'tr'), 'Lif levha');
-  assert.equal(defaultName('thinBackType', 'en'), 'Fibreboard');
+  assert.equal(defaultName('thinBack', 'ru'), 'ДВП · задник · 3 мм');
+  assert.equal(defaultName('thinBack', 'tr'), 'Sert lif levha · arkalık · 3 mm');
+  assert.equal(defaultName('thinBack', 'en'), 'Hardboard · back panel · 3 mm');
+  assert.equal(defaultName('thinBackType', 'ru'), 'ДВП');
+  assert.equal(defaultName('thinBackType', 'tr'), 'Sert lif levha');
+  assert.equal(defaultName('thinBackType', 'en'), 'Hardboard');
   for (const phrase of [
     'Внутренний отсек не может содержать технику.',
     'Внутреннее наполнение нельзя вкладывать в другое внутреннее наполнение.',
@@ -495,4 +495,39 @@ test('door hardware and price controls translate completely while preserving num
   const writes = caption.firstChild.writes;
   applyTranslations(root, 'tr');
   assert.equal(caption.firstChild.writes, writes, 'repeated observer passes do not rewrite unchanged prices dialog text');
+});
+
+test('clothes rail controls, diagram numbers, automatic length and room printing translate completely', () => {
+  const phrases = ['Штанги для одежды', 'Гардеробные штанги', 'Штанга', 'Добавить штангу', 'Удалить штангу', 'Высота оси от дна секции', 'Отступ оси от переднего края', 'Длина штанги', 'Длина автоматически', 'Диаметр штанги', 'Держатели штанги', 'Держатели перекладин', 'Длина реза, мм', 'Диаметр, мм', 'Высота установки, мм', 'Штанги считаются отдельно от листовых материалов.', 'Цена штанги за метр', 'Цена держателя штанги', 'Нет свободного места для штанги в секции.', 'План помещения', 'Печать плана помещения', 'Сохранить план помещения', '3D-вид помещения', 'Печать 3D-вида помещения', 'Сохранить 3D помещения'];
+  for (const phrase of phrases) for (const language of ['tr', 'en']) assert.doesNotMatch(translateText(phrase, language), /[А-Яа-яЁё]/u, `${language}: ${phrase}`);
+  assert.equal(translateText('Штанга 1', 'tr'), 'Askı borusu 1');
+  assert.equal(translateText('Штанга 1160 · Ø25', 'en'), 'Clothes rail 1160 · Ø25');
+  assert.equal(translateText('Штанга · 1160 мм · Ø25', 'tr'), 'Askı borusu · 1160 mm · Ø25');
+  assert.equal(translateText('Длина автоматически: 860 мм', 'tr'), 'Otomatik uzunluk: 860 mm');
+  const caption = new Element('p', {}, [text('Длина автоматически: 860 мм')]);
+  for (const language of ['tr', 'en', 'ru']) { applyTranslations(caption, language); assert.equal(caption.textContent, translateText('Длина автоматически: 860 мм', language)); }
+});
+
+test('clothes rail diagnostics translate engineering templates while preserving quoted user section names', () => {
+  const custom = 'Мой открытый отсек';
+  const messages = [`штанги в секции «${custom}» требуют открытого или дверного проёма без техники; при внутреннем наполнении задайте штангу во внутреннем отсеке.`, `штанга не помещается в секцию «${custom}» с учётом диаметра и торцевых зазоров 2 мм; проверьте длину, высоту и отступ от фасада.`, ...['панелью', 'техникой', 'коробом ящика', 'другой штангой'].map(target => `штанга в секции «${custom}» пересекается с ${target}; измените её высоту, длину или отступ от фасада.`)];
+  for (const message of messages) for (const language of ['tr', 'en']) {
+    const translated = translateText(message, language);
+    assert.ok(translated.includes(`«${custom}»`));
+    assert.doesNotMatch(translated.replace(`«${custom}»`, ''), /[А-Яа-яЁё]/u);
+  }
+});
+
+test('removing outer doors preserves internal contents and the new hardboard labels translate without changing old aliases', () => {
+  const phrases = [
+    'Снятие дверей сохраняет внутреннее наполнение.',
+    'Вернуться к секции',
+    'Для внутренних отсеков сначала измените положение штанг или удалите их.',
+    'ДВП · задник · 3 мм', 'ДВП',
+  ];
+  for (const phrase of phrases) for (const language of ['tr', 'en']) assert.doesNotMatch(translateText(phrase, language), /[А-Яа-яЁё]/u);
+  assert.equal(translateText('Тонкий задник · 3 мм', 'en'), 'Thin back panel · 3 mm');
+  assert.equal(translateText('Тонкая древесноволокнистая панель', 'tr'), 'Lif levha');
+  const caption = new Element('p', {}, [text('Снятие дверей сохраняет внутреннее наполнение.')]);
+  for (const language of ['tr', 'en', 'ru']) { applyTranslations(caption, language); assert.equal(caption.textContent, translateText(phrases[0], language)); }
 });

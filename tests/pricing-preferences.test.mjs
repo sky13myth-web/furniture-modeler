@@ -6,6 +6,14 @@ import { createDefaultProject } from '../src/engine.js';
 const stock = overrides => ({ id: 'hdf-back', name: 'My rear sheet', thickness: 3, sheetWidth: 2100, sheetHeight: 2800, type: 'Custom fibreboard', ...overrides });
 const project = overrides => ({ name: 'Project', materials: [stock()], settings: {}, ...overrides });
 
+test('rod metre and holder unit prices are reusable, accept zero and retain project-specific overrides', () => {
+  const source=project({settings:{pricing:{rodPricePerMeter:100.25,rodHolderPrice:0}}});
+  const preferences=getPricingPreferences(source);
+  assert.deepEqual(preferences.rates,{rodPricePerMeter:100.25,rodHolderPrice:0});
+  const target=project({settings:{pricing:{rodPricePerMeter:200}}});
+  assert.deepEqual(applyPricingPreferences(target,preferences).settings.pricing,{rodPricePerMeter:200,rodHolderPrice:0});
+});
+
 test('a saved quote identifies its complete stock and cannot reprice a historical ID at another gauge', () => {
   const source = project({ materials: [stock({ pricePerSheet: 730 })] });
   const preferences = getPricingPreferences(source);

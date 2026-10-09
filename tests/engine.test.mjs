@@ -1048,6 +1048,9 @@ test('internal drawer construction rejects intersecting shelves and boxes that d
   cabinet.height = 2200; cabinet.layout.internalDrawerCount = 2; cabinet.width = 300; cabinet.layout.internalDrawerHingeGap = 200;
   assert.equal(validateProject(project).some(item => item.level === 'error' && item.message.includes('внутренний ящик за дверями не помещается')), true);
   cabinet.layout.front = 'open';
+  assert.equal(getInternalDrawerLayout(cabinet, project).length, 2);
+  assert.equal(getInternalDrawerLayout(cabinet, project)[0].hingeGap, 0);
+  cabinet.layout.front = 'drawers';
   assert.deepEqual(getInternalDrawerLayout(cabinet, project), []);
   assert.equal(validateProject(project).some(item => item.message.includes('Внутренние ящики размещаются')), true);
 });
@@ -1121,4 +1124,41 @@ test('outside-area repair is measured through concave room bridges even when cab
   assert.equal(canEditCabinetPlacement(old, next, after, { baselineProject: before }), true);
   next.z = 300;
   assert.equal(canEditCabinetPlacement(old, next, after, { baselineProject: before }), false);
+});
+test('legacy front and left openings use the same directed wall offsets as indexed room geometry', () => {
+  const project = createDefaultProject('ru'), cabinet = project.cabinets[0];
+  Object.assign(project.room, { width: 4000, depth: 3000, installationClearance: { walls: 0, ceiling: 0 } });
+  delete project.room.outline;
+  Object.assign(cabinet, { width: 600, depth: 620, plinth: 0, layout: { id: 'room-doors', kind: 'section', front: 'doors', doors: 2, shelves: 0 } });
+  const warning = () => validateProject(project).some(item => item.message.includes('перекрывает оконный проём'));
+  for (const [wall, wallIndex, touching, opposite] of [
+    ['front', 2, { x: 3300, z: 2362 }, { x: 100, z: 2362 }],
+    ['left', 3, { x: 10, z: 2300 }, { x: 10, z: 100 }]
+  ]) {
+    project.room.windows = [{ id: 'legacy-opening', wall, offset: 100, width: 800, height: 1200, sill: 800 }];
+    Object.assign(cabinet, touching); assert.equal(warning(), true, wall);
+    Object.assign(cabinet, opposite); assert.equal(warning(), false, wall);
+    const unchanged = structuredClone(project.room.windows[0]);
+    Object.assign(cabinet, touching);
+    const named = validateProject(project);
+    project.room.windows[0].wallIndex = wallIndex;
+    assert.deepEqual(validateProject(project), named);
+    delete project.room.windows[0].wallIndex;
+    assert.deepEqual(project.room.windows[0], unchanged);
+  }
+});
+
+test('new cabinets prefer the actual thin fibre back without reassigning old eight-millimetre cabinets', () => {
+  const project = createDefaultProject('en'), original = project.cabinets[0];
+  Object.assign(original, { backMaterialId: 'hdf-back', backThickness: 8 });
+  const other = { ...project.materials.find(m => m.id === 'thin-back-3'), id: 'custom-other-three', name: 'Custom other stock', type: 'Particleboard' };
+  project.materials.unshift(other);
+  const before = structuredClone(project), cabinet = createCabinet('tall', project);
+  assert.equal(cabinet.backMaterialId, 'thin-back-3'); assert.equal(cabinet.backThickness, 3);
+  assert.equal(cabinet.drawerBottomMaterialId, 'hdf-back'); assert.equal(cabinet.drawerBottomThickness, 8);
+  assert.deepEqual(project, before);
+  project.materials.find(m => m.id === 'thin-back-3').id = 'custom-thin-fibre';
+  assert.equal(createCabinet('tall', project).backMaterialId, 'custom-thin-fibre');
+  project.materials.find(m => m.id === 'custom-thin-fibre').thickness = 8;
+  assert.equal(createCabinet('tall', project).backMaterialId, other.id, 'the priority never fakes a three-millimetre gauge');
 });

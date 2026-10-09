@@ -38,6 +38,19 @@ const validateRearBraces = (braces, { label, itemLabel, positionLabel, materialI
   }
 };
 
+export function validateRodsSchema(rods) {
+  if (rods === undefined) return;
+  collection(rods, 'Гардеробные штанги', 12);
+  const ids = new Set();
+  for (const rod of rods) {
+    record(rod, 'гардеробная штанга'); uniqueId(rod.id, ids, 'Гардеробная штанга');
+    finite(rod.y, 'Штанга: высота оси от низа проёма', 6000);
+    finite(rod.frontInset, 'Штанга: отступ оси от фасада', 3000);
+    if (rod.length !== undefined && rod.length !== null) finite(rod.length, 'Штанга: длина', 6000, true);
+    if (rod.diameter !== undefined) finite(rod.diameter, 'Штанга: диаметр', 100, true);
+  }
+}
+
 export function validateDoorOpenings(openings, count) {
   if (openings === undefined) return;
   collection(openings, 'Направления открывания дверей', 8);
@@ -62,8 +75,9 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
       if (node.appliance !== undefined) fail('Внутренний отсек не может содержать технику.');
       if (node.interiorLayout !== undefined) fail('Внутреннее наполнение нельзя вкладывать в другое внутреннее наполнение.');
       if (node.depth !== undefined && node.depth !== null) finite(node.depth, 'Внутренний отсек: глубина', 3000, true);
-    } else if (node.interiorLayout !== undefined && node.kind !== 'section') fail('Внутреннее наполнение возможно только у секции с дверями.');
+    } else if (node.interiorLayout !== undefined && node.kind !== 'section') fail('Внутреннее наполнение возможно только у открытой секции или секции с дверями.');
     if (node.kind === 'split') {
+      if (node.rods !== undefined) fail('Гардеробные штанги задаются в отдельном проёме, а не в разделителе.');
       if (!['horizontal', 'vertical'].includes(node.axis)) fail('Секции: неверная ось разделения.');
       collection(node.children, 'Дочерние секции', 20);
       if (node.children.length < 2) fail('Секции: разделитель должен содержать хотя бы две секции.');
@@ -71,6 +85,7 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
       if (node.sizes.length !== node.children.length || node.sizes.some(size => typeof size !== 'number' || !Number.isFinite(size) || size <= 0)) fail('Секции: пропорции должны быть положительными и соответствовать числу секций.');
       for (const child of node.children) visit(child, depth + 1, interior);
     } else if (node.kind === 'section') {
+      validateRodsSchema(node.rods);
       if (interior && !['open', 'drawers'].includes(node.front)) fail('Внутренний отсек: допустимы только открытые отсеки и ящики.');
       if (!['open', 'doors', 'drawers'].includes(node.front)) fail('Секция: неверный тип фасада.');
       for (const [key, max] of [['doors', 8], ['drawers', 12], ['shelves', 20]]) {
@@ -79,7 +94,7 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
       if (node.front === 'doors' && node.doors === 0 || node.front === 'drawers' && node.drawers === 0) fail('Секция: число используемых фасадов должно быть больше нуля.');
       validateDoorOpenings(node.doorOpenings, node.doors ?? 2);
       if (node.internalDrawerCount !== undefined && (!Number.isInteger(node.internalDrawerCount) || node.internalDrawerCount < 0 || node.internalDrawerCount > 12)) fail('Внутренние ящики: число должно быть целым от 0 до 12.');
-      if (node.internalDrawerCount > 0 && node.front !== 'doors') fail('Внутренние ящики размещаются в секции с дверями.');
+      if (node.internalDrawerCount > 0 && !['doors', 'open'].includes(node.front)) fail('Внутренние ящики размещаются в открытой секции или секции с дверями.');
       if (node.internalDrawerHingeGap !== undefined) finite(node.internalDrawerHingeGap, 'Отступ внутренних ящиков от петель', 200);
       if (node.openingMechanism !== undefined && !['handle', 'push'].includes(node.openingMechanism)) fail('Механизм открывания должен быть handle или push.');
       if (node.depth !== undefined && node.depth !== null) finite(node.depth, 'Секция: глубина', 3000, true);
@@ -105,7 +120,7 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
         }
       }
       if (!interior && node.interiorLayout !== undefined) {
-        if (node.front !== 'doors') fail('Внутреннее наполнение возможно только у секции с дверями.');
+        if (!['doors', 'open'].includes(node.front)) fail('Внутреннее наполнение возможно только у открытой секции или секции с дверями.');
         visit(node.interiorLayout, depth + 1, true);
       }
     } else fail('Секции: неверный тип узла.');
@@ -228,7 +243,7 @@ export function checkImport(project) {
   if (project.settings.printLanguage !== undefined && !['ru', 'tr', 'en'].includes(project.settings.printLanguage)) fail('Язык печати должен быть ru, tr или en.');
   if (project.settings.pricing !== undefined) {
     record(project.settings.pricing, 'цены фурнитуры');
-    for (const [key, label] of [['handlePrice', 'ручка'], ['guideSetPrice', 'направляющие, комплект'], ['hingePrice', 'петля'], ['edgeBandPricePerMeter', 'кромка за метр']]) {
+    for (const [key, label] of [['handlePrice', 'ручка'], ['guideSetPrice', 'направляющие, комплект'], ['hingePrice', 'петля'], ['edgeBandPricePerMeter', 'кромка за метр'], ['rodPricePerMeter', 'штанга за метр'], ['rodHolderPrice', 'держатель штанги']]) {
       if (project.settings.pricing[key] !== undefined) finite(project.settings.pricing[key], `Цена: ${label}, TRY`, 1e9);
     }
   }

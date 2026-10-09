@@ -31,7 +31,7 @@ function hardwareRows(html,language){
 
 test('printed BOM counts mixed internal drawers, push fronts and pull-out shelves once in pairs',()=>{
   const {project,cabinet}=fixture(),before=structuredClone(project),schedule=getHardwareSchedule(cabinet,project);
-  assert.deepEqual(schedule.totals,{handles:3,guideSets:6,hinges:8});
+  assert.deepEqual(schedule.totals,{handles:3,guideSets:6,hinges:8,rods:0,rodHolders:0,rodLengthMeters:0});
   for(const language of ['ru','tr','en']){
     const html=generateHardwareHTML(project,{cabinetId:cabinet.id,language});
     assert.deepEqual(hardwareRows(html,language),[
@@ -54,7 +54,7 @@ test('selected and project BOMs preserve scope, custom names and planned lift-do
   Object.assign(copy,{id:'copy',name:'Мой шкаф <custom>',x:2100});
   copy.layout={...createSection('doors'),id:'lift',doors:1,doorOpenings:['up'],openingMechanism:'handle'};
   project.cabinets.push(copy);
-  assert.deepEqual(getProjectHardwareSchedule(project).totals,{handles:4,guideSets:6,hinges:13});
+  assert.deepEqual(getProjectHardwareSchedule(project).totals,{handles:4,guideSets:6,hinges:13,rods:0,rodHolders:0,rodLengthMeters:0});
   const html=generateHardwareHTML(project,{language:'en'});
   assert.deepEqual(hardwareRows(html,'en'),[
     [['3','pcs.'],['1','pcs.'],['4','pcs.']],
@@ -94,7 +94,7 @@ test('drawing cost sheets use actual quantities and manual rates with one locali
   const {project,cabinet}=fixture();manualPrices(project);
   const before=structuredClone(project),estimate=getProjectCostEstimate(project,{cabinetId:cabinet.id});
   assert.equal(estimate.complete,true);
-  assert.deepEqual(estimate.hardware,{handles:3,guideSets:6,hinges:8});
+  assert.deepEqual(estimate.hardware,{handles:3,guideSets:6,hinges:8,rods:0,rodHolders:0,rodLengthMeters:0});
   assert.equal(estimate.rows.find(row=>row.id==='guideSets').cost,240,'one pair is priced once, not as two separate rails');
   for(const language of ['ru','tr','en']){
     const html=generateCostPrintHTML(project,{cabinetId:cabinet.id,language});

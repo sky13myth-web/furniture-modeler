@@ -8,6 +8,8 @@ import { validateLayoutSchema, validateDoorOpenings } from './project-io.js';
 import { MATERIAL_PRESETS, THIN_BACK_PRESET } from './standards.js';
 import { defaultName, localizeMaterialPreset } from './i18n.js';
 import { getInteriorLayout } from './cabinet-interior.js';
+import { buildRodLayout, getRodLimits, rodIntersectsPart, rodIntersectsBox, rodsIntersect } from './cabinet-rods.js';
+import { isDefaultBackMaterial } from './material-defaults.js';
 
 export const ENGINE_ASSUMPTIONS = [
   'Все размеры в миллиметрах. Общая высота включает цоколь; открытая нижняя секция может продолжаться до низа шкафа с удалением своего дна и участка цоколя.',
@@ -20,6 +22,7 @@ export const ENGINE_ASSUMPTIONS = [
   'Высота короба ящика на 40 мм меньше фасада, включая толщину дна. Цокольная планка на 10 мм ниже цоколя; регулируемые опоры и фурнитура не входят в раскрой.',
   'Нижние секции могут иметь отдельную высоту цоколя; открытый проём до пола удаляет своё дно и цоколь. Полный задник имеет приоритет над локальными задниками и перемычками. Локальные перемычки задаются от чистого низа своей секции, старые общие — от низа всего шкафа.',
   'Внутренние отсеки за общими дверями имеют собственные перегородки, полки и ящики. Выдвижная полка — отдельная панель с боковыми зазорами направляющих; крепления и прочность не рассчитываются.',
+  'Гардеробные штанги — отдельная фурнитура. Высота оси задаётся от чистого низа проёма, отступ — от передней плоскости секции; автоматическая длина оставляет по 2 мм на торцах. Диаметр, держатели, нагрузка и крепление проверяются по выбранному изделию.',
   'Направление текстуры идёт вдоль высоты детали; детали с текстурой не поворачиваются. Раскрой эвристический, использует ограничивающие прямоугольники фигурных деталей и не гарантирует минимальное число листов.',
   'Метраж кромки считается по выбранным внешним сторонам готовой детали. У фигурных деталей внутренние ступени выреза автоматически не оклеиваются.',
   'Типовые параметры производства в Турции — настраиваемые. Соответствие конкретным TS/EN, классу эмиссии и требованиям фурнитуры подтверждается поставщиком и технологом.'
@@ -255,11 +258,88 @@ export function getCabinetLayout(cabinet, project = { materials: [] }) {
     }
   }
   const internalSections = [], internalPartitions = [], internalNodes = [];
-  for (const section of sections) if (section.node.front === 'doors' && section.node.interiorLayout) {
+  for (const section of sections) if (['doors', 'open'].includes(section.node.front) && section.node.interiorLayout) {
     const interior = getInteriorLayout(section, thickness);
     internalSections.push(...interior.sections); internalPartitions.push(...interior.partitions); internalNodes.push(...interior.nodes);
   }
   return { sections, partitions, nodes, internalSections, internalPartitions, internalNodes, thickness, bodyHeight, bodyDepth };
+}
+
+/** Wardrobe hardware, separate from the MDF cutting parts. */
+export function getRodLayout(cabinet, project = { materials: [] }) {
+  return buildRodLayout(getCabinetLayout(cabinet, project), { cabinetId: cabinet.id, backThickness: backThickness(cabinet, project) });
+}
+
+function rodOccupiedBoxes(cabinet, project, layout) {
+  const back = backThickness(cabinet, project), boxes = [];
+  for (const section of layout.sections) if (section.node.appliance) {
+    const a = section.node.appliance;
+    boxes.push({ id: `appliance-${section.id}`, kind: 'appliance', x: section.x + (section.width - a.width) / 2,
+      y: section.y, z: back + section.rearOffset + Math.max(0, section.usableDepth - a.depth), width: a.width, height: a.height, depth: a.depth });
+  }
+  for (const front of getFrontLayout(cabinet, project)) if (front.kind === 'drawer') {
+    const section = layout.sections.find(item => item.id === front.sectionId);
+    if (!section) continue;
+    const runner = number(cabinet.drawerSlideGap, 13);
+    boxes.push({ id: `drawer-${section.id}-${front.index}`, kind: 'drawer', x: section.x + runner,
+      y: front.y + 20, z: back + section.rearOffset + 20, width: section.width - 2 * runner,
+      height: front.height - 40, depth: section.usableDepth - 40 });
+  }
+  for (const front of getInternalDrawerLayout(cabinet, project)) boxes.push({ ...front.box,
+    id: `internal-drawer-${front.sectionId}-${front.index}`, kind: 'drawer', height: front.box.height + front.box.bottomThickness });
+  return boxes;
+}
+
+function rodCollisions(rods, parts, occupied) {
+  const collisions = [];
+  for (const rod of rods) {
+    const metadata = { rodId: rod.rodId, sectionId: rod.sectionId, ...(rod.interiorSectionId ? { interiorSectionId: rod.interiorSectionId } : {}) };
+    for (const part of parts) if (rodIntersectsPart(rod, part)) collisions.push({ ...metadata, kind: 'panel', otherId: part.id });
+    for (const box of occupied) if (rodIntersectsBox(rod, box)) collisions.push({ ...metadata, kind: box.kind, otherId: box.id });
+  }
+  for (let i = 0; i < rods.length; i++) for (let j = i + 1; j < rods.length; j++) if (rodsIntersect(rods[i], rods[j])) collisions.push({ rodId: rods[i].rodId, sectionId: rods[i].sectionId,
+    ...(rods[i].interiorSectionId ? { interiorSectionId: rods[i].interiorSectionId } : {}), kind: 'rod', otherId: rods[j].id });
+  return collisions;
+}
+
+/** Physical collisions against finished panels and occupied appliance/drawer
+ * envelopes. Back cutouts and local plinth levels use the same production data. */
+export function getRodCollisions(cabinet, project = { materials: [] }) {
+  const rods = getRodLayout(cabinet, project);
+  if (!rods.length) return [];
+  const layout = getCabinetLayout(cabinet, project);
+  return rodCollisions(rods, generateParts({ ...project, cabinets: [cabinet] }), rodOccupiedBoxes(cabinet, project, layout));
+}
+
+/** Find a usable starter position without changing the user's cabinet. The
+ * suggested offsets are geometric conveniences, not hanger/load standards. */
+export function findFreeRodPosition(cabinet, project, sectionId, { interior, diameter = 25 } = {}) {
+  const layout = getCabinetLayout(cabinet, project);
+  const section = (interior === undefined ? [...layout.sections, ...layout.internalSections] : interior ? layout.internalSections : layout.sections).find(item => item.id === sectionId);
+  if (!section || section.node.appliance || section.node.front === 'drawers' || section.node.interiorLayout || !Number.isFinite(diameter) || diameter <= 0) return null;
+  const radius = diameter / 2;
+  if (section.width <= 4 || section.height < diameter || section.usableDepth < diameter) return null;
+  const rods = getRodLayout(cabinet, project), parts = generateParts({ ...project, cabinets: [cabinet] });
+  const boxes = rodOccupiedBoxes(cabinet, project, layout), back = backThickness(cabinet, project);
+  const heights = new Set([Math.max(radius, section.height - 150), section.height - radius, radius]);
+  const insets = new Set([section.usableDepth / 2, radius, section.usableDepth - radius]);
+  const yBoundary = (start, end) => { heights.add(start - section.y - radius - .01); heights.add(end - section.y + radius + .01); };
+  const zBoundary = (start, end) => { insets.add(back + section.depth - start + radius + .01); insets.add(back + section.depth - end - radius - .01); };
+  for (const part of parts) {
+    if (!part.position) continue;
+    const p = part.position, horizontal = part.orientation === 'horizontal', depthPanel = part.orientation === 'vertical-depth';
+    yBoundary(p.y, p.y + (horizontal ? part.thickness : part.finishedHeight));
+    zBoundary(p.z, p.z + (horizontal ? part.finishedHeight : depthPanel ? part.finishedWidth : part.thickness));
+  }
+  for (const box of boxes) { yBoundary(box.y, box.y + box.height); zBoundary(box.z, box.z + box.depth); }
+  for (const rod of rods) { yBoundary(rod.y - rod.diameter / 2, rod.y + rod.diameter / 2); zBoundary(rod.z - rod.diameter / 2, rod.z + rod.diameter / 2); }
+  for (const frontInset of insets) for (const y of heights) {
+    if (y < radius || y > section.height - radius || frontInset < radius || frontInset > section.usableDepth - radius) continue;
+    const trial = { ...section, node: { ...section.node, rods: [{ id: 'candidate', y, frontInset, diameter }] } };
+    const [rod] = buildRodLayout({ sections: [trial] }, { cabinetId: cabinet.id, backThickness: back });
+    if (!rodCollisions([rod], parts, boxes).length && !rods.some(other => rodsIntersect(rod, other))) return { y, frontInset, diameter, length: null };
+  }
+  return null;
 }
 
 /**
@@ -511,7 +591,10 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   const materials = project.materials ?? [];
   const material = materials.find(item => number(item.thickness) === 18) ?? materials[0];
   const exactThickness = thickness => materials.find(item => number(item.thickness) === thickness)?.id;
-  const backMaterialId = exactThickness(3) ?? materials.find(item => item.id === 'hdf-back')?.id ?? exactThickness(8) ?? material?.id;
+  const fibreTypes = new Set(['ru', 'tr', 'en'].map(language => defaultName('thinBackType', language)));
+  const thinBack = materials.find(isDefaultBackMaterial) ??
+    materials.find(item => number(item.thickness) === 3 && fibreTypes.has(item.type));
+  const backMaterialId = thinBack?.id ?? exactThickness(3) ?? materials.find(item => item.id === 'hdf-back')?.id ?? exactThickness(8) ?? material?.id;
   const drawerMaterialId = exactThickness(16) ?? material?.id;
   const drawerBottomMaterialId = exactThickness(6) ?? exactThickness(8) ?? backMaterialId;
   const existing = project.cabinets ?? [];
@@ -603,14 +686,14 @@ export function getInternalDrawerLayout(cabinet, project = { materials: [] }) {
   const result = [];
   const layout = getCabinetLayout(cabinet, project);
   for (const outer of layout.sections) {
-    if (outer.node.front !== 'doors') continue;
+    if (!['doors', 'open'].includes(outer.node.front)) continue;
     const openings = outer.node.interiorLayout ? layout.internalSections.filter(section => section.parentSectionId === outer.id && section.node.front === 'drawers') : [outer];
     let globalIndex = 0;
     for (const section of openings) {
       const internal = section !== outer;
       const count = Math.min(12, internal ? integer(section.node.drawers, 2) : integer(section.node.internalDrawerCount));
       if (!count) continue;
-      const hingeGap = Math.max(0, number(outer.node.internalDrawerHingeGap, 20));
+      const hingeGap = outer.node.front === 'doors' ? Math.max(0, number(outer.node.internalDrawerHingeGap, 20)) : 0;
       const leftHinge = Math.abs(section.x - outer.x) < EPSILON ? hingeGap : 0;
       const rightHinge = Math.abs(section.x + section.width - outer.x - outer.width) < EPSILON ? hingeGap : 0;
       const mechanism = openingMechanism(internal ? section.node : outer.node), handleProjection = mechanism === 'handle' ? 16 : 0;
@@ -1027,6 +1110,7 @@ export function validateProject(project) {
       if (section.node.front === 'drawers' && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают короба ящиков.`);
       if (!section.node.interiorLayout && section.node.internalDrawerCount > 0 && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают внутренние ящики за дверями.`);
       if (section.node.interiorLayout && (integer(section.node.shelves) > 0 || section.node.pullOutShelf)) error(`полки секции «${sectionName}» пересекают внутреннее наполнение; задайте их во внутренних отсеках.`);
+      if (section.node.rods?.length && (section.node.front === 'drawers' || section.node.appliance || section.node.interiorLayout)) error(`штанги в секции «${sectionName}» требуют открытого или дверного проёма без техники; при внутреннем наполнении задайте штангу во внутреннем отсеке.`);
       if (integer(section.node.shelves) > 0 && section.width > 1000) warn(`пролёт полки секции «${sectionName}» больше 1000 мм; проверьте прогиб и опоры.`);
       if (integer(section.node.shelves) > 0 && section.height / (integer(section.node.shelves) + 1) < 80) warn(`между полками секции «${sectionName}» остаётся менее 80 мм.`);
       if (section.node.appliance) {
@@ -1053,6 +1137,23 @@ export function validateProject(project) {
     if (layout) for (const front of getInternalDrawerLayout(cabinet, project)) {
       if (front.width <= 0 || front.height <= 0 || front.depth <= 0 || front.box.width <= 2 * front.box.panelThickness || front.box.height <= 0 || front.box.depth <= 2 * front.box.panelThickness) error('внутренний ящик за дверями не помещается с учётом отступа для петель; увеличьте проём или уменьшите число ящиков.');
     }
+    if (layout) {
+      const rods = getRodLayout(cabinet, project), rodIssues = getRodLimits(rods).filter(limit => limit.required > limit.available + EPSILON);
+      for (const sectionId of new Set(rodIssues.map(issue => issue.sectionId))) {
+        const section = [...layout.sections, ...layout.internalSections].find(item => item.id === sectionId);
+        error(`штанга не помещается в секцию «${section?.node.name ?? sectionId}» с учётом диаметра и торцевых зазоров 2 мм; проверьте длину, высоту и отступ от фасада.`);
+      }
+      const collisions = getRodCollisions(cabinet, project);
+      const reported = new Set();
+      for (const collision of collisions) {
+        const key = `${collision.interiorSectionId ?? collision.sectionId}/${collision.kind}`;
+        if (reported.has(key)) continue;
+        reported.add(key);
+        const section = [...layout.sections, ...layout.internalSections].find(item => item.id === (collision.interiorSectionId ?? collision.sectionId));
+        const target = { panel: 'панелью', appliance: 'техникой', drawer: 'коробом ящика', rod: 'другой штангой' }[collision.kind];
+        error(`штанга в секции «${section?.node.name ?? section?.id}» пересекается с ${target}; измените её высоту, длину или отступ от фасада.`);
+      }
+    }
     const backStock = stockById(project ?? {}, cabinet.backMaterialId);
     if (cabinet.includeBack !== false && backStock && Math.abs(number(backStock.thickness) - backThickness(cabinet, project ?? {})) > EPSILON) warn('толщина задней стенки отличается от выбранного материала; потребуется отдельный лист этой толщины.');
     if (hasDrawers) {
@@ -1069,12 +1170,13 @@ export function validateProject(project) {
   for (const window of room.windows ?? []) {
     if (window.kind !== undefined && !['window', 'door'].includes(window.kind)) add('error', 'Проём: неизвестный вид.');
     if (window.kind === 'door' && number(window.sill) !== 0) add('warning', 'Дверной проём должен начинаться от пола: задайте высоту подоконника 0 мм.');
-    if (window.wallIndex !== undefined) {
-      if (!Number.isInteger(window.wallIndex) || window.wallIndex < 0 || window.wallIndex >= roomOutline.length) { add('error', 'У оконного проёма должна быть выбрана существующая стена.'); continue; }
-      const length = wallLength(room, window.wallIndex);
+    const wallIndex = window.wallIndex ?? ({ back: 0, right: 1, front: 2, left: 3 })[window.wall];
+    if (wallIndex !== undefined) {
+      if (!Number.isInteger(wallIndex) || wallIndex < 0 || wallIndex >= roomOutline.length) { add('error', 'У оконного проёма должна быть выбрана существующая стена.'); continue; }
+      const length = wallLength(room, wallIndex);
       if (!positive(window.width) || !positive(window.height) || !Number.isFinite(Number(window.offset)) || number(window.offset) < 0 || !Number.isFinite(Number(window.sill)) || number(window.sill) < 0) add('error', 'Оконный проём: проверьте размеры, отступ и высоту подоконника.');
       if (number(window.offset) + number(window.width) > length + EPSILON || number(window.sill) + number(window.height) > number(room.height) + EPSILON) add('error', 'Оконный проём выходит за границы стены.');
-      const a = roomOutline[window.wallIndex], b = roomOutline[(window.wallIndex + 1) % roomOutline.length];
+      const a = roomOutline[wallIndex], b = roomOutline[(wallIndex + 1) % roomOutline.length];
       const ux = (b.x - a.x) / length, uz = (b.z - a.z) / length;
       for (const cabinet of cabinets) {
         const points = cabinetFootprint(physicalCabinet(cabinet, project));
@@ -1084,17 +1186,7 @@ export function validateProject(project) {
       }
       continue;
     }
-    const wall = window.wall;
-    if (!['back', 'front', 'left', 'right'].includes(wall)) { add('error', 'У оконного проёма должна быть выбрана стена.'); continue; }
-    const legacyWallLength = wall === 'back' || wall === 'front' ? number(room.width) : number(room.depth);
-    if (!positive(window.width) || !positive(window.height) || !Number.isFinite(Number(window.offset)) || number(window.offset) < 0 || !Number.isFinite(Number(window.sill)) || number(window.sill) < 0) add('error', 'Оконный проём: проверьте размеры, отступ и высоту подоконника.');
-    if (number(window.offset) + number(window.width) > legacyWallLength + EPSILON || number(window.sill) + number(window.height) > number(room.height) + EPSILON) add('error', 'Оконный проём выходит за границы стены.');
-    for (const cabinet of cabinets) {
-      const touches = wall === 'back' ? number(cabinet.z) < 50 : wall === 'front' ? number(cabinet.z) + physicalCabinet(cabinet, project).depth > number(room.depth) - 50 : wall === 'left' ? number(cabinet.x) < 50 : number(cabinet.x) + number(cabinet.width) > number(room.width) - 50;
-      const start = wall === 'back' || wall === 'front' ? number(cabinet.x) : number(cabinet.z);
-      const length = wall === 'back' || wall === 'front' ? number(cabinet.width) : physicalCabinet(cabinet, project).depth;
-      if (touches && start < number(window.offset) + number(window.width) && start + length > number(window.offset) && number(cabinet.y) < number(window.sill) + number(window.height) && number(cabinet.y) + number(cabinet.height) > number(window.sill)) add('warning', `«${cabinet.name}» перекрывает оконный проём.`, cabinet.id);
-    }
+    add('error', 'У оконного проёма должна быть выбрана стена.');
   }
   return warnings;
 }

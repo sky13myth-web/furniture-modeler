@@ -473,7 +473,7 @@ test('interior schema rejects inner doors, equipment, recursive interiors and du
   const base = interiorProject(innerSplit('inside', 'horizontal', [innerLeaf('top'), innerLeaf('bottom', { front: 'drawers', drawers: 2 })]));
   for (const [mutate, pattern] of [
     [n => { n.interiorLayout = null; }, /Неверный формат/],
-    [n => { n.front = 'open'; }, /только у секции с дверями/],
+    [n => { n.front = 'drawers'; }, /только у открытой секции или секции с дверями/],
     [n => { n.interiorLayout.children[0].front = 'doors'; }, /только открытые отсеки и ящики/],
     [n => { n.interiorLayout.children[0].appliance = { type: 'washer', width: 600, height: 850, depth: 600 }; }, /не может содержать технику/],
     [n => { n.interiorLayout.appliance = null; }, /не может содержать технику/],

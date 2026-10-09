@@ -45,6 +45,34 @@ export function getInteriorLayout(outerSection, thickness = 18) {
   return { sections, partitions, nodes, thickness: t, parentSectionId };
 }
 
+/** Explicitly move existing opening contents into an editable inner tree.
+ * Upper rods keep their physical axis coordinates while a new horizontal
+ * divider reserves a separate lower drawer compartment. The caller still
+ * validates actual drawer stock and boxes before committing the returned tree. */
+export function createInteriorFromSection(section, thickness = 18) {
+  const node = section?.node, t = number(thickness, 18);
+  if (!node || !['open', 'doors'].includes(node.front) || node.interiorLayout || !(t > 0)) return null;
+  const count = number(node.internalDrawerCount);
+  if (!Number.isInteger(count) || count < 0 || count > 12) return null;
+  const id = `${section.id}-inside`, mechanism = node.openingMechanism ?? 'handle';
+  const leaf = (suffix, front) => ({ id: `${id}-${suffix}`, kind: 'section', front, depth: null, shelves: 0, openingMechanism: mechanism });
+  const rods = clone(node.rods ?? []);
+  if (!count) return { ...leaf('open', 'open'), shelves: node.shelves ?? 0, ...(rods.length ? { rods } : {}), ...(node.pullOutShelf ? { pullOutShelf: true } : {}) };
+  const drawers = { ...leaf('drawers', 'drawers'), drawers: count,
+    ...(Array.isArray(node.drawerHeights) && node.drawerHeights.length === count ? { drawerHeights: clone(node.drawerHeights) } : {}) };
+  if (!rods.length) return drawers;
+  const height = number(section.height), minLower = Math.min(...rods.map(rod => number(rod.y) - number(rod.diameter, 25) / 2));
+  // A rod below the old drawer stack cannot be moved into an upper opening.
+  // The 50 mm top allowance and 20 mm box/front offset are engine conventions.
+  if (minLower < height - 72) return null;
+  const upperHeight = Math.max(MIN_OPENING, height - minLower + 1), lowerHeight = height - upperHeight - t;
+  if (lowerHeight < MIN_OPENING) return null;
+  const origin = lowerHeight + t;
+  const hanging = { ...leaf('hanging', 'open'), rods: rods.map(rod => ({ ...rod, y: rod.y - origin })) };
+  if (hanging.rods.some(rod => !Number.isFinite(rod.y) || rod.y < number(rod.diameter, 25) / 2 || rod.y + number(rod.diameter, 25) / 2 > upperHeight)) return null;
+  return { id, kind: 'split', axis: 'horizontal', sizes: [upperHeight, lowerHeight], children: [hanging, drawers] };
+}
+
 function findParent(layout, id) {
   const stack = [{ node: layout, parent: null }], seen = new Set();
   while (stack.length && seen.size < 80) {

@@ -218,6 +218,13 @@ function makeScene(project, options, direction) {
     const p = [[x, y, z], [x + w, y, z], [x + w, y + h, z], [x, y + h, z], [x, y, z + d], [x + w, y, z + d], [x + w, y + h, z + d], [x, y + h, z + d]];
     [[0, 3, 2, 1, [0, 0, -1]], [4, 5, 6, 7, [0, 0, 1]], [0, 4, 7, 3, [-1, 0, 0]], [1, 2, 6, 5, [1, 0, 0]], [3, 7, 6, 2, [0, 1, 0]], [0, 1, 5, 4, [0, -1, 0]]].forEach(f => face(f.slice(0, 4).map(i => p[i]), color, f[4], id, extras));
   };
+  const cylinderX=(x,y,z,length,diameter,color,id,extras={})=>{
+    if(length<=0||diameter<=0)return;
+    const radius=diameter/2,count=20,ring=Array.from({length:count},(_,index)=>[y+radius*Math.cos(index*Math.PI*2/count),z+radius*Math.sin(index*Math.PI*2/count)]);
+    const metadata={...extras,stroke:'transparent'};
+    face(ring.map(([y,z])=>[x,y,z]),color,[-1,0,0],id,metadata);face(ring.map(([y,z])=>[x+length,y,z]),color,[1,0,0],id,metadata);
+    ring.forEach(([py,pz],index)=>{const [qy,qz]=ring[(index+1)%count],angle=(index+.5)*Math.PI*2/count;face([[x,py,pz],[x+length,py,pz],[x+length,qy,qz],[x,qy,qz]],color,[0,Math.cos(angle),Math.sin(angle)],id,metadata);});
+  };
   const box = (x, y, z, w, h, d, color, id, extras = {}) => {
     const c = currentCabinet, notch = c?.cutout;
     if (!notch || extras.noCutout || number(notch.width) <= 0 || number(notch.depth) <= 0) return rawBox(x, y, z, w, h, d, color, id, extras);
@@ -338,6 +345,15 @@ function makeScene(project, options, direction) {
     }
     const modelParts = engine.generateParts({ ...project, settings: { ...project.settings, deductEdge: false }, cabinets: [raw] });
     modelParts.forEach(part => productionPanel(part, c));
+    for(const rod of engine.getRodLayout?.(raw,project)||[]){
+      const rx=x+rod.x,ry=bodyY+rod.y,rz=z+rod.z,extras={component:'rod',rodId:rod.rodId||rod.id,sectionId:rod.sectionId,interiorSectionId:rod.interiorSectionId,rodLength:rod.length,rodDiameter:rod.diameter};
+      cylinderX(rx,ry,rz,rod.length,rod.diameter,'#647874',id,extras);
+      const highlight=rod.diameter/2*Math.SQRT1_2;
+      line([rx,ry+highlight,rz+highlight],[rx+rod.length,ry+highlight,rz+highlight],'#c8d5cf',.65,id,{...extras,component:'rod-highlight'});
+      const holderLength=Math.min(6,rod.length/4);
+      cylinderX(rx,ry,rz,holderLength,rod.diameter+.6,'#435b55',id,{...extras,component:'rod-holder',holderIndex:0});
+      cylinderX(rx+rod.length-holderLength,ry,rz,holderLength,rod.diameter+.6,'#435b55',id,{...extras,component:'rod-holder',holderIndex:1});
+    }
     for(const internal of engine.getInternalDrawerLayout(raw,project)){
       if(internal.openingMechanism==='push')continue;
       const slide=options.doorsOpen&&options.internalDrawersOpen?Math.min(internal.box.depth*.48,260):0;
@@ -687,6 +703,27 @@ export class FurnitureViewport {
     return {imageDataUrl:canvas.toDataURL('image/png'),cabinetId,width:imageWidth,height:imageHeight,doorsOpen:Boolean(this.options.doorsOpen),internalDrawersOpen:Boolean(this.options.doorsOpen&&this.options.internalDrawersOpen),camera:{yaw:this.yaw,elevation:this.elevation,zoom:this.zoom,pan:{...this.pan}}};
   }
 
+  /** Snapshot the whole room without the selection frame, appliance callouts
+   * or HUD. The independent canvas retains the live rotation, pan and zoom. */
+  captureRoom3D({language=this.language??this.project.settings?.printLanguage??'tr',width=2400,height=null,dimensions=false,canvasFactory=null}={}){
+    const createCanvas=canvasFactory||(()=>(this.canvas.ownerDocument||globalThis.document)?.createElement('canvas'));
+    const canvas=createCanvas(),failure=()=>new Error(translatePrintText('Не удалось создать изображение для печати.',language));
+    if(!canvas?.getContext||typeof canvas.toDataURL!=='function')throw failure();
+    const imageWidth=Math.round(Math.max(300,Math.min(3600,number(width,2400)))),imageHeight=Math.round(Math.max(200,Math.min(3600,height==null?imageWidth*this.height/this.width:number(height,imageWidth*this.height/this.width))));
+    canvas.width=imageWidth;canvas.height=imageHeight;
+    const context=canvas.getContext('2d');if(!context)throw failure();
+    const ratio=imageWidth/this.width;context.setTransform(ratio,0,0,ratio,0,0);
+    const render=Object.create(FurnitureViewport.prototype);
+    Object.assign(render,{
+      canvas,ctx:context,project:this.project,selectedId:null,language:printLanguage(language),view:'3d',yaw:this.yaw,elevation:this.elevation,zoom:this.zoom,pan:{...this.pan},width:this.width,height:imageHeight/ratio,hits:[],
+      options:{...this.options,room:true,interior:false,focusCabinet:false,selectedSectionId:null,dimensions,selection:false,hud:false,background:'#ffffff',rasterResolution:ratio,rasterPixelBudget:imageWidth*imageHeight}
+    });
+    render.rasterCanvas=typeof OffscreenCanvas!=='undefined'?new OffscreenCanvas(1,1):createCanvas();
+    render.rasterCtx=render.rasterCanvas?.getContext('2d');if(!render.rasterCtx)throw failure();
+    render.draw();
+    return {imageDataUrl:canvas.toDataURL('image/png'),width:imageWidth,height:imageHeight,doorsOpen:Boolean(this.options.doorsOpen),internalDrawersOpen:Boolean(this.options.doorsOpen&&this.options.internalDrawersOpen),camera:{yaw:this.yaw,elevation:this.elevation,zoom:this.zoom,pan:{...this.pan}}};
+  }
+
   resetCamera() {
     this.yaw = VIEWS[this.view].yaw;
     this.elevation = VIEWS[this.view].elevation;
@@ -883,6 +920,7 @@ export class FurnitureViewport {
     this.ctx.drawImage(this.rasterCanvas, 0, 0, this.width, this.height);
     const tolerance = .45 / Math.max(.01, cameraScale);
     for (const item of items) {
+      if(!item.line&&item.stroke==='transparent'&&!this.options.wireframe)continue;
       const color = item.line ? item.color : this.options.selection !== false && item.id === this.selectedId ? '#537f77' : '#686458';
       const width = item.line ? item.width : .8;
       this.drawVisibleEdges(item.screen, !item.line, color, width, tolerance);
@@ -993,6 +1031,16 @@ function interiorSectionMark(layout,section){
   if(!section)return '—';
   const outer=layout.sections.findIndex(item=>item.id===section.parentSectionId),siblings=(layout.internalSections||[]).filter(item=>item.parentSectionId===section.parentSectionId);
   return `S${outer+1}.${siblings.findIndex(item=>item.id===section.id)+1}`;
+}
+
+function rodDrawingAnnotations(source,cabinet,view,camera,dimensions,language,compact){
+  if(!['front','interior','top'].includes(view))return '';
+  const t=text=>translatePrintText(text,language),n=value=>printNumber(value,language),unit=language==='ru'?'мм':'mm';
+  return (engine.getRodLayout?.(cabinet,source)||[]).map((rod,index)=>{
+    const a=camera.project([number(cabinet.x)+rod.x,number(cabinet.y)+number(cabinet.plinth)+rod.y,number(cabinet.z)+rod.z]),b=camera.project([number(cabinet.x)+rod.x+rod.length,number(cabinet.y)+number(cabinet.plinth)+rod.y,number(cabinet.z)+rod.z]);
+    const label=`R${index+1} · ${n(rod.length)} · Ø${n(rod.diameter)}`,point=[(a[0]+b[0])/2,(a[1]+b[1])/2-(compact?10:15)];
+    return `<g data-rod-id="${escape(rod.rodId||rod.id)}" data-section-id="${escape(rod.sectionId)}"${rod.interiorSectionId?` data-interior-section-id="${escape(rod.interiorSectionId)}"`:''} data-rod-length-mm="${round(rod.length)}" data-rod-diameter-mm="${round(rod.diameter)}" data-rod-axis-height-mm="${round(number(cabinet.plinth)+rod.y)}"><title>${escape(t('Штанга'))} R${index+1} · ${n(rod.length)} ${unit} · Ø${n(rod.diameter)}</title><path d="M${round(a[0])},${round(a[1])} L${round(b[0])},${round(b[1])}" fill="none" stroke="#5c797b" stroke-width="1.5"${view==='interior'?'':` stroke-dasharray="${compact?'4 3':'7 4'}"`}/>${svgTextBlock(point,[label],compact?9.2:10,Math.max(65,Math.abs(b[0]-a[0])-4))}${dimensions&&!compact?svgDimension(a,b,n(rod.length),view==='top'?20:-20):''}</g>`;
+  }).join('');
 }
 
 function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, language = 'ru', compact = false) {
@@ -1109,7 +1157,7 @@ export function createDrawingSvg(project, view = 'front', { cabinetId = null, di
     if (item.line) return `<polyline points="${points}" fill="none" stroke="${escape(item.color)}" stroke-width="${item.width}"/>`;
     return `<polygon points="${points}"${item.component ? ` data-component="${escape(item.component)}"` : ''}${item.partId ? ` data-part-id="${escape(item.partId)}"` : ''}${item.sectionId ? ` data-section-id="${escape(item.sectionId)}"` : ''}${item.interiorSectionId?` data-interior-section-id="${escape(item.interiorSectionId)}"`:''}${item.doorOpening ? ` data-door-opening="${item.doorOpening}" data-front-index="${number(item.frontIndex)+1}"` : ''}${item.wallIndex !== undefined ? ` data-wall-index="${item.wallIndex}"` : ''}${item.window ? ' data-window="true"' : ''}${item.openingKind ? ` data-opening-kind="${item.openingKind}" data-sill-mm="${number(item.openingSill)}"` : ''}${item.doorLeaf ? ' data-door-leaf="true"' : ''} fill="${escape(item.room ? colorShade(item.color, 1.025) : item.color)}" fill-opacity="${item.opacity ?? 1}" stroke="${item.stroke === 'transparent' ? 'none' : '#55594f'}" stroke-width="${item.id ? .9 : .55}"/>`;
   }).join('');
-  const labels = selected ? cabinetDrawingAnnotations(source, drawingCabinet, view, camera, dimensions, language, compact) : (source.cabinets || []).map(c => {
+  const labels = selected ? cabinetDrawingAnnotations(source, drawingCabinet, view, camera, dimensions, language, compact)+rodDrawingAnnotations(source,drawingCabinet,view,camera,dimensions,language,compact) : (source.cabinets || []).map(c => {
     const cabinet = cabinetData(source, c);
     const p = camera.project(rotateCabinetPoint(cabinet, [cabinet.x + cabinet.width / 2, cabinet.y + cabinet.height / 2, cabinet.z + cabinet.depth]));
     return `<g><rect x="${round(p[0] - 15)}" y="${round(p[1] - 9)}" width="30" height="18" rx="3" fill="white" fill-opacity=".88"/><text x="${round(p[0])}" y="${round(p[1] + 4)}" text-anchor="middle" font-size="10" fill="#33403a">${escape((project.cabinets || []).findIndex(raw => raw.id === c.id) + 1)}</text></g>`;
@@ -1203,6 +1251,7 @@ function hardwarePrintBlocks(project,{cabinetId=null,language='tr'}={}){
   const selected=(project.cabinets||[]).find(cabinet=>cabinet.id===cabinetId),source=selected?{...project,cabinets:[selected]}:project,schedule=getProjectHardwareSchedule(source);
   const block=(name,totals,rows,kind='hardware')=>({kind,title:`${name} · ${t('Фурнитура')}`,intro:`${t('Один комплект направляющих — пара для одного ящика или выдвижной полки.')}${rows.some(row=>row.kind==='hinge'&&row.planned)?` ${t('Количество петель по высоте — предварительный расчёт. Нагрузку и механизм подъёмной двери проверьте по выбранной фурнитуре.')}`:''}`,headings:['№','Фурнитура','Количество','Ед.'],rows:[
     ['1',t('Ручки'),n(totals.handles),t('шт.')],['2',t('Комплекты направляющих'),n(totals.guideSets),t('Комплект (пара)')],['3',t('Петли'),n(totals.hinges),t('шт.')],
+    ...(totals.rods>0?[['4',t('Штанги для одежды'),n(totals.rods),t('шт.')]]:[]),...(totals.rodHolders>0?[['5',t('Держатели штанг'),n(totals.rodHolders),t('шт.')]]:[]),
   ]});
   const listed=selected||schedule.cabinets.length<2?schedule.cabinets:schedule.cabinets.filter(cabinet=>Object.values(cabinet.totals).some(quantity=>quantity>0));
   const blocks=listed.map(cabinet=>block(translateBuiltInName(cabinet.cabinetName,language,'cabinet')||t('Корпус'),cabinet.totals,cabinet.rows));
@@ -1293,9 +1342,9 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
     const fronts = getFrontLayout(selected, project).map((front, index) => [`F${index + 1}`, t(front.kind === 'door' ? 'Дверь' : 'Фасад ящика'), `S${Math.max(0, layout.sections.findIndex(section => front.sectionId ? section.id === front.sectionId : section.node.front === (front.kind === 'door' ? 'doors' : 'drawers'))) + 1}`, n(front.width), n(front.height), n(cabinetData(project, selected).frontThickness), front.kind==='door'?t(doorOpeningText(doorOpening(front))):'—',t(front.openingMechanism==='push'?'Нажимной push-to-open':'Ручка')]);
     const frontBlock = {kind:'fronts',title:`${title} · ${t('фасады')}`,intro:'Обозначения F соответствуют фронтальному чертежу. Размеры фасадов учитывают заданный зазор и накладку.',headings:['Фасад', 'Тип', 'Секция', 'Ширина, мм', 'Высота, мм', 'Толщина, мм','Направление открытия','Механизм открытия'],rows:fronts};
     const blocks=[openingBlock,frontBlock];
-    if(layout.internalSections?.length)blocks.push({kind:'interior-openings',title:`${title} · ${t('Наполнение за общими дверями')}`,intro:'Внутренние проёмы обозначены номером наружной секции и отсека: S1.1, S1.2. Наружные фасады обозначены F, внутренние фасады ящиков — I.',headings:['Секция','Название','Проём: Ш × В, мм','Между осями крепления, мм','Полезная глубина, мм','Содержимое'],rows:layout.internalSections.map(section=>[interiorSectionMark(layout,section),translateBuiltInName(section.node.name,language,'section')||t('Секция'),`${n(section.width)} × ${n(section.height)}`,mountingById.get(section.id)?.height==null?'—':n(mountingById.get(section.id).height),n(section.usableDepth??section.depth),t(section.node.front==='drawers'?'Ящики':'Открытая')])});
+    if(layout.internalSections?.length)blocks.push({kind:'interior-openings',title:`${title} · ${t(layout.internalSections.every(section=>layout.sections.find(outer=>outer.id===section.parentSectionId)?.node.front==='doors')?'Наполнение за общими дверями':'Внутреннее наполнение')}`,intro:'Внутренние проёмы обозначены номером наружной секции и отсека: S1.1, S1.2. Наружные фасады обозначены F, внутренние фасады ящиков — I.',headings:['Секция','Название','Проём: Ш × В, мм','Между осями крепления, мм','Полезная глубина, мм','Содержимое'],rows:layout.internalSections.map(section=>[interiorSectionMark(layout,section),translateBuiltInName(section.node.name,language,'section')||t('Секция'),`${n(section.width)} × ${n(section.height)}`,mountingById.get(section.id)?.height==null?'—':n(mountingById.get(section.id).height),n(section.usableDepth??section.depth),t(section.node.front==='drawers'?'Ящики':'Открытая')])});
     const internal=engine.getInternalDrawerLayout(selected,project);
-    if(internal.length)blocks.push({kind:'internal-fronts',title:`${title} · ${t('внутренние ящики')}`,intro:'Внутренние фасады и короба находятся за дверями. I соответствует внутреннему чертежу; F обозначает только наружные фасады.',headings:['Фасад','Секция','Ширина, мм','Высота, мм','Толщина, мм','Механизм открытия'],rows:internal.map((drawer,index)=>[`I${index+1}`,drawer.interiorSectionId?interiorSectionMark(layout,layout.internalSections.find(section=>section.id===drawer.interiorSectionId)):`S${Math.max(0,layout.sections.findIndex(section=>section.id===drawer.sectionId))+1}`,n(drawer.width),n(drawer.height),n(drawer.frontThickness),t(drawer.openingMechanism==='push'?'Нажимной push-to-open':'Ручка')])});
+    if(internal.length)blocks.push({kind:'internal-fronts',title:`${title} · ${t('внутренние ящики')}`,intro:internal.every(drawer=>layout.sections.find(section=>section.id===drawer.sectionId)?.node.front==='doors')?'Внутренние фасады и короба находятся за дверями. I соответствует внутреннему чертежу; F обозначает только наружные фасады.':'I обозначает внутренние фасады ящиков; F — наружные фасады. Размеры коробов приведены в деталировке.',headings:['Фасад','Секция','Ширина, мм','Высота, мм','Толщина, мм','Механизм открытия'],rows:internal.map((drawer,index)=>[`I${index+1}`,drawer.interiorSectionId?interiorSectionMark(layout,layout.internalSections.find(section=>section.id===drawer.interiorSectionId)):`S${Math.max(0,layout.sections.findIndex(section=>section.id===drawer.sectionId))+1}`,n(drawer.width),n(drawer.height),n(drawer.frontThickness),t(drawer.openingMechanism==='push'?'Нажимной push-to-open':'Ручка')])});
     blocks.push(...hardwarePrintBlocks(project,{cabinetId,language}));
     sheets += compact ? compactScheduleSheets(blocks,language) : blocks.map(block=>schedule(block.title,block.intro,block.headings,block.rows)).join('');
   } else {
@@ -1312,6 +1361,11 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
   }));
   if (appliances.length) sheets += schedule(`${title} · ${t('техника и монтажные зазоры')}`, 'Требуемая ниша: ширина техники + два боковых зазора; высота + зазор сверху; глубина + зазор сзади. Проверка использует чистый проём и его полезную глубину. «—» означает, что монтажные зазоры отключены. Все размеры и зазоры задаются для выбранной техники.', ['Секция', 'Оборудование: Ш × В × Г, мм', 'Требуемая ниша: Ш × В × Г, мм', 'Боковой / сторона, мм', 'Сверху, мм', 'Сзади, мм', 'Проверка'], appliances, 12);
   const parts = engine.generateParts(source);
+  const rods=(source.cabinets||[]).flatMap(cabinet=>(engine.getRodLayout?.(cabinet,source)||[]).map((rod,index)=>{
+    const layout=modelLayout(cabinet,source),section=rod.interiorSectionId?interiorSectionMark(layout,layout.internalSections.find(s=>s.id===rod.interiorSectionId)):`S${layout.sections.findIndex(s=>s.id===rod.sectionId)+1}`;
+    return [selected?`R${index+1}`:`${translateBuiltInName(cabinet.name,language,'cabinet')||t('Корпус')} · R${index+1}`,section,n(rod.length),n(rod.diameter),n(number(cabinet.plinth)+rod.y),n(rod.frontInset),n(rod.holders)];
+  }));
+  if(rods.length)sheets+=schedule(`${title} · ${t('Штанги для одежды')}`,'Штанги считаются отдельно от листовых материалов.',['Штанга','Секция','Длина реза, мм','Диаметр, мм','Высота установки, мм','Отступ от фасада, мм','Держатели штанги, шт.'],rods);
   const braces = parts.filter(part => part.braceId || part.role === 'brace' || part.component === 'brace');
   if (selected && braces.length) {
     const layout=modelLayout(selected,project), localBraces=braces.some(part=>part.sectionId);
@@ -1381,4 +1435,19 @@ export function generateCabinet3DHTML(project, {cabinetId,imageDataUrl,language=
   const state=t(doorsOpen?'Фасады открыты':'Фасады закрыты')+(engine.getInternalDrawerLayout(cabinet,project).length?` · ${t(doorsOpen&&internalDrawersOpen?'Внутренние ящики выдвинуты':'Внутренние ящики закрыты')}`:'');
   const cameraAttributes=camera ? ` data-camera-yaw="${number(camera.yaw)}" data-camera-elevation="${number(camera.elevation)}" data-camera-zoom="${number(camera.zoom,1)}"` : '';
   return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escape(title)}</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0}body{background:#e8ece7;color:#263e35;font:12px Arial,sans-serif}.sheet{width:297mm;height:210mm;padding:10mm 12mm;margin:16px auto;background:white;display:flex;flex-direction:column;gap:4mm;overflow:hidden}.sheet header{flex:none}.sheet h1{font-size:18px;line-height:1.25;margin:0 0 2mm;overflow-wrap:anywhere}.sheet p{font-size:11px;color:#607468;margin:0;line-height:1.35}.sheet figure{margin:0;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}.sheet img{display:block;width:100%;height:100%;object-fit:contain}.sheet footer{flex:none;display:flex;justify-content:space-between;gap:5mm;border-top:1px solid #dce4de;padding-top:3mm;font-size:10px;color:#607468;line-height:1.35}@media print{body{background:white}.sheet{margin:0;break-after:auto;page-break-after:auto}}@media screen and (max-width:1150px){.sheet{width:94vw;height:66.46vw;padding:3vw;gap:1vw}.sheet h1{font-size:16px}}</style></head><body><section class="sheet cabinet-3d-sheet" data-cabinet-id="${escape(cabinet.id)}" data-doors-open="${Boolean(doorsOpen)}"${cameraAttributes}><header><h1>${escape(title)}</h1><p>${escape(t('Текущий ракурс'))} · ${escape(state)}</p></header><figure><img src="${escape(imageDataUrl)}" alt="${escape(title)}"/></figure><footer><span>${escape(t('Корпус без фасада:'))} ${escape(sizeText(cabinet,language))} ${unit}</span><span>${escape(t('Все размеры в миллиметрах'))} · A4</span></footer></section></body></html>`;
+}
+
+/** Self-contained landscape sheet of the whole room's captured current view. */
+export function generateRoom3DHTML(project,{imageDataUrl,language=project.settings?.printLanguage??'tr',doorsOpen=false,internalDrawersOpen=false,camera=null}={}){
+  language=printLanguage(language,'tr');
+  const t=text=>translatePrintText(text,language),unit=language==='ru'?'мм':'mm';
+  if(!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(String(imageDataUrl??'')))throw new Error(t('Не удалось создать изображение для печати.'));
+  const name=translateBuiltInName(project.name||project.title,language,'project')||t('Проект корпусной мебели'),title=`${name} · ${t('3D-вид помещения')}`,outline=projectRoomOutline(project),room={...roomData(project),width:Math.max(...outline.map(p=>p.x))-Math.min(...outline.map(p=>p.x)),depth:Math.max(...outline.map(p=>p.z))-Math.min(...outline.map(p=>p.z))};
+  const state=t(doorsOpen?'Фасады открыты':'Фасады закрыты')+((project.cabinets||[]).some(c=>engine.getInternalDrawerLayout(c,project).length)?` · ${t(doorsOpen&&internalDrawersOpen?'Внутренние ящики выдвинуты':'Внутренние ящики закрыты')}`:'');
+  // The first sheet keeps a large useful image even for a room with hundreds
+  // of cabinets. A compact inventory is explicitly a preview of eight names.
+  const shownCabinets=(project.cabinets||[]).slice(0,8),remaining=Math.max(0,(project.cabinets||[]).length-shownCabinets.length);
+  const cabinets=shownCabinets.map((cabinet,index)=>`<li><span>${index+1} · ${escape(translateBuiltInName(cabinet.name,language,'cabinet')||t('Корпус'))}</span><small>${escape(sizeText(cabinet,language))} ${unit}</small></li>`).join('')+(remaining?`<li class="remaining-cabinets" data-remaining-cabinets="${remaining}">${escape(t('Ещё шкафов:'))} ${printNumber(remaining,language)}</li>`:'');
+  const cameraAttributes=camera?` data-camera-yaw="${number(camera.yaw)}" data-camera-elevation="${number(camera.elevation)}" data-camera-zoom="${number(camera.zoom,1)}"`:'';
+  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escape(title)}</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0}body{background:#e8ece7;color:#263e35;font:12px Arial,sans-serif}.sheet{width:297mm;height:210mm;padding:9mm 12mm;margin:16px auto;background:white;display:flex;flex-direction:column;gap:3mm;overflow:hidden}.sheet header{flex:none}.sheet h1{font-size:18px;line-height:1.25;margin:0 0 2mm;overflow-wrap:anywhere}.sheet p{font-size:11px;color:#607468;margin:0;line-height:1.35}.sheet figure{margin:0;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}.sheet img{display:block;width:100%;height:100%;object-fit:contain}.room-cabinet-list{flex:none;list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2mm 4mm;padding:0;margin:0;font-size:9px;line-height:1.25}.room-cabinet-list li{min-width:0}.room-cabinet-list span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.room-cabinet-list small{font:9px Arial,sans-serif;color:#607468}.sheet footer{flex:none;display:flex;justify-content:space-between;gap:5mm;border-top:1px solid #dce4de;padding-top:3mm;font-size:10px;color:#607468;line-height:1.35}@media print{body{background:white}.sheet{margin:0;break-after:auto;page-break-after:auto}}@media screen and (max-width:1150px){.sheet{width:94vw;height:66.46vw;padding:3vw;gap:1vw}.sheet h1{font-size:16px}}</style></head><body><section class="sheet room-3d-sheet" data-cabinet-count="${(project.cabinets||[]).length}" data-doors-open="${Boolean(doorsOpen)}" data-internal-drawers-open="${Boolean(doorsOpen&&internalDrawersOpen)}"${cameraAttributes}><header><h1>${escape(title)}</h1><p>${escape(t('Текущий ракурс'))} · ${escape(state)}</p></header><figure><img src="${escape(imageDataUrl)}" alt="${escape(title)}"/></figure>${cabinets?`<ul class="room-cabinet-list" aria-label="${escape(t('Ведомость корпусов'))}">${cabinets}</ul>`:''}<footer><span>${escape(t('Помещение:'))} ${escape(sizeText(room,language))} ${unit}</span><span>${escape(t('Все размеры в миллиметрах'))} · A4</span></footer></section></body></html>`;
 }

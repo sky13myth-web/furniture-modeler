@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createInteriorExample} from '../src/examples.js';
+import {createInteriorExample,createRodsExample} from '../src/examples.js';
 import {getMaterialPrice,getProjectCostEstimate,generateCostHTML} from '../src/pricing.js';
 import {validateProject} from '../src/engine.js';
 
@@ -13,12 +13,35 @@ function quotedProject(){
 
 test('purchase estimate includes full sheets and hidden-drawer hardware without double counting',()=>{
   const project=quotedProject(),before=structuredClone(project),estimate=getProjectCostEstimate(project);
-  assert.deepEqual(estimate.hardware,{handles:4,guideSets:2,hinges:10});
+  assert.deepEqual(estimate.hardware,{handles:4,guideSets:2,hinges:10,rods:0,rodHolders:0,rodLengthMeters:0});
   assert.equal(estimate.complete,true);
   assert.equal(estimate.total,estimate.totalSheets*100+190);
   assert.ok(estimate.totalSheets>0);
   assert.equal(estimate.rows.filter(row=>row.kind==='material').reduce((sum,row)=>sum+row.quantity,0),estimate.totalSheets);
   assert.deepEqual(project,before,'calculating prices must not change geometry or saved rates');
+});
+
+test('rod lengths and two holders each are quoted separately without MDF sheet or hardware duplication',()=>{
+  const project=createRodsExample('tr');
+  project.materials.forEach(material=>material.pricePerSheet=0);
+  project.settings.pricing={handlePrice:0,guideSetPrice:0,hingePrice:0,edgeBandPricePerMeter:0};
+  const before=structuredClone(project),missing=getProjectCostEstimate(project);
+  assert.equal(missing.hardware.rods,2);
+  assert.equal(missing.hardware.rodHolders,4);
+  assert.equal(missing.hardware.rodLengthMeters,1.72);
+  assert.equal(missing.complete,false);
+  assert.deepEqual(missing.missingPrices.map(row=>row.id),['rods','rodHolders']);
+  assert.deepEqual(project,before);
+  Object.assign(project.settings.pricing,{rodPricePerMeter:100,rodHolderPrice:20});
+  const quoted=getProjectCostEstimate(project);
+  assert.equal(quoted.complete,true);
+  assert.equal(quoted.total,252);
+  assert.equal(quoted.rows.find(row=>row.id==='rods').unit,'meter');
+  assert.equal(quoted.rows.find(row=>row.id==='rodHolders').quantity,4);
+  assert.ok(!quoted.rows.some(row=>row.kind==='material'&&row.label.includes('rod')));
+  const html=generateCostHTML(project,{language:'tr'});
+  assert.ok(html.includes('Askı'));
+  assert.ok(!/[А-Яа-яЁё]/u.test(html));
 });
 
 test('manual zero price means existing inventory, while an unknown material remains unpriced',()=>{
@@ -68,13 +91,13 @@ test('different actual rear gauges never share the selected 3 mm stock price, ev
     const before=structuredClone(project),estimate=getProjectCostEstimate(project);
     const rearRows=estimate.rows.filter(row=>row.kind==='material'&&row.id===stock.id).sort((a,b)=>a.thickness-b.thickness);
     assert.deepEqual(rearRows.map(row=>[row.thickness,row.quantity]),[[3,1],[8,1]]);
-    assert.equal(rearRows[0].unitPrice,manualQuote??730);
-    assert.equal(rearRows[0].cost,manualQuote??730);
+    assert.equal(rearRows[0].unitPrice,manualQuote??null);
+    assert.equal(rearRows[0].cost,manualQuote??null);
     assert.equal(rearRows[1].unitPrice,null);
     assert.equal(rearRows[1].cost,null);
     assert.equal(estimate.complete,false);assert.equal(estimate.total,null);
     assert.ok(estimate.missingPrices.some(row=>row.id===stock.id&&row.thickness===8));
-    assert.equal(estimate.missingPrices.some(row=>row.id===stock.id&&row.thickness===3),false);
+    assert.equal(estimate.missingPrices.some(row=>row.id===stock.id&&row.thickness===3),manualQuote===undefined);
     assert.equal(estimate.rows.filter(row=>row.kind==='material').reduce((sum,row)=>sum+row.quantity,0),estimate.totalSheets);
     assert.deepEqual(project,before);
   }

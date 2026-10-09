@@ -31,3 +31,12 @@ export function createInteriorExample(language='tr'){
  cabinet.layout={...createSection('doors'),id:'interior-outer',back:'braces',internalDrawerHingeGap:20,rearBraces:[{id:'interior-brace-bottom',y:0,height:100,materialId:cabinet.materialId},{id:'interior-brace-top',y:1964,height:100,materialId:cabinet.materialId}],interiorLayout:{id:'interior-layout',kind:'split',axis:'horizontal',sizes:[3,2],children:[{...createSection('open'),id:'interior-shelves',shelves:3},{...createSection('drawers'),id:'interior-drawers',drawers:2}]}};
  return project;
 }
+
+/** Two independently placed clothes rods behind full-height doors. */
+export function createRodsExample(language='tr'){
+ const project=createDefaultProject(language),cabinet=project.cabinets[0];
+ project.name=({ru:'Штанги и план помещения · пример',tr:'Askı boruları ve oda planı · örnek',en:'Clothes rods and room plan · example'})[language]??'Askı boruları ve oda planı · örnek';
+ cabinet.name=({ru:'Шкаф для одежды',tr:'Gardırop',en:'Wardrobe'})[language]??'Gardırop';
+ Object.assign(cabinet,{width:900,frontMaterialId:cabinet.materialId,layout:{...createSection('doors'),id:'rods-section',rods:[{id:'rod-upper',y:1900,frontInset:300,diameter:25},{id:'rod-lower',y:900,frontInset:300,diameter:25}]}});
+ return project;
+}

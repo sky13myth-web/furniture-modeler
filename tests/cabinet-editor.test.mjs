@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CabinetEditor } from '../src/cabinet-editor.js';
-import { createDefaultProject, getCabinetLayout, generateParts, validateProject } from '../src/engine.js';
+import { createDefaultProject, getCabinetLayout, getRodLayout, generateParts, validateProject } from '../src/engine.js';
 import { getInteriorLayout } from '../src/cabinet-interior.js';
 
 // Use the actual pointer handlers and constructor subscriptions, while replacing
@@ -185,6 +185,37 @@ function interiorProject(){
   ]}};
   return project;
 }
+
+test('cabinet schematic shows the real rod axis and selects its owning section without introducing a drag commit',()=>{
+  const project=createDefaultProject('ru'),cabinet=project.cabinets[0];
+  cabinet.layout={id:'rail-section',kind:'section',front:'doors',doors:2,shelves:0,rods:[{id:'rail',y:1800,frontInset:300,diameter:25,length:null}]};
+  const before=structuredClone(project),rod=getRodLayout(cabinet,project)[0],f=fixture(project,{renderSvg:true});
+  try{
+    const html=f.editor.container.innerHTML;
+    assert.match(html,/data-rod-id="rail"/);
+    assert.ok(html.includes(`data-rod-length-mm="${rod.length}" data-rod-axis-y="${Math.round(rod.y*10)/10}"`));
+    assert.ok(html.includes(`y="${cabinet.height-cabinet.plinth-rod.y-rod.diameter/2}"`));
+    assert.match(html,/data-door-opening=/,'the rod does not replace shared outer doors');
+    f.listeners.get('pointerdown')(pointer(0,0,{node:'rail-section'}));
+    assert.deepEqual(f.selections,['rail-section']);assert.deepEqual(f.commits,[]);
+    assert.deepEqual(project,before);
+  }finally{f.cleanup();}
+});
+
+test('internal rod schematics follow the focused inner section and stay out of the outer door editing layer',()=>{
+  const project=interiorProject(),cabinet=project.cabinets[0];
+  cabinet.layout.interiorLayout.children[1].rods=[{id:'inner-rail',y:300,frontInset:300,diameter:25,length:400}];
+  const f=fixture(project,{renderSvg:true});
+  try{
+    assert.doesNotMatch(f.editor.container.innerHTML,/data-rod-id="inner-rail"/);
+    f.editor.setInteriorParent('outer');
+    assert.match(f.editor.container.innerHTML,/data-rod-id="inner-rail"/);
+    assert.match(f.editor.container.innerHTML,/data-node="bottom-row"/);
+    f.listeners.get('pointerdown')(pointer(0,0,{node:'bottom-row'}));assert.deepEqual(f.selections,['bottom-row']);
+    f.editor.setProject(project,cabinet.id,'bottom-row');assert.match(f.editor.container.innerHTML,/data-rod-id="inner-rail"/);
+    assert.deepEqual(f.commits,[]);
+  }finally{f.cleanup();}
+});
 
 test('interior mode focuses the selected outer opening, hides its doors and keeps inner selection across project refreshes',()=>{
   const project=interiorProject(),cabinet=project.cabinets[0],f=fixture(project,{renderSvg:true});

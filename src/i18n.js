@@ -56,6 +56,9 @@ add(`
 Внутри секции с дверями нажмите «Внутреннее наполнение»: разделите отсеки и разместите полки и ящики за общими дверями.|Kapaklı bölmede «İç düzen» düğmesine basın: ortak kapakların arkasındaki bölmeleri ayırın, rafları ve çekmeceleri yerleştirin.|In a door section, choose «Internal layout»: divide the compartments and arrange shelves and drawers behind the shared doors.
 Цоколь и задняя конструкция настраиваются для выбранной секции.|Baza ve arka yapı, seçili bölme için ayarlanır.|The plinth and rear construction are configured for the selected section.
 Вернуться к дверям|Kapaklara dön|Back to doors
+Вернуться к секции|Bölmeye dön|Back to section
+Снятие дверей сохраняет внутреннее наполнение.|Kapakları kaldırmak iç düzeni korur.|Removing the doors preserves the internal layout.
+Для внутренних отсеков сначала измените положение штанг или удалите их.|İç bölmeler oluşturmak için önce askı borularını taşıyın veya silin.|To create internal compartments, first reposition or remove the clothes rails.
 Создать внутренние отсеки|İç bölmeler oluştur|Create internal compartments
 Настроить внутренние отсеки|İç bölmeleri düzenle|Configure internal compartments
 Одни двери закрывают все внутренние отсеки. Полки и ящики настраиваются внутри.|Ortak kapaklar tüm iç bölmeleri kapatır. Raflar ve çekmeceler içeride düzenlenir.|One set of doors covers all internal compartments. Shelves and drawers are configured inside.
@@ -108,6 +111,8 @@ add(`
 пересекают внутреннее наполнение; задайте их во внутренних отсеках.|iç düzenle çakışıyor; rafları iç bölmelerde ayarlayın.|overlap the internal layout; configure them inside the internal compartments.
 Тонкий задник · 3 мм|Arkalık levhası · 3 mm|Thin back panel · 3 mm
 Тонкая древесноволокнистая панель|Lif levha|Fibreboard
+ДВП · задник · 3 мм|Sert lif levha · arkalık · 3 mm|Hardboard · back panel · 3 mm
+ДВП|Sert lif levha|Hardboard
 Высота потолка|Tavan yüksekliği|Ceiling height
 Дно корпуса|Gövde alt paneli|Carcass bottom
 Задняя стенка|Arka panel|Back panel
@@ -766,6 +771,64 @@ add(`
 Колесо — масштаб; средняя кнопка или Space + перетаскивание — сдвиг плана|Tekerlek — yakınlaştırma; orta düğme veya Space + sürükleme — planı kaydırma|Scroll to zoom; middle button or Space + drag to pan the plan
 Масштаб плана|Plan ölçeği|Plan zoom
 Шкаф скользит вдоль препятствия. Монтажные отступы сохранены.|Dolap engel boyunca kayıyor. Montaj boşlukları korunuyor.|The cabinet slides along the obstacle. Installation clearances are preserved.
+Штанги для одежды|Giysi askı boruları|Clothes rails
+Гардеробные штанги|Giysi askı boruları|Clothes rails
+Штанга|Askı borusu|Clothes rail
+Добавить штангу|Askı borusu ekle|Add clothes rail
+Удалить штангу|Askı borusunu sil|Remove clothes rail
+Высота оси от дна секции|Bölme tabanından eksen yüksekliği|Axis height above section bottom
+Отступ оси от переднего края|Ön kenardan eksen mesafesi|Axis inset from front edge
+Длина штанги|Askı borusu uzunluğu|Clothes rail length
+Длина автоматически|Otomatik uzunluk|Automatic length
+Диаметр штанги|Askı borusu çapı|Clothes rail diameter
+Держатели штанги|Askı borusu tutucuları|Rod holders
+Держатели перекладин|Askı borusu tutucuları|Rod holders
+Длина реза, мм|Kesim uzunluğu, mm|Cut length, mm
+Диаметр, мм|Çap, mm|Diameter, mm
+Высота установки, мм|Montaj yüksekliği, mm|Installation height, mm
+Штанги считаются отдельно от листовых материалов.|Askı boruları levha malzemelerinden ayrı hesaplanır.|Clothes rails are counted separately from sheet materials.
+Цена штанги за метр|Metre başına askı borusu fiyatı|Clothes rail price per metre
+Цена держателя штанги|Askı borusu tutucusu fiyatı|Rod holder price
+Нет свободного места для штанги в секции.|Bölmede askı borusu için boş yer yok.|No free space for a clothes rail in this section.
+Штанга: высота оси от низа проёма|Askı borusu: açıklık tabanından eksen yüksekliği|Clothes rail: axis height above opening bottom
+Штанга: отступ оси от фасада|Askı borusu: ön panelden eksen mesafesi|Clothes rail: axis inset from front
+Штанга: длина|Askı borusu: uzunluk|Clothes rail: length
+Штанга: диаметр|Askı borusu: çap|Clothes rail: diameter
+штанги в секции|bölmedeki askı boruları|clothes rails in section
+требуют открытого или дверного проёма без техники; при внутреннем наполнении задайте штангу во внутреннем отсеке.|cihaz bulunmayan açık veya kapaklı bir açıklık gerektirir; iç düzen varsa askı borusunu iç bölmeye yerleştirin.|require an open or door opening without an appliance; when using an internal layout, place the clothes rail in an internal compartment.
+штанга не помещается в секцию|askı borusu bölmeye sığmıyor|the clothes rail does not fit in section
+с учётом диаметра и торцевых зазоров 2 мм; проверьте длину, высоту и отступ от фасада.|çap ve uçlardaki 2 mm boşluk dikkate alındığında; uzunluğu, yüksekliği ve ön panelden mesafeyi kontrol edin.|with its diameter and 2 mm end clearances; check the length, height and front inset.
+штанга в секции|bölmedeki askı borusu|the clothes rail in section
+пересекается с панелью; измените её высоту, длину или отступ от фасада.|panelle çakışıyor; yüksekliğini, uzunluğunu veya ön panelden mesafesini değiştirin.|intersects a panel; change its height, length or front inset.
+пересекается с техникой; измените её высоту, длину или отступ от фасада.|cihazla çakışıyor; yüksekliğini, uzunluğunu veya ön panelden mesafesini değiştirin.|intersects an appliance; change its height, length or front inset.
+пересекается с коробом ящика; измените её высоту, длину или отступ от фасада.|çekmece kutusuyla çakışıyor; yüksekliğini, uzunluğunu veya ön panelden mesafesini değiştirin.|intersects a drawer box; change its height, length or front inset.
+пересекается с другой штангой; измените её высоту, длину или отступ от фасада.|başka bir askı borusuyla çakışıyor; yüksekliğini, uzunluğunu veya ön panelden mesafesini değiştirin.|intersects another clothes rail; change its height, length or front inset.
+План помещения|Oda planı|Room plan
+Печать плана помещения|Oda planını yazdır|Print room plan
+Сохранить план помещения|Oda planını kaydet|Save room plan
+3D-вид помещения|Odanın 3B görünümü|Room 3D view
+Печать 3D-вида помещения|Odanın 3B görünümünü yazdır|Print room 3D view
+Сохранить 3D помещения|Odanın 3B görünümünü kaydet|Save room 3D view
+Размеры стен, расположение мебели и проёмов|Duvar ölçüleri, mobilya ve açıklıkların yerleşimi|Wall dimensions, furniture and opening positions
+Высота помещения|Oda yüksekliği|Room height
+Площадь помещения|Oda alanı|Room area
+м²|m²|m²
+S — стены; C — шкафы; W — окна; D — дверные проёмы.|S — duvarlar; C — dolaplar; W — pencereler; D — kapı açıklıkları.|S — walls; C — cabinets; W — windows; D — door openings.
+Пунктирный контур — шкаф над полом; высота установки указана в ведомости.|Kesik çizgili kontur, zeminden yüksek dolabı gösterir; montaj yüksekliği listede belirtilir.|A dashed outline marks a cabinet above floor level; its installation height is listed in the schedule.
+Контур мебели включает закрытые фасады. В ведомости указаны габариты корпуса.|Mobilya konturu kapalı ön panelleri içerir. Listede gövde ölçüleri belirtilir.|Furniture outlines include closed fronts. The schedule lists carcass dimensions.
+Отступ проёма измеряется от начала стены по направлению стрелки.|Açıklık mesafesi duvar başlangıcından ok yönünde ölçülür.|Opening offsets are measured from the wall start in the arrow direction.
+Ведомость мебели|Mobilya listesi|Furniture schedule
+Ведомость проёмов|Açıklık listesi|Opening schedule
+Ш × В × Г, мм|G × Y × D, mm|W × H × D, mm
+X / Z, мм|X / Z, mm|X / Z, mm
+Поворот, °|Dönüş, °|Rotation, °
+От начала стены, мм|Duvar başlangıcından, mm|From wall start, mm
+До конца стены, мм|Duvar sonuna kadar, mm|To wall end, mm
+Низ от пола, мм|Zeminden alt kenar, mm|Bottom edge above floor, mm
+Мебель не добавлена.|Mobilya eklenmedi.|No furniture added.
+Проёмы не добавлены.|Açıklık eklenmedi.|No openings added.
+Красным отмечены проёмы с неверными размерами или выходом за границы стены.|Geçersiz ölçüleri olan veya duvar sınırlarını aşan açıklıklar kırmızı gösterilir.|Openings with invalid dimensions or extending beyond their wall are marked in red.
+План печатается независимо от масштаба и выделения на экране.|Plan, ekrandaki yakınlaştırma ve seçimden bağımsız yazdırılır.|The plan prints independently of the screen zoom and selection.
 `);
 
 let phrasePattern;
@@ -773,7 +836,8 @@ const regexEscape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const normalize = value => value.replace(/\s+/g, ' ').trim();
 const translated = (entry, source, language) => {
   const value = entry[language];
-  return source.length > 2 && source === source.toLocaleUpperCase('ru-RU') ? value.toLocaleUpperCase(language === 'tr' ? 'tr-TR' : 'en-US') : value;
+  // ДВП is a material acronym, not an uppercase interface heading.
+  return source !== 'ДВП' && source.length > 2 && source === source.toLocaleUpperCase('ru-RU') ? value.toLocaleUpperCase(language === 'tr' ? 'tr-TR' : 'en-US') : value;
 };
 
 /** Translate generated UI text. Russian is the canonical source language. */
@@ -799,7 +863,7 @@ const generatedNames = {
   project: 'Новый проект', defaultProject: 'Шкаф · İstanbul', cabinet: 'Шкаф',
   base: 'Новая тумба', wall: 'Новый навесной шкаф', tall: 'Новый пенал',
   defaultCabinet: 'Шкаф с ящиками в середине', material: 'Новый МДФ',
-  thinBack: 'Тонкий задник · 3 мм', thinBackType: 'Тонкая древесноволокнистая панель',
+  thinBack: 'ДВП · задник · 3 мм', thinBackType: 'ДВП',
   upperSection: 'Верхняя секция', drawerSection: 'Ящики в середине', lowerSection: 'Нижняя секция',
   washer: 'Стиральная машина', dryer: 'Сушильная машина', boiler: 'Бойлер', customAppliance: 'Своё оборудование', copy: 'копия',
 };

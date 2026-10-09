@@ -1,4 +1,4 @@
-import { getCabinetLayout, getFrontLayout, getInternalDrawerLayout, generateParts } from './engine.js';
+import { getCabinetLayout, getFrontLayout, getInternalDrawerLayout, getRodLayout, generateParts } from './engine.js';
 import { resizeApplianceDivider, resizeConstrainedInteriorDivider } from './appliance-constraints.js';
 import { getInteriorLayout } from './cabinet-interior.js';
 
@@ -53,6 +53,7 @@ export class CabinetEditor {
     content+=`<rect x="${vx}" y="${vy}" width="${viewW}" height="${viewH}" fill="#f5f6f0"/><rect x="0" y="0" width="${W}" height="${H}" fill="#fffef9" stroke="#617061" stroke-width="${1.3/scale}"/>`;
     const t=layout.thickness;
     const actualParts=generateParts({...project,cabinets:[c]});
+    const rods=getRodLayout(c,project);
     const component=p=>p.component||p.role;
     const frameParts=actualParts.filter(p=>['side','top','bottom','plinth','cutout-return'].includes(component(p))||/^(?:Боковина левая|Боковина правая|Крышка|Возвратная боковина выреза)$/.test(p.name));
     for(const p of frameParts){
@@ -92,6 +93,10 @@ export class CabinetEditor {
       if(backMode==='none'||backMode==='braces')content+=`<text data-back-mode="${backMode}" x="${s.x+font*.5}" y="${y(s.y,s.height)+font}" font-size="${font*.7}" fill="#a1aa94">${backMode==='braces'?'Задние поперечины':'без задника'}</text>`;
       if(node.floor==='open')content+=`<text x="${s.x+s.width/2}" y="${y(s.y)-font*.4}" font-size="${font*.7}" text-anchor="middle" fill="#718d63">Открыто до пола</text>`;
       if(node.pullOutShelf)content+=`<path d="M${s.x+font*.3} ${y(s.y)-font*.7}h${Math.max(0,s.width-font*.6)}" stroke="#a7875d" stroke-width="${3/scale}"/><text x="${s.x+s.width/2}" y="${y(s.y)-font*1.05}" font-size="${font*.7}" text-anchor="middle" fill="#a7875d">Выдвижная полка</text>`;
+      rods.filter(rod=>outer?rod.interiorSectionId===s.id:rod.sectionId===s.id&&!rod.interiorSectionId).forEach(rod=>{
+        const yy=y(rod.y),radius=rod.diameter/2;
+        content+=`<g data-rod-id="${escape(rod.rodId)}" data-rod-length-mm="${n(rod.length)}" data-rod-axis-y="${n(rod.y)}"><title>Штанга · ${n(rod.length)} мм · Ø${n(rod.diameter)}</title><rect x="${rod.x}" y="${yy-radius}" width="${rod.length}" height="${rod.diameter}" rx="${Math.min(radius,rod.length/2)}" fill="#aebec0" stroke="#678286" stroke-width="${.8/scale}"/><path d="M${rod.x} ${yy}h${rod.length}" fill="none" stroke="#eef5f2" stroke-width="${Math.min(radius,1/scale)}"/><text x="${rod.x+rod.length/2}" y="${yy-radius-font*.25}" font-size="${font*.75}" text-anchor="middle" fill="#678286">Штанга ${n(rod.length)} · Ø${n(rod.diameter)}</text></g>`;
+      });
       content+='</g>';
     });
     // A divider is a generous hit target with a thin visible handle.

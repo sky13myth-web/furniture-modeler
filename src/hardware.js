@@ -1,6 +1,6 @@
 /** Quantity schedule only. Hardware model, loading, drilling and compatibility
  * must be selected from the actual hinge/runner/lift manufacturer's passport. */
-import { getCabinetLayout, getFrontLayout, getInternalDrawerLayout } from './engine.js';
+import { getCabinetLayout, getFrontLayout, getInternalDrawerLayout, getRodLayout } from './engine.js';
 
 /** Our editable preliminary height estimate, never a universal hardware rule.
  * Door width, mass, material and the chosen mechanism remain to be checked. */
@@ -11,13 +11,13 @@ export function defaultHingesPerDoor(height) {
 }
 
 const explicitHinges = value => Number.isInteger(value) && value >= 2 && value <= 12;
-const emptyTotals = () => ({ handles: 0, guideSets: 0, hinges: 0 });
+const emptyTotals = () => ({ handles: 0, guideSets: 0, hinges: 0, rods: 0, rodHolders: 0, rodLengthMeters: 0 });
 const mechanism = node => node?.openingMechanism === 'push' ? 'push' : 'handle';
 
 export function getHardwareSchedule(cabinet, project = { materials: [] }) {
   const rows = [], totals = emptyTotals(), layout = getCabinetLayout(cabinet, project);
   const add = (kind, quantity, source, metadata = {}) => {
-    const field = { handle: 'handles', 'guide-set': 'guideSets', hinge: 'hinges' }[kind];
+    const field = { handle: 'handles', 'guide-set': 'guideSets', hinge: 'hinges', rod: 'rods', 'rod-holder': 'rodHolders' }[kind];
     totals[field] += quantity;
     rows.push({ id: `${cabinet.id}-hardware-${rows.length + 1}`, cabinetId: cabinet.id, cabinetName: cabinet.name,
       kind, quantity, unit: kind === 'guide-set' ? 'sets' : 'pcs', source, planned: false, ...metadata });
@@ -43,6 +43,12 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
     const metadata = { sectionId: section.parentSectionId ?? section.id, ...(section.parentSectionId ? { interiorSectionId: section.id } : {}), index: 0 };
     if (mechanism(section.node) !== 'push') add('handle', 1, 'pull-out-shelf', metadata);
     add('guide-set', 1, 'pull-out-shelf', metadata);
+  }
+  for (const rod of getRodLayout(cabinet, project)) {
+    const metadata = { sectionId: rod.sectionId, ...(rod.interiorSectionId ? { interiorSectionId: rod.interiorSectionId } : {}), rodId: rod.rodId, diameter: rod.diameter };
+    add('rod', 1, 'wardrobe-rod', { ...metadata, length: rod.length, lengthMeters: rod.length / 1000 });
+    add('rod-holder', 2, 'wardrobe-rod', metadata);
+    totals.rodLengthMeters += rod.length / 1000;
   }
   return { cabinetId: cabinet.id, cabinetName: cabinet.name, rows, totals };
 }
