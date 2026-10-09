@@ -32,6 +32,30 @@ test('default engine project validates without mutation', () => {
   assert.deepEqual(project, snapshot);
 });
 
+test('the 101st material is reserved for a valid default hardboard, retaining ID uniqueness and the overall cap', () => {
+  const project = createDefaultProject('en');
+  while (project.materials.length < 101) project.materials.push({ ...project.materials[0], id: `custom-${project.materials.length}` });
+  const snapshot = structuredClone(project);
+  assert.doesNotThrow(() => checkImport(project));
+  assert.deepEqual(project, snapshot);
+  const defaultStock = project.materials.find(material => material.id === 'thin-back-3');
+  for (const override of [{ type: 'MDF' }, { thickness: 8 }, { id: 'custom-hardboard' }]) {
+    const invalid = structuredClone(project);
+    Object.assign(invalid.materials.find(material => material.id === defaultStock.id), override);
+    assert.throws(() => checkImport(invalid), /Материалы: допустимо не более 100/);
+  }
+  const variant = structuredClone(project);
+  variant.materials.find(material => material.id === defaultStock.id).id = 'thin-back-3-default-2';
+  variant.cabinets[0].backMaterialId = 'thin-back-3-default-2';
+  assert.doesNotThrow(() => checkImport(variant));
+  const duplicate = structuredClone(project);
+  duplicate.materials[duplicate.materials.length - 1].id = defaultStock.id;
+  assert.throws(() => checkImport(duplicate), /Материал: повторяющийся идентификатор/);
+  const tooMany = structuredClone(project);
+  tooMany.materials.push({ ...project.materials[0], id: 'custom-overflow' });
+  assert.throws(() => checkImport(tooMany), /Материалы: допустимо не более 101/);
+});
+
 test('shape validation rejects malformed project structures', () => {
   for (const value of [null, undefined, true, [], 'project']) assert.throws(() => checkImport(value), /проект/);
   rejects(p => { p.room = []; }, /помещение/);

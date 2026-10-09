@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getPricingPreferences, applyPricingPreferences } from '../src/pricing-preferences.js';
 import { createDefaultProject } from '../src/engine.js';
+import { ensureDefaultBackMaterial } from '../src/material-defaults.js';
 
 const stock = overrides => ({ id: 'hdf-back', name: 'My rear sheet', thickness: 3, sheetWidth: 2100, sheetHeight: 2800, type: 'Custom fibreboard', ...overrides });
 const project = overrides => ({ name: 'Project', materials: [stock()], settings: {}, ...overrides });
@@ -114,4 +115,38 @@ test('built-in type aliases never match particleboard or an unrecognized custom 
   const matt = wrongDecor.materials.find(material => material.decorCode === 'MAT_068');
   matt.decorCode = 'CUSTOM_MATT';
   assert.equal(applyPricingPreferences(wrongDecor, preferences).materials.find(material => material.id === matt.id).pricePerSheet, undefined);
+});
+
+test('default hardboard variants reuse exact quotes across languages, including manual zero and historical localized preferences', () => {
+  const conflicted = (language, numbered) => {
+    const value = createDefaultProject(language), custom = value.materials.find(material => material.id === 'thin-back-3');
+    custom.type = 'MDF';
+    if (numbered) value.materials.push({ ...custom, id: 'thin-back-3-default' });
+    const back = ensureDefaultBackMaterial(value);
+    return { value, back };
+  };
+  for (const [numbered, price] of [[false, 0], [true, 850.5]]) {
+    const { value: source, back } = conflicted('ru', numbered);
+    back.pricePerSheet = price;
+    const snapshot = structuredClone(source), preferences = getPricingPreferences(source);
+    assert.equal(back.id, numbered ? 'thin-back-3-default-2' : 'thin-back-3-default');
+    for (const language of ['tr', 'en']) {
+      const { value: target, back: targetBack } = conflicted(language, numbered), before = structuredClone(target);
+      const result = applyPricingPreferences(target, preferences);
+      assert.equal(result.materials.find(material => material.id === back.id).pricePerSheet, price);
+      assert.equal(result.materials.find(material => material.id === back.id).type, targetBack.type);
+      assert.equal(result.materials.find(material => material.id === 'thin-back-3').pricePerSheet, undefined);
+      assert.deepEqual(getPricingPreferences(result), preferences);
+      const localizedPreferences = { materials: [{ ...targetBack, pricePerSheet: price }], rates: {} };
+      const { value: localizedTarget } = conflicted('ru', numbered);
+      assert.equal(applyPricingPreferences(localizedTarget, localizedPreferences).materials.find(material => material.id === back.id).pricePerSheet, price);
+      assert.deepEqual(target, before);
+    }
+    assert.deepEqual(source, snapshot);
+    for (const overrides of [{ type: 'Particleboard' }, { type: 'My fibreboard' }, { thickness: 8 }, { sheetWidth: 1220 }]) {
+      const { value: target, back: targetBack } = conflicted('tr', numbered);
+      Object.assign(targetBack, overrides);
+      assert.equal(applyPricingPreferences(target, preferences).materials.find(material => material.id === back.id).pricePerSheet, undefined);
+    }
+  }
 });

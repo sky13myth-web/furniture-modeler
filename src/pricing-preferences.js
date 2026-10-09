@@ -1,4 +1,5 @@
 import { defaultName, translateText } from './i18n.js';
+import { isDefaultBackMaterial } from './material-defaults.js';
 
 /** Reusable manual quotes belong to an exact stock, rather than a historical
  * material ID alone. All stored values are data; unknown fields are ignored. */
@@ -13,14 +14,13 @@ const factoryTypes = new Map([
   ['HG_068', 'MDF с глянцевым покрытием']
 ].map(([decor, type]) => [decor, { type, labels: new Set(languages.map(language => translateText(type, language))) }]));
 const thinBackType = defaultName('thinBackType', 'ru');
-const thinBackLabels = new Set(languages.map(language => defaultName('thinBackType', language)));
 
 // Translate only exact built-in labels with their article identity. A custom
 // type stays strict even when the material retains a factory ID or decor code.
 function canonicalStockType(material) {
   const factory = factoryTypes.get(material.decorCode);
   if (factory?.labels.has(material.type)) return factory.type;
-  if (material.id === 'thin-back-3' && thinBackLabels.has(material.type)) return thinBackType;
+  if (isDefaultBackMaterial(material)) return thinBackType;
   return material.type;
 }
 

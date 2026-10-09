@@ -29,7 +29,7 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173). On Windows, you can double-
 - Use editable appliance dimensions and installation allowances. Placement checks include room boundaries, cabinet collisions and ceiling clearance.
 - Assign board materials, colours, thicknesses and grain directions. Factory presets use verified Yıldız Entegre product sizes.
 
-New cabinets default to a **3 mm hardboard back**, named **Hardboard · back panel · 3 mm**. This editable material has no manufacturer or product code. It is separate from the confirmed Yıldız factory presets; choose the actual board product, finish and sheet size in Materials. Drawer bottoms remain **8 mm**. Existing saved materials and manually selected thicknesses are preserved. `/?demo=interior` opens a disposable example with shelves and internal drawers behind shared doors.
+New cabinets default to a **3 mm hardboard back**, named **Hardboard · back panel · 3 mm**. This editable material has no manufacturer or product code. It is separate from the confirmed Yıldız factory presets; choose the actual board product, finish and sheet size in Materials. Opening an older project adds the missing 3 mm hardboard stock to its catalogue. Existing saved materials and cabinet thicknesses are preserved; choose 3 mm hardboard in **Back panel** to update an existing cabinet. Drawer bottoms remain **8 mm**. `/?demo=interior` opens a disposable example with shelves and internal drawers behind shared doors.
 
 ## Production documents
 

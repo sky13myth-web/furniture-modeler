@@ -4,13 +4,14 @@ import {defaultName} from './i18n.js';
 const hardboardTypes=new Set(['ru','tr','en'].map(language=>defaultName('thinBackType',language)));
 export const isDefaultBackMaterial=material=>/^thin-back-3(?:-default(?:-\d+)?)?$/.test(material?.id??'')&&material.thickness===3&&hardboardTypes.has(material.type);
 
-/** Restore the missing default stock in older catalogues. Existing panels,
- * names, manual quotes and selected cabinet materials remain intact. */
+/** Restore the missing default stock in older catalogues. One reserved slot
+ * beyond the 100-material catalogue keeps existing user stock intact.
+ * Names, manual quotes and selected cabinet materials remain intact. */
 export function ensureDefaultBackMaterial(project){
  const materials=project.materials;
  const existing=materials.find(isDefaultBackMaterial);
  if(existing)return existing;
- if(materials.length>=100)return null;
+ if(materials.length>=101)return null;
  const language=['ru','tr','en'].includes(project.namingLanguage)?project.namingLanguage:'tr';
  let id=THIN_BACK_PRESET.id;
  if(materials.some(material=>material.id===id)){

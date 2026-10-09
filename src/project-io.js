@@ -1,5 +1,6 @@
 /** Validate imported project data before it reaches templates and geometry. */
 import { polygonIsSimple } from './room-geometry.js';
+import { isDefaultBackMaterial } from './material-defaults.js';
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = message => { throw new Error(message); };
 const record = (value, label) => { if (!isRecord(value)) fail(`Неверный формат: ${label}.`); };
@@ -141,7 +142,10 @@ export function checkImport(project) {
   record(project.room, 'помещение');
   record(project.settings, 'настройки');
   collection(project.cabinets, 'Модули', 150);
-  collection(project.materials, 'Материалы', 100);
+  // A single reserved slot restores the default 3 mm back in a full legacy
+  // catalogue without deleting stock or changing existing cabinet references.
+  const materialLimit = Array.isArray(project.materials) && project.materials.some(isDefaultBackMaterial) ? 101 : 100;
+  collection(project.materials, 'Материалы', materialLimit);
   collection(project.room.windows, 'Окна', 30);
 
   for (const [key, label] of [['width', 'ширина'], ['depth', 'глубина'], ['height', 'высота'], ['wallThickness', 'толщина стен']]) {

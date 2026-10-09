@@ -32,7 +32,7 @@ Seçili dolabın genişliğini ve derinliğini plandaki iki tutamaçla veya say�
 
 Malzeme, renk, kalınlık ve doku yönü değiştirilebilir. Fabrika malzeme seçenekleri, Yıldız Entegre kataloğunda doğrulanan ürün ölçülerini kullanır.
 
-Yeni dolaplarda varsayılan arkalık **3 mm sert lif levhadır**; malzeme adı **Sert lif levha · arkalık · 3 mm** olarak görünür. Üreticisi veya ürün kodu belirtilmeyen bu düzenlenebilir ayar, doğrulanmış Yıldız fabrika seçeneklerinden ayrıdır; gerçek ürünü, yüzeyini ve ebatlarını Malzemeler'den seçin. Çekmece tabanı **8 mm** olarak kalır. Kayıtlı projelerdeki malzemeler ve elle seçilmiş kalınlıklar korunur. `/?demo=interior`, ortak kapakların arkasında raflar ve iç çekmeceler bulunan geçici örneği açar.
+Yeni dolaplarda varsayılan arkalık **3 mm sert lif levhadır**; malzeme adı **Sert lif levha · arkalık · 3 mm** olarak görünür. Üreticisi veya ürün kodu belirtilmeyen bu düzenlenebilir ayar, doğrulanmış Yıldız fabrika seçeneklerinden ayrıdır; gerçek ürünü, yüzeyini ve ebatlarını Malzemeler'den seçin. Eski bir proje açıldığında eksik olan 3 mm sert lif levha kataloğa eklenir. Kayıtlı malzemeler ve dolap kalınlıkları korunur; mevcut bir dolabı değiştirmek için **Arkalık** alanından 3 mm sert lif levhayı seçin. Çekmece tabanı **8 mm** olarak kalır. `/?demo=interior`, ortak kapakların arkasında raflar ve iç çekmeceler bulunan geçici örneği açar.
 
 ## Çizimler ve dosyalar
 

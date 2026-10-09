@@ -56,3 +56,38 @@ test('manual hardboard quotes stay editable and raw MDF prices are never silentl
  }
  assert.equal(getMaterialPrice({id:'raw-mdf',type:'MDF',thickness:3,sheetWidth:2100,sheetHeight:2800}).pricePerSheet,730);
 });
+
+test('a full legacy catalogue reserves the 101st slot for a 3 mm default without deleting stock or changing existing cabinets',()=>{
+ const project=createDefaultProject('ru');
+ project.materials=project.materials.filter(material=>material.id!=='thin-back-3');
+ Object.assign(project.cabinets[0],{backMaterialId:'hdf-back',backThickness:8});
+ while(project.materials.length<100)project.materials.push({...project.materials[0],id:`custom-${project.materials.length}`,name:`Custom ${project.materials.length}`,pricePerSheet:0});
+ const oldStock=structuredClone(project.materials),oldCabinets=structuredClone(project.cabinets);
+ assert.doesNotThrow(()=>checkImport(project));
+ const stock=ensureDefaultBackMaterial(project);
+ assert.equal(project.materials.length,101);
+ assert.equal(stock.thickness,3);
+ assert.deepEqual(project.materials.slice(0,100),oldStock);
+ assert.deepEqual(project.cabinets,oldCabinets);
+ assert.equal(ensureDefaultBackMaterial(project),stock);
+ assert.equal(project.materials.length,101);
+ const cabinet=createCabinet('base',project);
+ assert.equal(cabinet.backMaterialId,stock.id);
+ assert.equal(cabinet.backThickness,3);
+ project.cabinets.push(cabinet);
+ assert.doesNotThrow(()=>checkImport(JSON.parse(JSON.stringify(project))));
+ assert.deepEqual(project.cabinets[0],oldCabinets[0]);
+});
+
+test('a full catalogue with a customized thin-back ID uses the reserved default variant for new cabinets',()=>{
+ const project=createDefaultProject('tr'),custom=project.materials.find(material=>material.id==='thin-back-3');
+ Object.assign(custom,{type:'MDF',name:'My MDF 3',pricePerSheet:800});
+ while(project.materials.length<100)project.materials.push({...project.materials[0],id:`custom-${project.materials.length}`});
+ const snapshot=structuredClone(project),stock=ensureDefaultBackMaterial(project);
+ assert.equal(stock.id,'thin-back-3-default');
+ assert.equal(project.materials.length,101);
+ assert.equal(createCabinet('base',project).backMaterialId,stock.id);
+ assert.deepEqual(project.materials.slice(0,100),snapshot.materials);
+ assert.deepEqual(project.cabinets,snapshot.cabinets);
+ assert.doesNotThrow(()=>checkImport(project));
+});
