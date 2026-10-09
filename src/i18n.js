@@ -174,6 +174,7 @@ add(`
 Детали конструкции|Yapı parçaları|Construction parts
 Отступ от края листа|Levha kenarı payı|Sheet edge margin
 Поворот без текстуры|Desensiz parçaları döndür|Rotate parts without grain
+Разрешает поворачивать детали на листе на 90°, чтобы уменьшить отходы. Детали с направлением текстуры не поворачиваются.|Fireyi azaltmak için parçaların levha üzerinde 90° döndürülmesine izin verir. Doku yönü belirlenmiş parçalar döndürülmez.|Allows parts to rotate by 90° on the sheet to reduce waste. Parts with a grain direction are not rotated.
 Вычитать толщину кромки|Kenar bandı kalınlığını düş|Deduct edge band thickness
 Размеры листов и материалы|Levha ölçüleri ve malzemeler|Sheet sizes and materials
 Инструменты секции|Bölme araçları|Section tools
