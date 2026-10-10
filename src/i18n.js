@@ -829,6 +829,9 @@ add(`
 Лицевая сторона|Ön taraf|Front side
 Экспорт плана со шкафами в OBJ|Dolaplarla birlikte oda planını OBJ olarak dışa aktar|Export room plan with cabinets to OBJ
 ЛКМ — вращение · ПКМ — сдвиг · Колесо — зум · W,A,S,D — перемещение|Sol tık — döndür · Sağ tık — kaydır · Tekerlek — yakınlaştır · W,A,S,D — hareket|LMB — rotate · RMB — pan · Wheel — zoom · W,A,S,D — move
+Стены: Срез|Duvarlar: Kesit|Walls: Cutaway
+Стены: Все|Duvarlar: Tümü|Walls: All
+Срезать ближние стены или показать все стены|Ön duvarları gizle veya tüm duvarları göster|Cut away near walls or show all walls
 Внутренние ящики|İç çekmeceler|Internal drawers
 Внутренние ящики за дверками|Kapakların arkasındaki iç çekmeceler|Internal drawers behind doors
 Внутренний ящик|İç çekmece|Internal drawer

@@ -54,5 +54,6 @@ test('RoomWebGLRenderer exports expected class interface', () => {
   assert.equal(typeof RoomWebGLRenderer.prototype.resize, 'function');
   assert.equal(typeof RoomWebGLRenderer.prototype.resetCamera, 'function');
   assert.equal(typeof RoomWebGLRenderer.prototype.toggleDoors, 'function');
+  assert.equal(typeof RoomWebGLRenderer.prototype.toggleWallMode, 'function');
   assert.equal(typeof RoomWebGLRenderer.prototype.captureScreenshot, 'function');
 });

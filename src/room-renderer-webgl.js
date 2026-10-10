@@ -1,4 +1,5 @@
 import { makeScene } from './renderer.js';
+import { pointInPolygon } from './room-geometry.js';
 
 function hexToRgb(hex) {
   if (!hex || typeof hex !== 'string') return [0.8, 0.8, 0.8];
@@ -18,11 +19,6 @@ function hexToRgb(hex) {
     ];
   }
   return [0.8, 0.8, 0.8];
-}
-
-function mat4Identity(out) {
-  for (let i = 0; i < 16; i++) out[i] = i % 5 === 0 ? 1 : 0;
-  return out;
 }
 
 function mat4Perspective(out, fovyRad, aspect, near, far) {
@@ -80,7 +76,7 @@ function mat4Multiply(out, a, b) {
 const VERTEX_SHADER_SOURCE = `
 attribute vec3 aPosition;
 attribute vec3 aNormal;
-attribute vec3 aColor;
+attribute vec4 aColor;
 
 uniform mat4 uProjectionMatrix;
 uniform mat4 uViewMatrix;
@@ -88,7 +84,7 @@ uniform mat4 uLightSpaceMatrix;
 
 varying vec3 vPosition;
 varying vec3 vNormal;
-varying vec3 vColor;
+varying vec4 vColor;
 varying vec4 vLightSpacePos;
 
 void main() {
@@ -105,39 +101,43 @@ precision mediump float;
 
 varying vec3 vPosition;
 varying vec3 vNormal;
-varying vec3 vColor;
+varying vec4 vColor;
 varying vec4 vLightSpacePos;
 
 uniform vec3 uLightPos;
 uniform vec3 uLightColor;
-uniform vec3 uAmbientLight;
 uniform vec3 uCameraPos;
 uniform sampler2D uShadowMap;
 uniform bool uUseShadows;
 
-float sampleShadow(vec4 lightSpacePos) {
+float sampleShadow(vec4 lightSpacePos, vec3 norm, vec3 lightDir) {
   vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
   projCoords = projCoords * 0.5 + 0.5;
 
+  // Outside light shadow coverage -> unshadowed
   if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
       projCoords.y < 0.0 || projCoords.y > 1.0 ||
       projCoords.z < 0.0 || projCoords.z > 1.0) {
     return 1.0;
   }
 
-  float currentDepth = projCoords.z - 0.005;
-  float shadow = 0.0;
-  vec2 texelSize = vec2(1.0 / 1024.0);
+  // Slope-scaled bias to completely eliminate shadow acne
+  float cosTheta = max(dot(norm, lightDir), 0.0);
+  float bias = max(0.0035 * (1.0 - cosTheta), 0.0012);
+  float currentDepth = projCoords.z - bias;
 
-  // 3x3 PCF filter for soft shadow edges
-  for (int x = -1; x <= 1; x++) {
-    for (int y = -1; y <= 1; y++) {
+  float shadow = 0.0;
+  vec2 texelSize = vec2(1.0 / 2048.0);
+
+  // 4x4 PCF filter for soft, natural shadow edges
+  for (int x = -1; x <= 2; x++) {
+    for (int y = -1; y <= 2; y++) {
       vec4 packedZ = texture2D(uShadowMap, projCoords.xy + vec2(float(x), float(y)) * texelSize);
       float pDepth = packedZ.r + packedZ.g / 255.0;
-      shadow += currentDepth <= pDepth ? 1.0 : 0.28;
+      shadow += (currentDepth <= pDepth) ? 1.0 : 0.38;
     }
   }
-  return shadow / 9.0;
+  return shadow / 16.0;
 }
 
 void main() {
@@ -146,23 +146,42 @@ void main() {
   float dist = length(uLightPos - vPosition);
 
   // Point light distance attenuation
-  float atten = 1.0 / (1.0 + 0.00018 * dist + 0.0000003 * dist * dist);
+  float atten = 1.0 / (1.0 + 0.00008 * dist + 0.00000018 * dist * dist);
   float diff = max(dot(norm, lightDir), 0.0);
 
-  // Blinn-phong subtle specular highlight
+  // Blinn-phong specular highlight
   vec3 viewDir = normalize(uCameraPos - vPosition);
   vec3 halfDir = normalize(lightDir + viewDir);
-  float spec = pow(max(dot(norm, halfDir), 0.0), 24.0) * 0.18;
 
-  float shadowFactor = uUseShadows ? sampleShadow(vLightSpacePos) : 1.0;
+  float isGlass = (vColor.a < 0.9) ? 1.0 : 0.0;
+  float shininess = isGlass > 0.5 ? 64.0 : 28.0;
+  float specStrength = isGlass > 0.5 ? 0.65 : 0.22;
+  float spec = pow(max(dot(norm, halfDir), 0.0), shininess) * specStrength;
 
-  // Floor subtle contact darkening near 0 elevation
-  float contact = (vPosition.y < 2.0) ? 0.92 : 1.0;
+  // Directional camera fill light to keep dark angles soft and readable
+  float camFill = max(dot(norm, viewDir), 0.0) * 0.16;
 
-  vec3 lighting = uAmbientLight + (diff * uLightColor * atten * shadowFactor + spec * atten * shadowFactor) * contact;
-  vec3 finalColor = vColor * lighting;
+  // Hemispheric ambient: warm floor bounce + cool ceiling/sky fill
+  vec3 skyColor = vec3(0.60, 0.64, 0.68);
+  vec3 groundColor = vec3(0.52, 0.50, 0.47);
+  float hemi = norm.y * 0.5 + 0.5;
+  vec3 ambient = mix(groundColor, skyColor, hemi) * 0.68;
 
-  gl_FragColor = vec4(finalColor, 1.0);
+  float shadowFactor = uUseShadows ? sampleShadow(vLightSpacePos, norm, lightDir) : 1.0;
+
+  // Subtle floor contact ambient occlusion
+  float contact = (vPosition.y < 3.0) ? 0.94 : 1.0;
+
+  vec3 directDiffuse = diff * uLightColor * atten * shadowFactor;
+  vec3 directSpec = spec * uLightColor * atten * shadowFactor;
+
+  vec3 lighting = (ambient + directDiffuse + camFill) * contact;
+  vec3 finalColor = vColor.rgb * lighting + directSpec;
+
+  // Tone mapping and gamma curve for clean, vibrant architectural contrast
+  vec3 toneMapped = finalColor / (finalColor + vec3(0.12)) * 1.12;
+
+  gl_FragColor = vec4(toneMapped, vColor.a);
 }
 `;
 
@@ -218,6 +237,7 @@ export class RoomWebGLRenderer {
     this.onChange = onChange;
     this.project = null;
     this.doorsOpen = false;
+    this.wallMode = 'cutaway'; // 'cutaway' | 'all'
 
     // Camera parameters
     this.target = [2000, 1000, 1500];
@@ -228,11 +248,13 @@ export class RoomWebGLRenderer {
     // Room light from ceiling center
     this.lightPos = [2000, 2600, 1500];
     this.lightColor = [1.0, 0.98, 0.92];
-    this.ambientLight = [0.38, 0.40, 0.42];
 
     this.drag = null;
-    this.keyState = new Set();
-    this.vertexCount = 0;
+    this.casterVertexCount = 0;
+    this.opaqueOffset = 0;
+    this.opaqueVertexCount = 0;
+    this.transparentOffset = 0;
+    this.transparentVertexCount = 0;
 
     this.initGL();
     this.attachEvents();
@@ -250,6 +272,8 @@ export class RoomWebGLRenderer {
     const gl = this.gl;
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     try {
       this.mainProgram = createProgram(gl, VERTEX_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE);
@@ -264,7 +288,6 @@ export class RoomWebGLRenderer {
         lightSpace: gl.getUniformLocation(this.mainProgram, 'uLightSpaceMatrix'),
         lightPos: gl.getUniformLocation(this.mainProgram, 'uLightPos'),
         lightColor: gl.getUniformLocation(this.mainProgram, 'uLightColor'),
-        ambientLight: gl.getUniformLocation(this.mainProgram, 'uAmbientLight'),
         cameraPos: gl.getUniformLocation(this.mainProgram, 'uCameraPos'),
         shadowMap: gl.getUniformLocation(this.mainProgram, 'uShadowMap'),
         useShadows: gl.getUniformLocation(this.mainProgram, 'uUseShadows'),
@@ -288,7 +311,7 @@ export class RoomWebGLRenderer {
 
   initShadowFBO() {
     const gl = this.gl;
-    this.shadowSize = 1024;
+    this.shadowSize = 2048;
     this.shadowTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.shadowSize, this.shadowSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -318,6 +341,21 @@ export class RoomWebGLRenderer {
     this.render();
   }
 
+  getCameraEye() {
+    return [
+      this.target[0] + this.distance * Math.cos(this.pitch) * Math.sin(this.yaw),
+      this.target[1] + this.distance * Math.sin(this.pitch),
+      this.target[2] + this.distance * Math.cos(this.pitch) * Math.cos(this.yaw),
+    ];
+  }
+
+  isPointInsideRoom(x, z) {
+    if (!this.project?.room) return false;
+    const outline = this.project.room.outline || [];
+    if (outline.length < 3) return false;
+    return pointInPolygon({ x, z }, outline);
+  }
+
   updateRoomLighting() {
     if (!this.project?.room) return;
     const room = this.project.room;
@@ -329,7 +367,7 @@ export class RoomWebGLRenderer {
 
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
-    const cy = Math.max(1200, (room.height || 2700) - 100);
+    const cy = Math.max(1200, (room.height || 2700) - 50);
 
     this.roomCenter = [cx, (room.height || 2700) * 0.45, cz];
     this.roomBounds = { minX, maxX, minZ, maxZ, width: maxX - minX, depth: maxZ - minZ, height: room.height || 2700 };
@@ -343,22 +381,70 @@ export class RoomWebGLRenderer {
     this.yaw = Math.PI * 0.28;
     this.pitch = 0.32;
     this.distance = Math.max(b.width, b.depth) * 0.95;
+    this.buildGeometry();
     this.render();
+  }
+
+  toggleWallMode() {
+    this.wallMode = this.wallMode === 'cutaway' ? 'all' : 'cutaway';
+    this.buildGeometry();
+    this.render();
+    return this.wallMode;
   }
 
   buildGeometry() {
     if (!this.gl || !this.project) return;
-    const scene = makeScene(this.project, { room: true, allFaces: true, doorsOpen: this.doorsOpen }, null);
+
+    const eye = this.getCameraEye();
+    const isInside = this.isPointInsideRoom(eye[0], eye[2]) && eye[1] < (this.project.room?.height || 2700);
+    const useCutaway = (this.wallMode === 'cutaway') && !isInside;
+
+    let scene;
+    if (useCutaway) {
+      const dir = [this.target[0] - eye[0], 0, this.target[2] - eye[2]];
+      scene = makeScene(this.project, { room: true, allFaces: false, doorsOpen: this.doorsOpen }, dir);
+    } else {
+      scene = makeScene(this.project, { room: true, allFaces: true, doorsOpen: this.doorsOpen }, null);
+    }
+
     const faces = scene.faces || [];
 
-    const bufferData = [];
-    const pushVertex = (p, n, c) => {
-      bufferData.push(p[0], p[1], p[2], n[0], n[1], n[2], c[0], c[1], c[2]);
+    const casterFloats = [];
+    const opaqueFloats = [];
+    const transparentFloats = [];
+
+    const pushPoly = (targetArray, points, normal, colorRGBA) => {
+      if (points.length < 3) return;
+      const pushV = p => {
+        targetArray.push(p[0], p[1], p[2], normal[0], normal[1], normal[2], colorRGBA[0], colorRGBA[1], colorRGBA[2], colorRGBA[3]);
+      };
+      if (points.length === 3) {
+        pushV(points[0]); pushV(points[1]); pushV(points[2]);
+      } else if (points.length === 4) {
+        pushV(points[0]); pushV(points[1]); pushV(points[2]);
+        pushV(points[0]); pushV(points[2]); pushV(points[3]);
+      } else {
+        for (let i = 1; i < points.length - 1; i++) {
+          pushV(points[0]); pushV(points[i]); pushV(points[i + 1]);
+        }
+      }
+    };
+
+    // Helper to generate a 3D box profile (e.g. for window frames and sills)
+    const pushBox = (targetArray, pMin, pMax, colorRGBA) => {
+      const [x0, y0, z0] = pMin, [x1, y1, z1] = pMax;
+      // 6 faces with proper normals
+      pushPoly(targetArray, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1], colorRGBA); // front
+      pushPoly(targetArray, [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], [0, 0, -1], colorRGBA); // back
+      pushPoly(targetArray, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [-1, 0, 0], colorRGBA); // left
+      pushPoly(targetArray, [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], [1, 0, 0], colorRGBA); // right
+      pushPoly(targetArray, [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], [0, 1, 0], colorRGBA); // top
+      pushPoly(targetArray, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0], colorRGBA); // bottom
     };
 
     for (const f of faces) {
       if (!f.points || f.points.length < 3) continue;
-      const rgb = hexToRgb(f.rawColor || f.color);
+
       let norm = f.normal;
       if (!norm || norm.length < 3) {
         const p0 = f.points[0], p1 = f.points[1], p2 = f.points[2];
@@ -371,50 +457,116 @@ export class RoomWebGLRenderer {
         norm = [nx / len, ny / len, nz / len];
       }
 
-      if (f.points.length === 3) {
-        pushVertex(f.points[0], norm, rgb);
-        pushVertex(f.points[1], norm, rgb);
-        pushVertex(f.points[2], norm, rgb);
-      } else if (f.points.length === 4) {
-        pushVertex(f.points[0], norm, rgb);
-        pushVertex(f.points[1], norm, rgb);
-        pushVertex(f.points[2], norm, rgb);
+      // Handle window glass and architectural window framing
+      if (f.window && f.points.length === 4) {
+        const [p0, p1, p2, p3] = f.points;
+        const wLen = Math.hypot(p1[0] - p0[0], p1[2] - p0[2]);
+        const hLen = Math.abs(p3[1] - p0[1]);
 
-        pushVertex(f.points[0], norm, rgb);
-        pushVertex(f.points[2], norm, rgb);
-        pushVertex(f.points[3], norm, rgb);
-      } else {
-        // N-gon fan
-        for (let i = 1; i < f.points.length - 1; i++) {
-          pushVertex(f.points[0], norm, rgb);
-          pushVertex(f.points[i], norm, rgb);
-          pushVertex(f.points[i + 1], norm, rgb);
+        if (wLen > 50 && hLen > 50) {
+          const ux = (p1[0] - p0[0]) / wLen, uz = (p1[2] - p0[2]) / wLen;
+          const fw = Math.min(48, wLen * 0.1); // frame border width
+
+          // Clean architectural window frame colors
+          const frameColor = [0.96, 0.96, 0.95, 1.0];
+          const sillColor = [0.92, 0.90, 0.86, 1.0];
+          const glassColor = [0.82, 0.92, 0.98, 0.18]; // Transparent glass
+
+          // 1. Window Sill (подоконник) at bottom extending 45mm into room and 30mm sideways
+          const sillExt = 45;
+          const s0 = [p0[0] - ux * 30 + norm[0] * sillExt, p0[1], p0[2] - uz * 30 + norm[2] * sillExt];
+          const s1 = [p1[0] + ux * 30 + norm[0] * sillExt, p1[1], p1[2] + uz * 30 + norm[2] * sillExt];
+          const s2 = [p1[0] + ux * 30, p1[1] - 25, p1[2] + uz * 30];
+          const s3 = [p0[0] - ux * 30, p0[1] - 25, p0[2] - uz * 30];
+          pushPoly(opaqueFloats, [s0, s1, [s1[0], s1[1] - 25, s1[2]], [s0[0], s0[1] - 25, s0[2]]], [norm[0], 0, norm[2]], sillColor);
+          pushPoly(opaqueFloats, [s0, s1, [p1[0] + ux * 30, p1[1], p1[2] + uz * 30], [p0[0] - ux * 30, p0[1], p0[2] - uz * 30]], [0, 1, 0], sillColor);
+
+          // 2. Outer 4-edge Window Frame
+          const pt = (u, v, inset = 0) => [p0[0] + ux * u + norm[0] * inset, p0[1] + v, p0[2] + uz * u + norm[2] * inset];
+          // Bottom rail
+          pushPoly(opaqueFloats, [pt(0, 0, 10), pt(wLen, 0, 10), pt(wLen, fw, 10), pt(0, fw, 10)], norm, frameColor);
+          // Top rail
+          pushPoly(opaqueFloats, [pt(0, hLen - fw, 10), pt(wLen, hLen - fw, 10), pt(wLen, hLen, 10), pt(0, hLen, 10)], norm, frameColor);
+          // Left stile
+          pushPoly(opaqueFloats, [pt(0, fw, 10), pt(fw, fw, 10), pt(fw, hLen - fw, 10), pt(0, hLen - fw, 10)], norm, frameColor);
+          // Right stile
+          pushPoly(opaqueFloats, [pt(wLen - fw, fw, 10), pt(wLen, fw, 10), pt(wLen, hLen - fw, 10), pt(wLen - fw, hLen - fw, 10)], norm, frameColor);
+
+          // 3. Central Mullion Bar (импост) for wider windows
+          if (wLen > 750) {
+            const mw = 32, mx = wLen * 0.5;
+            pushPoly(opaqueFloats, [pt(mx - mw / 2, fw, 10), pt(mx + mw / 2, fw, 10), pt(mx + mw / 2, hLen - fw, 10), pt(mx - mw / 2, hLen - fw, 10)], norm, frameColor);
+          }
+
+          // 4. Transparent Glass Pane recessed inside frame
+          const g0 = pt(fw, fw, -15), g1 = pt(wLen - fw, fw, -15), g2 = pt(wLen - fw, hLen - fw, -15), g3 = pt(fw, hLen - fw, -15);
+          pushPoly(transparentFloats, [g0, g1, g2, g3], norm, glassColor);
+          // Back side of glass
+          pushPoly(transparentFloats, [g3, g2, g1, g0], [-norm[0], -norm[1], -norm[2]], glassColor);
         }
+        continue;
+      }
+
+      // Skip empty door openings so the door opening is a clean open passage
+      if (f.door) continue;
+
+      const rgb = hexToRgb(f.rawColor || f.color);
+      const isTransparent = f.doorLeaf || (f.opacity !== undefined && f.opacity < 0.9);
+      const alpha = isTransparent ? (f.opacity ?? 0.85) : 1.0;
+      const rgba = [rgb[0], rgb[1], rgb[2], alpha];
+
+      // Furniture casters (only cabinets, drawers, doors, shelves cast shadows!)
+      // Room walls and floor DO NOT cast shadows onto the floor.
+      const isFurnitureCaster = !f.room && !isTransparent;
+      if (isFurnitureCaster) {
+        pushPoly(casterFloats, f.points, norm, rgba);
+      }
+
+      if (isTransparent) {
+        pushPoly(transparentFloats, f.points, norm, rgba);
+      } else {
+        pushPoly(opaqueFloats, f.points, norm, rgba);
       }
     }
 
-    // Add glowing ceiling chandelier / room light fixture
+    // Modern glowing ceiling chandelier fixture
     if (this.lightPos) {
       const lx = this.lightPos[0], ly = this.lightPos[1], lz = this.lightPos[2];
-      const r = 45;
-      const count = 12;
-      const lightColor = [1.0, 0.98, 0.85];
+      const r = 55;
+      const count = 16;
+      const trimColor = [0.88, 0.88, 0.86, 1.0];
+      const glowColor = [1.0, 0.98, 0.92, 1.0];
+
       for (let i = 0; i < count; i++) {
         const a1 = (i / count) * Math.PI * 2, a2 = ((i + 1) / count) * Math.PI * 2;
-        const p0 = [lx, ly + 20, lz];
-        const p1 = [lx + Math.cos(a1) * r, ly, lz + Math.sin(a1) * r];
-        const p2 = [lx + Math.cos(a2) * r, ly, lz + Math.sin(a2) * r];
         const norm = [0, -1, 0];
-        pushVertex(p0, norm, lightColor);
-        pushVertex(p1, norm, lightColor);
-        pushVertex(p2, norm, lightColor);
+        // Inner glowing diffuser
+        const p0 = [lx, ly, lz];
+        const p1 = [lx + Math.cos(a1) * (r - 12), ly, lz + Math.sin(a1) * (r - 12)];
+        const p2 = [lx + Math.cos(a2) * (r - 12), ly, lz + Math.sin(a2) * (r - 12)];
+        pushPoly(opaqueFloats, [p0, p1, p2], norm, glowColor);
+
+        // Outer trim ring
+        const t1 = [lx + Math.cos(a1) * r, ly - 2, lz + Math.sin(a1) * r];
+        const t2 = [lx + Math.cos(a2) * r, ly - 2, lz + Math.sin(a2) * r];
+        pushPoly(opaqueFloats, [p1, t1, t2, p2], norm, trimColor);
       }
     }
 
-    this.vertexCount = bufferData.length / 9;
+    // Pack single unified VBO:
+    // [0 .. casterFloats] -> used for shadow map depth pass
+    // [casterFloats .. opaqueFloats] -> used for opaque pass
+    // [opaqueFloats .. transparentFloats] -> used for transparent pass
+    this.casterVertexCount = casterFloats.length / 10;
+    this.opaqueOffset = casterFloats.length / 10;
+    this.opaqueVertexCount = opaqueFloats.length / 10;
+    this.transparentOffset = (casterFloats.length + opaqueFloats.length) / 10;
+    this.transparentVertexCount = transparentFloats.length / 10;
+
+    const fullBuffer = new Float32Array([...casterFloats, ...opaqueFloats, ...transparentFloats]);
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(bufferData), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, fullBuffer, gl.STATIC_DRAW);
   }
 
   resize() {
@@ -432,13 +584,19 @@ export class RoomWebGLRenderer {
 
   computeLightSpaceMatrix() {
     const b = this.roomBounds || { minX: 0, maxX: 4000, minZ: 0, maxZ: 3000, height: 2700 };
-    const pad = 300;
+    const cx = (b.minX + b.maxX) / 2;
+    const cz = (b.minZ + b.maxZ) / 2;
+    const H = b.height || 2700;
+
+    // Full symmetrical room coverage with generous padding so the shadow NEVER cuts off
+    const halfSpan = Math.max((b.maxX - b.minX) * 0.5, (b.maxZ - b.minZ) * 0.5) + 600;
+
     const orthoProj = new Float32Array(16);
-    mat4Ortho(orthoProj, b.minX - pad, b.maxX + pad, b.minZ - pad, b.maxZ + pad, 10, (b.height || 2700) + 1200);
+    mat4Ortho(orthoProj, -halfSpan, halfSpan, -halfSpan, halfSpan, 10, H + 2500);
 
     const lightView = new Float32Array(16);
-    const eye = [this.lightPos[0], (b.height || 2700) + 500, this.lightPos[2]];
-    const target = [this.lightPos[0], 0, this.lightPos[2]];
+    const eye = [cx, H + 400, cz];
+    const target = [cx, 0, cz];
     mat4LookAt(lightView, eye, target, [0, 0, -1]);
 
     const lightSpace = new Float32Array(16);
@@ -449,42 +607,40 @@ export class RoomWebGLRenderer {
   render() {
     if (!this.gl) return;
     const gl = this.gl;
-    if (!this.vertexCount) return;
+    const totalVertices = this.opaqueVertexCount + this.transparentVertexCount;
+    if (!totalVertices) return;
 
+    const stride = 10 * 4; // 10 floats per vertex: pos(3), norm(3), color(4)
     const lightSpaceMatrix = this.computeLightSpaceMatrix();
 
-    // 1. Render Shadow Depth Pass
+    // 1. Render Shadow Depth Pass (furniture casters only)
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFBO);
     gl.viewport(0, 0, this.shadowSize, this.shadowSize);
     gl.clearColor(1.0, 1.0, 1.0, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    gl.useProgram(this.shadowProgram);
-    gl.uniformMatrix4fv(this.shadowUniforms.lightSpace, false, lightSpaceMatrix);
+    if (this.casterVertexCount > 0) {
+      gl.useProgram(this.shadowProgram);
+      gl.uniformMatrix4fv(this.shadowUniforms.lightSpace, false, lightSpaceMatrix);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
-    const stride = 9 * 4;
-    gl.enableVertexAttribArray(this.shadowAttribs.position);
-    gl.vertexAttribPointer(this.shadowAttribs.position, 3, gl.FLOAT, false, stride, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+      gl.enableVertexAttribArray(this.shadowAttribs.position);
+      gl.vertexAttribPointer(this.shadowAttribs.position, 3, gl.FLOAT, false, stride, 0);
 
-    gl.drawArrays(gl.TRIANGLES, 0, this.vertexCount);
-    gl.disableVertexAttribArray(this.shadowAttribs.position);
+      gl.drawArrays(gl.TRIANGLES, 0, this.casterVertexCount);
+      gl.disableVertexAttribArray(this.shadowAttribs.position);
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
-    // 2. Render Main Perspective Pass
+    // 2. Main Render Pass
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.93, 0.94, 0.91, 1.0);
+    gl.clearColor(0.94, 0.95, 0.93, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     gl.useProgram(this.mainProgram);
 
-    // Camera view & projection
-    const eye = [
-      this.target[0] + this.distance * Math.cos(this.pitch) * Math.sin(this.yaw),
-      this.target[1] + this.distance * Math.sin(this.pitch),
-      this.target[2] + this.distance * Math.cos(this.pitch) * Math.cos(this.yaw),
-    ];
-
+    // Perspective Camera setup
+    const eye = this.getCameraEye();
     const aspect = this.canvas.width / (this.canvas.height || 1);
     const projMatrix = new Float32Array(16);
     mat4Perspective(projMatrix, Math.PI / 3, aspect, 50, 45000);
@@ -497,7 +653,6 @@ export class RoomWebGLRenderer {
     gl.uniformMatrix4fv(this.mainUniforms.lightSpace, false, lightSpaceMatrix);
     gl.uniform3fv(this.mainUniforms.lightPos, this.lightPos);
     gl.uniform3fv(this.mainUniforms.lightColor, this.lightColor);
-    gl.uniform3fv(this.mainUniforms.ambientLight, this.ambientLight);
     gl.uniform3fv(this.mainUniforms.cameraPos, eye);
     gl.uniform1i(this.mainUniforms.useShadows, 1);
 
@@ -512,9 +667,19 @@ export class RoomWebGLRenderer {
 
     gl.vertexAttribPointer(this.mainAttribs.position, 3, gl.FLOAT, false, stride, 0);
     gl.vertexAttribPointer(this.mainAttribs.normal, 3, gl.FLOAT, false, stride, 3 * 4);
-    gl.vertexAttribPointer(this.mainAttribs.color, 3, gl.FLOAT, false, stride, 6 * 4);
+    gl.vertexAttribPointer(this.mainAttribs.color, 4, gl.FLOAT, false, stride, 6 * 4);
 
-    gl.drawArrays(gl.TRIANGLES, 0, this.vertexCount);
+    // 2a. Opaque Pass (furniture, walls, floor, frames)
+    if (this.opaqueVertexCount > 0) {
+      gl.drawArrays(gl.TRIANGLES, this.opaqueOffset, this.opaqueVertexCount);
+    }
+
+    // 2b. Transparent Pass (window glass, door leaves) with alpha blending
+    if (this.transparentVertexCount > 0) {
+      gl.depthMask(false);
+      gl.drawArrays(gl.TRIANGLES, this.transparentOffset, this.transparentVertexCount);
+      gl.depthMask(true);
+    }
 
     gl.disableVertexAttribArray(this.mainAttribs.position);
     gl.disableVertexAttribArray(this.mainAttribs.normal);
@@ -547,6 +712,7 @@ export class RoomWebGLRenderer {
         // Orbit (Yaw & Pitch)
         this.yaw = this.drag.startYaw - dx * 0.005;
         this.pitch = Math.max(-Math.PI * 0.42, Math.min(Math.PI * 0.42, this.drag.startPitch + dy * 0.005));
+        if (this.wallMode === 'cutaway') this.buildGeometry();
         this.render();
       } else {
         // Pan (Right click or Shift + drag)
@@ -557,6 +723,7 @@ export class RoomWebGLRenderer {
         this.target[0] = this.drag.startTarget[0] - right[0] * dx * panSpeed;
         this.target[1] = this.drag.startTarget[1] + dy * panSpeed;
         this.target[2] = this.drag.startTarget[2] - right[2] * dx * panSpeed;
+        if (this.wallMode === 'cutaway') this.buildGeometry();
         this.render();
       }
     });
@@ -572,6 +739,7 @@ export class RoomWebGLRenderer {
       e.preventDefault();
       const zoomFactor = Math.exp(e.deltaY * 0.0015);
       this.distance = Math.max(300, Math.min(25000, this.distance * zoomFactor));
+      if (this.wallMode === 'cutaway') this.buildGeometry();
       this.render();
     }, { passive: false });
 
@@ -602,6 +770,7 @@ export class RoomWebGLRenderer {
       } else if (code === 'KeyQ' || code === 'KeyC') {
         this.target[1] = Math.max(100, this.target[1] - step);
       }
+      if (this.wallMode === 'cutaway') this.buildGeometry();
       this.render();
     });
   }
