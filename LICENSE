@@ -1,21 +1,57 @@
-MIT License
+ATÖLYE Free Use — No Sale License 1.0
+Effective for releases 2.2.1 and later: 2026-10-10
 
 Copyright (c) 2026 sky13myth-web
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Scope
+"Software" means the original ATÖLYE application code and accompanying
+documentation supplied under this license. A "Modified Version" means a
+version that modifies, incorporates, or is derived from any substantial
+portion of that Software, in source or compiled form.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. Permissions
+Subject to the conditions below, you may use, run, study, copy, modify, and
+redistribute the Software and Modified Versions free of charge. Use in a
+commercial business, including furniture design and manufacture, is allowed.
+You may distribute source code or compiled applications. You may not impose
+terms on recipients that remove the permissions or the no-sale condition
+granted by this license.
 
+3. No sale or paid access
+You may not sell, rent, sublicense for a fee, or require payment for obtaining
+or accessing the Software or a Modified Version. This includes paid downloads,
+paid licenses, paid subscriptions, and paid hosted access to the application. Renaming,
+rebranding, modifying, or bundling the Software does not remove this condition.
+An optional donation or a genuinely optional separate support, installation,
+or training service is allowed only if obtaining and using the Software is
+not conditional on that payment.
+
+4. User projects and outputs
+This license does not restrict furniture, designs, drawings, cutting lists,
+or other user-created project data and outputs merely because they were
+produced with the Software. You may sell your furniture, design services,
+and such outputs. Using the Software to provide those services is allowed.
+
+5. Notices and modifications
+Include this license and the copyright notice with every distributed copy
+or substantial portion of the Software and every Modified Version. Clearly
+identify changes when distributing a Modified Version; do not imply that the
+original author endorses it. The no-sale condition applies to Modified Versions.
+
+6. Earlier releases and third-party components
+This license does not revoke permissions already granted for earlier copies
+or releases under MIT or another license. ATÖLYE releases through 2.2.0 retain
+their original MIT terms. Third-party components keep their own licenses;
+this license does not replace or restrict their independent permissions.
+
+7. Warranty and liability
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
+NONINFRINGEMENT. TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE AUTHORS AND
+COPYRIGHT HOLDERS ARE NOT LIABLE FOR CLAIMS OR DAMAGES ARISING FROM THE
+SOFTWARE OR ITS USE.
+
+The English text in this file is authoritative. Russian and Turkish
+translations are provided in LICENSE.ru.md and LICENSE.tr.md for convenience.
+This is a custom source-available license with a no-sale restriction, not an
+OSI-approved open-source license.

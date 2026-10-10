@@ -62,4 +62,6 @@ Askı borusunun metre fiyatını ve tutucu fiyatını elle girin; belirli bir bo
 
 Kesim yerleşimi sezgisel bir hesaplamadır; en az levha sayısını garanti etmez. CNC yolu, donanıma özel menteşe/kızak delikleri veya dayanım hesabı üretmez. Üretimden önce ölçüleri ve montajı atölyede doğrulayın.
 
-Kontrolleri `npm test` ile çalıştırabilirsiniz. Uygulama [MIT lisansı](LICENSE) ile kullanılabilir, değiştirilebilir ve dağıtılabilir.
+Kontrolleri `npm test` ile çalıştırabilirsiniz. Uygulama [ATÖLYE lisansı](LICENSE.tr.md) ile ücretsiz kullanılabilir, değiştirilebilir ve dağıtılabilir. Uygulamayı veya değiştirilmiş sürümlerini satmak ve erişim için ücret almak yasaktır. Mobilya işinde kullanım ve kendi projelerinizi satmak serbesttir.
+
+Yeni lisans 2.2.1 sürümünden itibaren geçerlidir. 2.2.0 ve önceki sürümler MIT lisansını korur. [Lisans kapsamı ve önceki sürümler](docs/licensing.md).

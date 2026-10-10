@@ -2,7 +2,7 @@
 
 A free, local furniture design application. Design the cabinet itself: divide its interior, arrange doors and drawers, and place it in a room with an irregular outline. All dimensions are in millimetres. The interface supports Turkish, Russian and English; production documents default to Turkish.
 
-[Русский](README.md) · [Türkçe](README.tr.md) · [MIT license](LICENSE)
+[Русский](README.md) · [Türkçe](README.tr.md) · [Free Use — No Sale license](LICENSE)
 
 ## Windows installer
 
@@ -67,4 +67,6 @@ npm test
 
 `node scripts/export-example.mjs` regenerates the example project files and production drawings. `/?demo=1` opens a disposable example without changing the saved project.
 
-You may use, modify and redistribute the application under the MIT license.
+You may use, modify and redistribute the application free of charge under the [ATÖLYE license](LICENSE). Selling the application or modified versions and charging for access are prohibited. Commercial use for furniture work and sale of your own designs are allowed.
+
+The new license applies from 2.2.1. Earlier releases through 2.2.0 keep MIT. [License scope and prior releases](docs/licensing.md).
