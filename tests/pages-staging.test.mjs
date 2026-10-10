@@ -34,4 +34,13 @@ test('real browser entry resolves its local assets under a project Pages prefix 
 test('web workflow uploads only the public ZIP and has no deployment permissions or actions',async()=>{
   const workflow=await readFile('.github/workflows/web-build.yml','utf8');assert.match(workflow,/run: node scripts\/prepare-pages\.mjs/);assert.match(workflow,/uses: actions\/upload-artifact@v7\.0\.2/);assert.match(workflow,/path: \.tools\/ATOLYE-Web-\*\.zip/);
   assert.match(workflow,/contents: read/);assert.doesNotMatch(workflow,/pages: write|id-token: write|deploy-pages|upload-pages-artifact|configure-pages|gh api/);assert.doesNotMatch(workflow,/path:\s*(?:\.(?:\/)?\s|dist\b|src\b)/);
+  assert.match(workflow,/include-hidden-files: true/,'the explicitly allowlisted public ZIP is inside the ignored .tools directory');
+});
+test('Workers publishes the same isolated public directory without a runtime script or bindings',async()=>{
+  const config=JSON.parse(await readFile('wrangler.jsonc','utf8'));
+  assert.equal(config.name,'furniture-modeler');
+  assert.equal(config.assets.directory,'./.tools/pages-site');
+  assert.deepEqual(Object.keys(config).sort(),['assets','compatibility_date','name']);
+  assert.deepEqual(Object.keys(config.assets),['directory']);
+  assert.match(config.compatibility_date,/^\d{4}-\d{2}-\d{2}$/);
 });

@@ -10,6 +10,8 @@ Download **ATOLYE-Setup-2.2.1-x64.exe** from the [latest release](https://github
 
 ## Cloudflare Pages web application
 
+If GitHub setup shows **Deploy command**, this is a **Workers** application. Use name `furniture-modeler`, branch `main`, **Build command** `node scripts/prepare-pages.mjs` and **Deploy command** `npx wrangler deploy`. Set `SKIP_DEPENDENCY_INSTALL=1` under **Settings → Build → Build Variables and Secrets**. The included `wrangler.jsonc` publishes only the prepared static assets at `*.workers.dev`. [Workers setup](https://developers.cloudflare.com/workers/static-assets/get-started/).
+
 Open **Workers & Pages → Create application → Pages → Connect to Git**, connect GitHub and select `sky13myth-web/furniture-modeler`. Use production branch `main`, framework preset **None**, build command `node scripts/prepare-pages.mjs` and output directory `.tools/pages-site`. Set `SKIP_DEPENDENCY_INSTALL=1`; the browser app does not need Windows installer dependencies. **Save and Deploy** provides a `*.pages.dev` URL; pushes to `main` update the site automatically. [Cloudflare instructions](https://developers.cloudflare.com/pages/get-started/git-integration/).
 
 Only public HTML, browser modules, styles and licenses are published. User projects stay in their own browsers; no application server or database is needed. `ATOLYE-Web-2.2.1.zip` in the release also supports manual upload.

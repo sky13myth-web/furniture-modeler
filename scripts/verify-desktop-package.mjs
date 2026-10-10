@@ -17,5 +17,5 @@ const sourceMetadata = JSON.parse(await readFile(path.join(root, 'package.json')
 assert.equal(metadata.version, sourceMetadata.version);
 assert.equal(metadata.main, 'desktop/main.cjs');
 assert.equal(metadata.license,'SEE LICENSE IN LICENSE');
-for(const file of ['LICENSE','LICENSE.ru.md','LICENSE.tr.md','docs/licenses/MIT-through-v2.2.0.txt'])assert.ok(asar.extractFile(archive,file).equals(await readFile(path.join(root,file))),`Packaged license differs: ${file}`);
+for(const file of ['LICENSE','LICENSE.ru.md','LICENSE.tr.md','docs/licenses/MIT-through-v2.2.0.txt'])assert.ok(asar.extractFile(archive,path.normalize(file)).equals(await readFile(path.join(root,file))),`Packaged license differs: ${file}`);
 console.log(`Verified app.asar allowlist (${files.length} entries), application assets and version ${metadata.version}.`);

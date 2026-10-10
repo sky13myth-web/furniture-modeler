@@ -10,6 +10,8 @@ ATÖLYE, bilgisayarınızda çalışan ücretsiz bir mobilya tasarım uygulamas�
 
 ## Cloudflare Pages web uygulaması
 
+GitHub bağlantısında **Deploy command** alanı varsa bu bir **Workers** uygulamasıdır. Ad `furniture-modeler`, dal `main`, **Build command** `node scripts/prepare-pages.mjs`, **Deploy command** `npx wrangler deploy` olsun. **Settings → Build → Build Variables and Secrets** altında `SKIP_DEPENDENCY_INSTALL=1` ekleyin. `wrangler.jsonc` yalnızca hazırlanmış statik dosyaları `*.workers.dev` adresinde yayımlar. [Workers kurulumu](https://developers.cloudflare.com/workers/static-assets/get-started/).
+
 **Workers & Pages → Create application → Pages → Connect to Git** yolunu açın, GitHub hesabını bağlayın ve `sky13myth-web/furniture-modeler` deposunu seçin. Üretim dalı `main`, framework **None**, derleme komutu `node scripts/prepare-pages.mjs`, çıktı klasörü `.tools/pages-site` olsun. `SKIP_DEPENDENCY_INSTALL=1` değişkenini ekleyin; tarayıcı uygulaması Windows kurulum paketlerine ihtiyaç duymaz. **Save and Deploy** bir `*.pages.dev` adresi oluşturur; `main` dalına gönderilen değişiklikler siteyi otomatik günceller. [Cloudflare yönergesi](https://developers.cloudflare.com/pages/get-started/git-integration/).
 
 Yalnızca HTML, tarayıcı modülleri, stiller ve lisanslar yayımlanır. Kullanıcı projeleri kendi tarayıcılarında saklanır; sunucu veya veritabanı gerekmez. Sürümdeki `ATOLYE-Web-2.2.1.zip` elle yükleme için de kullanılabilir.

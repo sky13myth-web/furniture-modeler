@@ -10,6 +10,8 @@
 
 ## Веб-версия через Cloudflare Pages
 
+Если в Cloudflare при подключении GitHub есть поле **Deploy command**, создано приложение **Workers**. Оно также поддерживается: имя `furniture-modeler`, ветка `main`, **Build command** — `node scripts/prepare-pages.mjs`, **Deploy command** — `npx wrangler deploy`. В **Settings → Build → Build Variables and Secrets** задайте `SKIP_DEPENDENCY_INSTALL=1`. Файл `wrangler.jsonc` публикует только подготовленные статические файлы; адрес будет `*.workers.dev`. [Настройка Workers](https://developers.cloudflare.com/workers/static-assets/get-started/).
+
 В Cloudflare откройте **Workers & Pages → Create application → Pages → Connect to Git**, подключите GitHub и выберите `sky13myth-web/furniture-modeler`. В настройках задайте ветку `main`, шаблон **None**, команду сборки `node scripts/prepare-pages.mjs` и папку результата `.tools/pages-site`. Добавьте переменную `SKIP_DEPENDENCY_INSTALL=1`: браузерному приложению не нужны пакеты установщика Windows. После **Save and Deploy** Cloudflare выдаст адрес `*.pages.dev`; новые коммиты в `main` обновляют сайт автоматически. [Инструкция Cloudflare](https://developers.cloudflare.com/pages/get-started/git-integration/).
 
 Публикуются только HTML, браузерные модули, стили и лицензии. Проекты пользователей сохраняются в их браузерах; сервер и база данных не требуются. Для ручной загрузки в Cloudflare можно использовать `ATOLYE-Web-2.2.1.zip` из релиза.
