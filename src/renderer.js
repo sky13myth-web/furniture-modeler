@@ -239,7 +239,7 @@ export function layoutApplianceCallouts(annotations, { width, height, modelWidth
   return { cards, modelWidth, band: { x: modelWidth, width: width - modelWidth }, fontSize };
 }
 
-function makeScene(project, options, direction) {
+export function makeScene(project, options = {}, direction = null) {
   if(options.exploded)return makeExplodedScene(project,options,direction);
   const faces = [], lines = [], shadows = [], labels = [];
   let currentCabinet = null, currentLayout = null;
@@ -248,9 +248,9 @@ function makeScene(project, options, direction) {
       points = points.map(p => rotateCabinetPoint(currentCabinet, p));
       if (normal) normal = rotateCabinetNormal(currentCabinet, normal);
     }
-    if (normal && dot(normal, direction) < .00001) return;
+    if (!options.allFaces && normal && direction && dot(normal, direction) < .00001) return;
     const shade = normal ? .82 + Math.max(0, normal[1]) * .23 + Math.max(0, normal[2]) * .14 : 1;
-    faces.push({ points, color: colorShade(color, shade), id, ...extras });
+    faces.push({ points, color: colorShade(color, shade), rawColor: color, normal, id, ...extras });
   };
   const line = (a, b, color = '#6c6559', width = 1, id = null, extras = {}) => lines.push({ points: currentCabinet ? [a, b].map(p => rotateCabinetPoint(currentCabinet, p)) : [a, b], color, width, id, ...extras });
   const rawBox = (x, y, z, w, h, d, color, id, extras = {}) => {
@@ -328,7 +328,7 @@ function makeScene(project, options, direction) {
       const a = outline[wallIndex], b = outline[(wallIndex + 1) % outline.length], length = Math.hypot(b.x - a.x, b.z - a.z);
       if (length < .001) continue;
       const ux = (b.x - a.x) / length, uz = (b.z - a.z) / length, inward = [-uz * orientation, 0, ux * orientation];
-      const nearWall = dot(inward, direction) < -.00001;
+      const nearWall = !options.allFaces && direction && dot(inward, direction) < -.00001;
       const wallLookup = { back: 0, right: 1, front: 2, left: 3 };
       const windows = r.windows.filter(w => (w.wallIndex !== undefined ? number(w.wallIndex) : wallLookup[w.wall]) === wallIndex).map(w => {
         const bottom = w.kind === 'door' ? 0 : Math.max(0, number(w.sill));

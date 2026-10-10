@@ -554,15 +554,31 @@ export class RoomEditor {
       const points = cabinetFootprint(c); if (!points.length) return '';
       const selected = c.id === this.selectedCabinetId, material = (this.project.materials || []).find(m => m.id === c.materialId);
       const cx = points.reduce((sum, p) => sum + p.x, 0) / points.length, cz = points.reduce((sum, p) => sum + p.z, 0) / points.length;
+      const angle = (number(c.rotation) || 0) * Math.PI / 180, co = Math.cos(angle), si = Math.sin(angle);
+      const fl = { x: number(c.x) - number(c.depth) * si, z: number(c.z) + number(c.depth) * co };
+      const fr = { x: number(c.x) + number(c.width) * co - number(c.depth) * si, z: number(c.z) + number(c.width) * si + number(c.depth) * co };
+      const inward = { x: si, z: -co };
+      const fThick = Math.min(22, Math.max(12, number(c.depth) * 0.08));
+      const ifl = { x: fl.x + inward.x * fThick, z: fl.z + inward.z * fThick };
+      const ifr = { x: fr.x + inward.x * fThick, z: fr.z + inward.z * fThick };
+      const mx = (fl.x + fr.x) / 2, mz = (fl.z + fr.z) / 2;
+      const hWidth = Math.min(42, Math.max(18, number(c.width) * 0.16));
+      const h1 = { x: mx - co * hWidth, z: mz - si * hWidth };
+      const h2 = { x: mx + co * hWidth, z: mz + si * hWidth };
+      const frontMark = `<g class="room-cabinet-facade" pointer-events="none"><line x1="${fl.x}" y1="${fl.z}" x2="${fr.x}" y2="${fr.z}" stroke="${selected ? '#148b7c' : '#2d4739'}" stroke-width="${selected ? 4 : 2.5}" stroke-linecap="round" vector-effect="non-scaling-stroke"/><line x1="${ifl.x}" y1="${ifl.z}" x2="${ifr.x}" y2="${ifr.z}" stroke="${selected ? '#169b8b' : '#617a6c'}" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/><line x1="${h1.x}" y1="${h1.z}" x2="${h2.x}" y2="${h2.z}" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" vector-effect="non-scaling-stroke"/></g>`;
       if(selected && !c.parentId){
-        const angle=number(c.rotation)*Math.PI/180,co=Math.cos(angle),si=Math.sin(angle);
         for(const axis of ['width','depth']){
           const lx=axis==='width'?c.width:c.width/2,lz=axis==='depth'?c.depth:c.depth/2,px=number(c.x)+lx*co-lz*si,pz=number(c.z)+lx*si+lz*co;
           const label=axis==='width'?'Изменить ширину шкафа':'Изменить глубину шкафа';
           resizeHandles+=`<g class="room-resize-handle ${axis}" data-room-resize="${axis}" data-room-cabinet="${escape(c.id)}" role="button" tabindex="0" aria-label="${label}" style="cursor:crosshair"><title>${label}</title><rect x="${px-handle}" y="${pz-handle}" width="${handle*2}" height="${handle*2}" rx="${handle*.25}" fill="#fff" stroke="#148b7c" stroke-width="2" vector-effect="non-scaling-stroke"/><text data-room-size-label="${axis}" x="${px+handle*2}" y="${pz-handle*1.5}" fill="#148b7c" font-size="${font}" pointer-events="none">${fmt(c[axis])} мм</text></g>`;
         }
       }
-      return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}" role="button" aria-label="${escape(c.name)}" style="${c.parentId ? 'cursor:pointer' : 'cursor:move'}"><title>${escape(c.name)}${c.parentId ? ' · привязана к основному шкафу' : ''}</title><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="${selected ? 3 : 1}" vector-effect="non-scaling-stroke"/><text x="${cx}" y="${cz}" class="room-cabinet-label" fill="#314f42" text-anchor="middle" dominant-baseline="middle" font-size="${cabinetFont}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text></g>`;
+      const hasMezzanine = ordered.some(item => item.parentId === c.id);
+      const isMezzanine = Boolean(c.parentId);
+      const textY = hasMezzanine ? cz - cabinetFont * 0.65 : isMezzanine ? cz + cabinetFont * 0.75 : cz;
+      const labelSize = isMezzanine ? cabinetFont * 0.84 : cabinetFont;
+      const labelColor = isMezzanine ? '#546e61' : '#27473a';
+      return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}" role="button" aria-label="${escape(c.name)}" style="${c.parentId ? 'cursor:pointer' : 'cursor:move'}"><title>${escape(c.name)}${c.parentId ? ' · привязана к основному шкафу' : ''} · лицевая сторона спереди</title><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="${selected ? 3 : 1}" vector-effect="non-scaling-stroke"/>${frontMark}<text x="${cx}" y="${textY}" class="room-cabinet-label" fill="${labelColor}" text-anchor="middle" dominant-baseline="middle" font-size="${labelSize}" font-weight="${isMezzanine ? 'normal' : '500'}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text></g>`;
     }).join('');
     const selectedCorners=new Set(this.drag?.type==='selection'?this.drag.draftIndices:this.getSelectedCorners());
     const corners = outline.map((p, i) => `<circle class="room-corner${selectedCorners.has(i) ? ' is-selected' : ''}" data-room-corner="${i}" cx="${p.x}" cy="${p.z}" r="${handle}" fill="${selectedCorners.has(i) ? '#15897d' : '#ffffff'}" stroke="#15897d" stroke-width="2" vector-effect="non-scaling-stroke" tabindex="0" role="button" aria-label="Угол ${i + 1}, перетяните для изменения плана"/>`).join('');

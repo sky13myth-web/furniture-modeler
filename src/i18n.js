@@ -820,6 +820,15 @@ add(`
 Антресоль привязана к основному шкафу. Перемещайте основной шкаф.|Üst dolap ana dolaba bağlıdır. Ana dolabı taşıyın.|The top cabinet is attached to the main cabinet. Move the main cabinet.
 Ширина и глубина антресоли привязаны к основному шкафу.|Üst dolabın genişlik ve derinliği ana dolaba bağlıdır.|The top cabinet width and depth are attached to the main cabinet.
 Антресоль привязана к основному шкафу: ширина, глубина и положение зависят от него.|Üst dolap ana dolaba bağlıdır: genişlik, derinlik ve konumu ana dolaba göre ayarlanır.|The top cabinet is attached to the main cabinet: width, depth, and position depend on it.
+Рендер|Render|Render
+3D-рендер|3D Render|3D Render
+Сброс камеры|Kamerayı sıfırla|Reset camera
+Снимок|Ekran görüntüsü|Screenshot
+Экспорт в OBJ|OBJ olarak dışa aktar|Export to OBJ
+ФАСАД|ÖN|FRONT
+Лицевая сторона|Ön taraf|Front side
+Экспорт плана со шкафами в OBJ|Dolaplarla birlikte oda planını OBJ olarak dışa aktar|Export room plan with cabinets to OBJ
+ЛКМ — вращение · ПКМ — сдвиг · Колесо — зум · W,A,S,D — перемещение|Sol tık — döndür · Sağ tık — kaydır · Tekerlek — yakınlaştır · W,A,S,D — hareket|LMB — rotate · RMB — pan · Wheel — zoom · W,A,S,D — move
 Внутренние ящики|İç çekmeceler|Internal drawers
 Внутренние ящики за дверками|Kapakların arkasındaki iç çekmeceler|Internal drawers behind doors
 Внутренний ящик|İç çekmece|Internal drawer
