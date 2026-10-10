@@ -4,6 +4,22 @@ import { createDefaultProject, validateProject } from '../src/engine.js';
 import { checkImport, csvCell, validateLayoutSchema, validateHingesPerDoor } from '../src/project-io.js';
 import { remapWindows } from '../src/room-geometry.js';
 
+test('optional drilling settings preserve legacy projects and nullable head seat setup', () => {
+  const project = createDefaultProject();
+  assert.doesNotThrow(() => checkImport(project));
+  project.settings.drilling = { enabled: true, screwDiameter: 7, screwLength: 50, clearanceDiameter: 7, pilotDiameter: 5, pilotExtraDepth: 2, countersinkDiameter: 10, countersinkDepth: null, endOffset: 50, maxSpacing: 300 };
+  const restored = JSON.parse(JSON.stringify(project));
+  assert.equal(checkImport(restored), restored);
+  assert.deepEqual(restored.settings.drilling, project.settings.drilling);
+  restored.settings.drilling.countersinkDepth = 1.5;
+  assert.doesNotThrow(() => checkImport(restored));
+  for (const settings of [null, [], 'drill', { enabled: 'true' }, { pilotExtraDepth: -1 }, { screwLength: Infinity }, { pilotDiameter: '5' }, { countersinkDepth: 0 }, { maxSpacing: 1e9 }]) {
+    const invalid = structuredClone(project);
+    invalid.settings.drilling = settings;
+    assert.throws(() => checkImport(invalid), /сверловка|Сверловка/);
+  }
+});
+
 const changed = mutator => {
   const project = createDefaultProject();
   // Preserve legacy project fixtures alongside the new explicit-layout default.

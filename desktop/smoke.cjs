@@ -48,6 +48,26 @@ async function runSmoke({ app, window, appSession, output, downloads, popups, re
   assert.ok(factoryBytes.includes(Buffer.from('dxf/P0001.dxf')));
   checks.push('The factory export action downloads a ZIP with CSV, assembly instructions and DXF contours');
 
+  await run(`document.querySelector('[data-drilling="enabled"]').click(); if(document.querySelector('#drilling-csv').disabled) throw new Error('Drilling unexpectedly disabled'); document.querySelector('#drilling-csv').click(); document.querySelector('#drilling-zip').click();`);
+  const drillingCsvDownload = await eventually(() => downloads.find(item => item.filename.endsWith('-drilling.csv') && item.state === 'completed'), 'separate drilling CSV');
+  const drillingCsv = await readFile(drillingCsvDownload.path, 'utf8');
+  assert.ok(drillingCsv.includes('JOINT_ID'));
+  assert.ok(drillingCsv.includes('RAW_BLANK_EDGE_ALREADY_DEDUCTED'));
+  assert.ok(drillingCsv.includes('countersink'));
+  const drillingZipDownload = await eventually(() => downloads.find(item => item.filename.endsWith('-drilling.zip') && item.state === 'completed'), 'separate drilling ZIP');
+  const drillingBytes = await readFile(drillingZipDownload.path);
+  assert.equal(drillingBytes.readUInt32LE(0), 0x04034b50);
+  assert.ok(drillingBytes.includes(Buffer.from('drilling.csv')));
+  assert.match(drillingBytes.toString('utf8'), /maps\/P0001(?:-\d+)?\.svg/);
+  assert.ok(drillingBytes.includes(Buffer.from('drilling-reference.html')));
+  assert.ok(!drillingBytes.includes(Buffer.from('dxf/P0001.dxf')));
+  assert.equal(await run(`JSON.parse(localStorage.getItem('atolye.project.v1')).project.settings.drilling.enabled`), true);
+  checks.push('The optional drilling action persists its settings and downloads separate coordinate CSV and printable SVG maps without changing cutting DXFs');
+  await run(`document.querySelector('.factory-drilling details').open=true; const drillDepth=document.querySelector('[data-drilling="countersinkDepth"]'); drillDepth.value='1.5'; drillDepth.dispatchEvent(new Event('change',{bubbles:true}));`);
+  assert.equal(await run(`JSON.parse(localStorage.getItem('atolye.project.v1')).project.settings.drilling.countersinkDepth`), 1.5);
+  assert.equal(await run(`document.querySelector('.factory-drilling details').open`), true);
+  assert.equal(await run(`document.querySelector('[data-drilling="countersinkDepth"]').value`), '1.5');
+
   // Exercise the real Print/PDF action. Replace only its final OS print-dialog
   // call so unattended validation cannot leave a printer dialog on the desktop.
   await run(`document.querySelector('[data-action="close-modal"]').click(); document.querySelector('[data-mode="drawings"]').click(); window.__originalOpen=window.open.bind(window); window.open=(...args)=>{const popup=window.__originalOpen(...args); if(popup){window.__smokePrint=popup;popup.print=()=>{window.__smokePrintCalled=true;};}return popup;}; document.querySelector('[data-action="drawing-print"]').click();`);

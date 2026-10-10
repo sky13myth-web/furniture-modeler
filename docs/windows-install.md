@@ -2,7 +2,7 @@
 
 ## Русский
 
-1. На странице [последнего выпуска](https://github.com/sky13myth-web/furniture-modeler/releases/latest) скачайте **ATOLYE-Setup-2.1.0-x64.exe**.
+1. На странице [последнего выпуска](https://github.com/sky13myth-web/furniture-modeler/releases/latest) скачайте **ATOLYE-Setup-2.2.0-x64.exe**.
 2. Откройте скачанный файл. Выберите язык установщика, нажмите «Далее», при необходимости выберите папку и нажмите «Установить».
 3. Оставьте включённым запуск ATÖLYE и нажмите «Готово». В дальнейшем запускайте программу ярлыком на рабочем столе или из меню «Пуск».
 
@@ -14,7 +14,7 @@ Windows может показать предупреждение SmartScreen, п
 
 ## Türkçe
 
-1. [Son sürümden](https://github.com/sky13myth-web/furniture-modeler/releases/latest) **ATOLYE-Setup-2.1.0-x64.exe** dosyasını indirin.
+1. [Son sürümden](https://github.com/sky13myth-web/furniture-modeler/releases/latest) **ATOLYE-Setup-2.2.0-x64.exe** dosyasını indirin.
 2. Dosyayı açın, yükleyicinin dilini seçin ve «İleri» ile devam edin. İsterseniz hedef klasörü değiştirin ve «Yükle» düğmesine basın.
 3. ATÖLYE'yi başlat seçeneğini açık bırakıp «Bitir» düğmesine basın. Sonraki açılışlarda masaüstü veya Başlat menüsü kısayolunu kullanın.
 
@@ -24,7 +24,7 @@ Otomatik kayıtlar `%APPDATA%\ATOLYE-Furniture-Studio` içinde saklanır; günce
 
 ## English
 
-1. Download **ATOLYE-Setup-2.1.0-x64.exe** from the [latest release](https://github.com/sky13myth-web/furniture-modeler/releases/latest).
+1. Download **ATOLYE-Setup-2.2.0-x64.exe** from the [latest release](https://github.com/sky13myth-web/furniture-modeler/releases/latest).
 2. Open the file, choose the installer language, click Next, optionally choose an installation folder, and click Install.
 3. Keep Launch ATÖLYE selected and click Finish. Use the desktop or Start menu shortcut next time.
 
@@ -47,7 +47,7 @@ node scripts/desktop-smoke.mjs --packaged
 npm run release:checksums
 ```
 
-The offline NSIS installer is written to `dist/ATOLYE-Setup-2.1.0-x64.exe`. `dist/SHA256SUMS.txt` contains its SHA-256 hash. `desktop:verify` checks the bundled file allowlist. Smoke checks use a hidden native Electron window and save only under `.tools/desktop-smoke*`; they check ES modules, autosave, project JSON, factory ZIP, a print popup and PDF, and blocked unsafe resources. They do not install the app, create shortcuts, or change the installed application's data.
+The offline NSIS installer is written to `dist/ATOLYE-Setup-2.2.0-x64.exe`. `dist/SHA256SUMS.txt` contains its SHA-256 hash. `desktop:verify` checks the bundled file allowlist. Smoke checks use a hidden native Electron window and save only under `.tools/desktop-smoke*`; they check ES modules, autosave, project JSON, factory ZIP, a print popup and PDF, and blocked unsafe resources. They do not install the app, create shortcuts, or change the installed application's data.
 
 The manual **Build Windows installer** GitHub Actions workflow rebuilds an existing version tag with pinned package versions and the lockfile. It stores installer artifacts, and its optional publish input uploads them to an existing release. Build output bytes can differ between builds because Windows executable timestamps and installer metadata are generated during packaging; check the checksum belonging to the release you downloaded.
 

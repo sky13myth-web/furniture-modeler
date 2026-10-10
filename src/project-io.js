@@ -245,6 +245,16 @@ export function checkImport(project) {
   boolean(project.settings.allowRotate, 'Раскрой: разрешение поворота');
   boolean(project.settings.deductEdge, 'Раскрой: вычитание кромки');
   if (project.settings.printLanguage !== undefined && !['ru', 'tr', 'en'].includes(project.settings.printLanguage)) fail('Язык печати должен быть ru, tr или en.');
+  if (project.settings.drilling !== undefined) {
+    record(project.settings.drilling, 'сверловка');
+    const drilling = project.settings.drilling;
+    if (drilling.enabled !== undefined) boolean(drilling.enabled, 'Сверловка: включена');
+    for (const [key, limit] of [['screwDiameter', 20], ['screwLength', 150], ['clearanceDiameter', 25], ['pilotDiameter', 20], ['countersinkDiameter', 35], ['endOffset', 500], ['maxSpacing', 1000]]) {
+      if (drilling[key] !== undefined) finite(drilling[key], `Сверловка: ${key}`, limit, true);
+    }
+    if (drilling.pilotExtraDepth !== undefined) finite(drilling.pilotExtraDepth, 'Сверловка: pilotExtraDepth', 20);
+    if (drilling.countersinkDepth !== undefined && drilling.countersinkDepth !== null) finite(drilling.countersinkDepth, 'Сверловка: countersinkDepth', 10, true);
+  }
   if (project.settings.pricing !== undefined) {
     record(project.settings.pricing, 'цены фурнитуры');
     for (const [key, label] of [['handlePrice', 'ручка'], ['guideSetPrice', 'направляющие, комплект'], ['hingePrice', 'петля'], ['edgeBandPricePerMeter', 'кромка за метр'], ['rodPricePerMeter', 'штанга за метр'], ['rodHolderPrice', 'держатель штанги']]) {

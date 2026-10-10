@@ -6,7 +6,7 @@ ATÖLYE, bilgisayarınızda çalışan ücretsiz bir mobilya tasarım uygulamas�
 
 ## Windows kurulumu
 
-[Son sürümden](https://github.com/sky13myth-web/furniture-modeler/releases/latest) **ATOLYE-Setup-2.1.0-x64.exe** dosyasını indirin ve kurulum sihirbazını izleyin. ATÖLYE'yi masaüstü veya Başlat menüsü kısayolundan açın. Kurulu uygulamayı kullanmak için Node.js, terminal veya internet bağlantısı gerekmez. Kurulum geçerli kullanıcı içindir; projeler bilgisayarınızda saklanır. [Kurulum ve yedekleme bilgileri](docs/windows-install.md).
+[Son sürümden](https://github.com/sky13myth-web/furniture-modeler/releases/latest) **ATOLYE-Setup-2.2.0-x64.exe** dosyasını indirin ve kurulum sihirbazını izleyin. ATÖLYE'yi masaüstü veya Başlat menüsü kısayolundan açın. Kurulu uygulamayı kullanmak için Node.js, terminal veya internet bağlantısı gerekmez. Kurulum geçerli kullanıcı içindir; projeler bilgisayarınızda saklanır. [Kurulum ve yedekleme bilgileri](docs/windows-install.md).
 
 ## Kaynak koddan başlatma
 
@@ -50,6 +50,8 @@ Kesim planı malzeme, kalınlık, testere payı, kenar boşlukları ve doku yön
 
 **Kesim planı → Fabrika için**, sütun eşleştirmesiyle içe aktarılacak CSV'yi ve ZIP paketini dışa aktarır. Pakette parça listesi, malzemeler, mm biriminde 1:1 DXF konturları, parça SVG'leri, montaj HTML'i ve talimatlar bulunur. Yalnızca bir ölçü çiftini eşleştirin: `CUT_*` ölçülerinden kenar bandı zaten düşülmüştür; tekrar düşümü kapatın. Fabrika bandı kendisi düşüyorsa `FINISHED_*` bitmiş ölçülerini kullanın. Varsayılan belge dili Türkçedir. Makine programını fabrika hazırlar. [Alan ve teslim kılavuzu (Rusça)](docs/factory-export.md); örneği `node scripts/export-factory-example.mjs` günceller.
 
+**Gövde delikleri:** **Kesim planı → Fabrika için** bölümünde **Confirmat vidaları için gövde delikleri** seçeneğini açın. İlk profil 7×50 mm mobilya vidasıdır. Ayrı işlem CSV'sini veya parça şemaları ZIP'ini indirin; P kodları kesim listesiyle aynıdır. **Delik ayarları** bölümünde çaplar, ek derinlik, uç mesafesi ve vida aralığı değiştirilebilir. Havşa derinliğini vida başına ve matkaba göre belirleyin; boş değer atölyede ayarlanması gereken işlem olarak dışa aktarılır. [Kapsam ve koordinat bilgisi](docs/drilling.md).
+
 Askı borularının konumları, çapları ve elle girilen uzunlukları da JSON'da korunur. `/?demo=rods`, L biçimli odada ortak kapakların arkasındaki iki boruyu gösteren geçici örneği açar. `node scripts/export-room-example.mjs`, proje, çizimler ve oda planını içeren `examples/clothes-rods.*` dosyalarını günceller.
 
 Donanım listesi kulpları, menteşeleri ve ray takımlarını sayar; her çekmece veya çekilebilir raf için bir çift ray gerekir. **Kapak donanımı** altında **Kapak başına menteşe** sayısını 2–12 arasında girin veya **Yüksekliğe göre hesapla** seçeneğini kullanın. Otomatik sayı ön tahmindir; kapak ağırlığı, genişliği ve seçilen menteşenin üretici kılavuzuyla doğrulayın. Yukarı açılan kapakların kaldırma mekanizması hesaplanmaz.
@@ -58,6 +60,6 @@ Donanım listesi kulpları, menteşeleri ve ray takımlarını sayar; her çekme
 
 Askı borusunun metre fiyatını ve tutucu fiyatını elle girin; belirli bir boru modeli için doğrulanmış fiyat referansı yoktur. Boru kullanılan projede bu iki fiyat girilene kadar maliyet hesabı eksik olarak gösterilir.
 
-Kesim yerleşimi sezgisel bir hesaplamadır; en az levha sayısını garanti etmez. CNC yolu, delik planı, donanıma özel bağlantılar veya dayanım hesabı üretmez. Üretimden önce ölçüleri ve montajı atölyede doğrulayın.
+Kesim yerleşimi sezgisel bir hesaplamadır; en az levha sayısını garanti etmez. CNC yolu, donanıma özel menteşe/kızak delikleri veya dayanım hesabı üretmez. Üretimden önce ölçüleri ve montajı atölyede doğrulayın.
 
 Kontrolleri `npm test` ile çalıştırabilirsiniz. Uygulama [MIT lisansı](LICENSE) ile kullanılabilir, değiştirilebilir ve dağıtılabilir.

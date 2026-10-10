@@ -12,6 +12,37 @@ const add = rows => rows.trim().split('\n').forEach(row => {
 });
 
 add(`
+Доступ к головке винта закрыт противоположной перегородкой. Такое соединение требует другого крепежа.|Karşı ara panel vida başına erişimi engelliyor. Bu bağlantı için başka bir bağlantı elemanı gerekir.|The opposite divider blocks access to the screw head. This joint needs a different fastener.
+Глубина зенковки не задана: в ведомости она отмечена для настройки в мастерской.|Havşa derinliği belirtilmedi: listede atölyede ayarlanacak olarak işaretlenmiştir.|Countersink depth is unset: the schedule marks it for workshop setup.
+Недопустимый параметр сверловки.|Geçersiz delik ayarı.|Invalid drilling setting.
+Проверьте диаметры отверстий под выбранный винт.|Seçilen vida için delik çaplarını kontrol edin.|Check the hole diameters for the selected screw.
+Плита тоньше 15 мм: автоматическая сверловка под конфирмат не поддерживается.|Panel 15 mm'den ince: otomatik confirmat delik planı desteklenmiyor.|Panel thinner than 15 mm: automatic confirmat drilling is unsupported.
+Длина винта не обеспечивает вход в соединяемую плиту.|Vida uzunluğu ikinci panele girmeye yeterli değil.|The screw is too short to engage the receiving panel.
+Зенковка проходит через всю толщину плиты.|Havşa panelin tüm kalınlığını geçiyor.|The countersink passes through the entire panel.
+Отверстие выходит за контур заготовки или пересекает вырез.|Delik ham parça sınırını veya çentik kenarını aşıyor.|The hole leaves the cut blank or crosses a notch.
+Соединение слишком короткое для двух отверстий с заданными отступами.|Birleşim, seçilen mesafelerle iki delik için çok kısa.|The joint is too short for two holes with the selected offsets.
+Слишком малый шаг сверловки.|Delik aralığı çok küçük.|Drilling spacing is too small.
+Невозможно разместить отверстия без пересечения. Измените отступ или конструкцию соединения.|Delikler çakışmadan yerleştirilemiyor. Mesafeyi veya bağlantı düzenini değiştirin.|The holes cannot be placed without intersecting. Change the offset or joint design.
+Из-за соседних отверстий превышен заданный шаг сверловки.|Komşu delikler nedeniyle seçilen aralık aşıldı.|Neighbouring holes cause the selected spacing to be exceeded.
+Сверловка корпуса под конфирматы|Confirmat vidaları için gövde delikleri|Carcass drilling for confirmat screws
+Мебельный винт (конфирмат). Крышка, дно и перегородки; съёмные полки и фурнитура не сверлятся автоматически.|Mobilya vidası (confirmat). Üst, alt ve ara paneller; sökülebilir raflar ve donanım için otomatik delik oluşturulmaz.|Furniture screw (confirmat). Tops, bottoms and dividers; removable shelves and hardware are not drilled automatically.
+Параметры сверления|Delik ayarları|Drilling settings
+Диаметр винта|Vida çapı|Screw diameter
+Длина винта|Vida uzunluğu|Screw length
+Сквозное отверстие|Geçiş deliği|Through hole
+Отверстие в торце|Panel kenarındaki delik|Edge pilot hole
+Запас глубины в торце|Kenar deliği ek derinliği|Extra pilot depth
+Диаметр зенковки|Havşa çapı|Countersink diameter
+Глубина зенковки|Havşa derinliği|Countersink depth
+По выбранной фурнитуре|Seçilen bağlantıya göre|As specified by the hardware
+Отступ от края стыка|Birleşim ucundan mesafe|Joint end offset
+Максимальный шаг винтов|En büyük vida aralığı|Maximum screw spacing
+Глубина в торце = длина винта − толщина первой плиты + запас. Отступ и шаг — редактируемая схема размещения.|Kenar deliği derinliği = vida uzunluğu − ilk panel kalınlığı + ek derinlik. Uç mesafesi ve aralık düzenlenebilir yerleşim ayarlarıdır.|Pilot depth = screw length − first panel thickness + extra depth. Offset and spacing are editable placement settings.
+Глубину зенковки задаёт мастерская по головке и сверлу. Пустое поле означает, что параметр ещё не задан.|Havşa derinliğini atölye vida başına ve matkaba göre belirler. Boş alan, ayarın henüz yapılmadığı anlamına gelir.|The workshop sets countersink depth to match the head and tool. An empty field means this parameter has not been set.
+Операций сверления|Delik işlemi|Drilling operations
+Отдельные файлы сверловки: CSV с координатами и ZIP со схемами деталей. Коды деталей совпадают с раскроем.|Ayrı delik dosyaları: koordinatlı CSV ve parça şemaları içeren ZIP. Parça kodları kesim listesiyle aynıdır.|Separate drilling files: a coordinate CSV and a ZIP with part maps. Part codes match the cutting list.
+Сверловка CSV|Delik listesi CSV|Drilling CSV
+Схемы сверловки ZIP|Delik şemaları ZIP|Drilling maps ZIP
 Для фабрики|Fabrika için|For the factory
 Заказ на раскрой|Kesim siparişi|Cutting order
 Скачать комплект ZIP|ZIP paketini indir|Download ZIP package

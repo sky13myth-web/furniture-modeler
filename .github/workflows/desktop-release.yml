@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to build (for example v2.1.0)
+        description: Existing release tag to build (for example v2.2.0)
         required: true
-        default: v2.1.0
+        default: v2.2.0
       publish:
         description: Upload the installer and checksum to this GitHub release
         type: boolean

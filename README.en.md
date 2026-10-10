@@ -6,7 +6,7 @@ A free, local furniture design application. Design the cabinet itself: divide it
 
 ## Windows installer
 
-Download **ATOLYE-Setup-2.1.0-x64.exe** from the [latest release](https://github.com/sky13myth-web/furniture-modeler/releases/latest) and follow the installation wizard. Launch ATÖLYE from its desktop or Start menu shortcut. No Node.js, terminal or internet connection is needed to use the installed application. Installation is per user; projects stay on your computer. [Installation and backups](docs/windows-install.md).
+Download **ATOLYE-Setup-2.2.0-x64.exe** from the [latest release](https://github.com/sky13myth-web/furniture-modeler/releases/latest) and follow the installation wizard. Launch ATÖLYE from its desktop or Start menu shortcut. No Node.js, terminal or internet connection is needed to use the installed application. Installation is per user; projects stay on your computer. [Installation and backups](docs/windows-install.md).
 
 ## Run from source
 
@@ -53,7 +53,9 @@ Open **Prices and cost estimate** to edit full-sheet prices and handle, guide se
 
 Enter the clothes rail price per metre and holder price manually; no verified price for a specific rail model is provided. A project using rails has an incomplete estimate until both rates are entered.
 
-The cutting layout is a rectangular packing heuristic. Notched parts reserve their bounding rectangles. It does not produce CNC toolpaths, a drilling plan, hardware-specific joinery or structural calculations. Review dimensions, hardware and appliance instructions with the workshop before manufacture.
+**Carcass drilling:** in **Cutting → For the factory**, enable **Carcass drilling for confirmat screws**. The initial profile is a 7×50 mm furniture screw. Download a separate operation CSV or ZIP with part maps; P codes match the cutting list. Diameters, extra pilot depth, end offset and spacing are editable under **Drilling settings**. Set countersink depth to match the chosen screw head and tool; an empty field is exported as requiring workshop setup. [Scope and coordinate reference](docs/drilling.md).
+
+The cutting layout is a rectangular packing heuristic. Notched parts reserve their bounding rectangles. It does not produce CNC toolpaths, hardware-specific hinge/slide drilling or structural calculations. Review dimensions, hardware and appliance instructions with the workshop before manufacture.
 
 ## Development
 
