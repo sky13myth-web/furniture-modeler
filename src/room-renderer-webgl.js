@@ -114,14 +114,13 @@ float sampleShadow(vec4 lightSpacePos, vec3 norm, vec3 lightDir) {
   vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
   projCoords = projCoords * 0.5 + 0.5;
 
-  // Outside light shadow coverage -> unshadowed
   if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
       projCoords.y < 0.0 || projCoords.y > 1.0 ||
       projCoords.z < 0.0 || projCoords.z > 1.0) {
     return 1.0;
   }
 
-  // Slope-scaled bias to completely eliminate shadow acne
+  // Slope-scaled depth bias to eliminate acne completely
   float cosTheta = max(dot(norm, lightDir), 0.0);
   float bias = max(0.0035 * (1.0 - cosTheta), 0.0012);
   float currentDepth = projCoords.z - bias;
@@ -134,7 +133,7 @@ float sampleShadow(vec4 lightSpacePos, vec3 norm, vec3 lightDir) {
     for (int y = -1; y <= 2; y++) {
       vec4 packedZ = texture2D(uShadowMap, projCoords.xy + vec2(float(x), float(y)) * texelSize);
       float pDepth = packedZ.r + packedZ.g / 255.0;
-      shadow += (currentDepth <= pDepth) ? 1.0 : 0.38;
+      shadow += (currentDepth <= pDepth) ? 1.0 : 0.32;
     }
   }
   return shadow / 16.0;
@@ -145,43 +144,63 @@ void main() {
   vec3 lightDir = normalize(uLightPos - vPosition);
   float dist = length(uLightPos - vPosition);
 
-  // Point light distance attenuation
-  float atten = 1.0 / (1.0 + 0.00008 * dist + 0.00000018 * dist * dist);
+  // Distance falloff in meters (smooth, natural gradient from ceiling to floor)
+  float dMeters = dist * 0.001;
+  float atten = 1.0 / (1.0 + 0.30 * dMeters + 0.12 * dMeters * dMeters);
+
+  // Direct ceiling light
   float diff = max(dot(norm, lightDir), 0.0);
 
-  // Blinn-phong specular highlight
+  // Directional key / angle light for 3D depth and shape definition
+  vec3 keyDir = normalize(vec3(0.35, 0.85, 0.4));
+  float keyDiff = max(dot(norm, keyDir), 0.0) * 0.22;
+
+  // Camera fill to prevent pure black back sides
   vec3 viewDir = normalize(uCameraPos - vPosition);
   vec3 halfDir = normalize(lightDir + viewDir);
+  float camFill = max(dot(norm, viewDir), 0.0) * 0.08;
 
+  // Blinn-phong specular
   float isGlass = (vColor.a < 0.9) ? 1.0 : 0.0;
-  float shininess = isGlass > 0.5 ? 64.0 : 28.0;
-  float specStrength = isGlass > 0.5 ? 0.65 : 0.22;
+  float shininess = (isGlass > 0.5) ? 48.0 : 24.0;
+  float specStrength = (isGlass > 0.5) ? 0.42 : 0.14;
   float spec = pow(max(dot(norm, halfDir), 0.0), shininess) * specStrength;
 
-  // Directional camera fill light to keep dark angles soft and readable
-  float camFill = max(dot(norm, viewDir), 0.0) * 0.16;
-
-  // Hemispheric ambient: warm floor bounce + cool ceiling/sky fill
-  vec3 skyColor = vec3(0.60, 0.64, 0.68);
-  vec3 groundColor = vec3(0.52, 0.50, 0.47);
+  // Balanced Hemispheric Ambient (soft warm floor bounce + cool ceiling fill)
+  vec3 skyColor = vec3(0.36, 0.39, 0.42);
+  vec3 groundColor = vec3(0.28, 0.27, 0.25);
   float hemi = norm.y * 0.5 + 0.5;
-  vec3 ambient = mix(groundColor, skyColor, hemi) * 0.68;
+  vec3 ambient = mix(groundColor, skyColor, hemi);
 
+  // Soft shadow from ceiling chandelier
   float shadowFactor = uUseShadows ? sampleShadow(vLightSpacePos, norm, lightDir) : 1.0;
 
-  // Subtle floor contact ambient occlusion
-  float contact = (vPosition.y < 3.0) ? 0.94 : 1.0;
-
+  // Direct light contribution
   vec3 directDiffuse = diff * uLightColor * atten * shadowFactor;
   vec3 directSpec = spec * uLightColor * atten * shadowFactor;
 
-  vec3 lighting = (ambient + directDiffuse + camFill) * contact;
-  vec3 finalColor = vColor.rgb * lighting + directSpec;
+  // Composite lighting for opaque surfaces
+  vec3 lighting = ambient + directDiffuse + keyDiff + camFill;
 
-  // Tone mapping and gamma curve for clean, vibrant architectural contrast
-  vec3 toneMapped = finalColor / (finalColor + vec3(0.12)) * 1.12;
+  // Floor subtle contact darkening near base
+  if (vPosition.y < 4.0) {
+    lighting *= 0.93;
+  }
 
-  gl_FragColor = vec4(toneMapped, vColor.a);
+  vec3 surfaceColor;
+  if (isGlass > 0.5) {
+    // Glass has high transparency and specular highlights
+    surfaceColor = vColor.rgb * (ambient * 0.6 + directSpec * 1.5) + directSpec;
+  } else {
+    surfaceColor = vColor.rgb * lighting + directSpec;
+  }
+
+  // Smooth, balanced filmic exposure curve (never overexposed, never washed out!)
+  vec3 exposed = surfaceColor * 1.25;
+  vec3 mapped = exposed / (exposed + vec3(0.85));
+  vec3 finalColor = pow(mapped, vec3(1.0 / 1.4));
+
+  gl_FragColor = vec4(finalColor, vColor.a);
 }
 `;
 
@@ -245,9 +264,9 @@ export class RoomWebGLRenderer {
     this.pitch = 0.32;
     this.distance = 3800;
 
-    // Room light from ceiling center
+    // Room light from ceiling center (balanced warm lighting)
     this.lightPos = [2000, 2600, 1500];
-    this.lightColor = [1.0, 0.98, 0.92];
+    this.lightColor = [0.82, 0.80, 0.75];
 
     this.drag = null;
     this.casterVertexCount = 0;
@@ -401,7 +420,11 @@ export class RoomWebGLRenderer {
 
     let scene;
     if (useCutaway) {
-      const dir = [this.target[0] - eye[0], 0, this.target[2] - eye[2]];
+      // Vector pointing from room target towards eye (towards the camera)
+      const dx = eye[0] - this.target[0];
+      const dz = eye[2] - this.target[2];
+      const dLen = Math.hypot(dx, dz) || 1;
+      const dir = [dx / dLen, 0.45, dz / dLen];
       scene = makeScene(this.project, { room: true, allFaces: false, doorsOpen: this.doorsOpen }, dir);
     } else {
       scene = makeScene(this.project, { room: true, allFaces: true, doorsOpen: this.doorsOpen }, null);
@@ -430,18 +453,6 @@ export class RoomWebGLRenderer {
       }
     };
 
-    // Helper to generate a 3D box profile (e.g. for window frames and sills)
-    const pushBox = (targetArray, pMin, pMax, colorRGBA) => {
-      const [x0, y0, z0] = pMin, [x1, y1, z1] = pMax;
-      // 6 faces with proper normals
-      pushPoly(targetArray, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], [0, 0, 1], colorRGBA); // front
-      pushPoly(targetArray, [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], [0, 0, -1], colorRGBA); // back
-      pushPoly(targetArray, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], [-1, 0, 0], colorRGBA); // left
-      pushPoly(targetArray, [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], [1, 0, 0], colorRGBA); // right
-      pushPoly(targetArray, [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], [0, 1, 0], colorRGBA); // top
-      pushPoly(targetArray, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [0, -1, 0], colorRGBA); // bottom
-    };
-
     for (const f of faces) {
       if (!f.points || f.points.length < 3) continue;
 
@@ -465,49 +476,46 @@ export class RoomWebGLRenderer {
 
         if (wLen > 50 && hLen > 50) {
           const ux = (p1[0] - p0[0]) / wLen, uz = (p1[2] - p0[2]) / wLen;
-          const fw = Math.min(48, wLen * 0.1); // frame border width
+          const fw = Math.min(45, wLen * 0.08); // frame border width
 
-          // Clean architectural window frame colors
-          const frameColor = [0.96, 0.96, 0.95, 1.0];
-          const sillColor = [0.92, 0.90, 0.86, 1.0];
-          const glassColor = [0.82, 0.92, 0.98, 0.18]; // Transparent glass
+          // Clean architectural window frame colors (warm neutral graphite & sill)
+          const frameColor = [0.82, 0.83, 0.82, 1.0];
+          const sillColor = [0.86, 0.85, 0.81, 1.0];
+          const glassColor = [0.68, 0.80, 0.90, 0.28]; // Transparent glass
 
-          // 1. Window Sill (подоконник) at bottom extending 45mm into room and 30mm sideways
-          const sillExt = 45;
-          const s0 = [p0[0] - ux * 30 + norm[0] * sillExt, p0[1], p0[2] - uz * 30 + norm[2] * sillExt];
-          const s1 = [p1[0] + ux * 30 + norm[0] * sillExt, p1[1], p1[2] + uz * 30 + norm[2] * sillExt];
-          const s2 = [p1[0] + ux * 30, p1[1] - 25, p1[2] + uz * 30];
-          const s3 = [p0[0] - ux * 30, p0[1] - 25, p0[2] - uz * 30];
-          pushPoly(opaqueFloats, [s0, s1, [s1[0], s1[1] - 25, s1[2]], [s0[0], s0[1] - 25, s0[2]]], [norm[0], 0, norm[2]], sillColor);
-          pushPoly(opaqueFloats, [s0, s1, [p1[0] + ux * 30, p1[1], p1[2] + uz * 30], [p0[0] - ux * 30, p0[1], p0[2] - uz * 30]], [0, 1, 0], sillColor);
+          // 1. Window Sill at bottom
+          const sillExt = 40;
+          const s0 = [p0[0] - ux * 25 + norm[0] * sillExt, p0[1], p0[2] - uz * 25 + norm[2] * sillExt];
+          const s1 = [p1[0] + ux * 25 + norm[0] * sillExt, p1[1], p1[2] + uz * 25 + norm[2] * sillExt];
+          pushPoly(opaqueFloats, [s0, s1, [s1[0], s1[1] - 22, s1[2]], [s0[0], s0[1] - 22, s0[2]]], norm, sillColor);
+          pushPoly(opaqueFloats, [s0, s1, [p1[0] + ux * 25, p1[1], p1[2] + uz * 25], [p0[0] - ux * 25, p0[1], p0[2] - uz * 25]], [0, 1, 0], sillColor);
 
           // 2. Outer 4-edge Window Frame
           const pt = (u, v, inset = 0) => [p0[0] + ux * u + norm[0] * inset, p0[1] + v, p0[2] + uz * u + norm[2] * inset];
           // Bottom rail
-          pushPoly(opaqueFloats, [pt(0, 0, 10), pt(wLen, 0, 10), pt(wLen, fw, 10), pt(0, fw, 10)], norm, frameColor);
+          pushPoly(opaqueFloats, [pt(0, 0, 8), pt(wLen, 0, 8), pt(wLen, fw, 8), pt(0, fw, 8)], norm, frameColor);
           // Top rail
-          pushPoly(opaqueFloats, [pt(0, hLen - fw, 10), pt(wLen, hLen - fw, 10), pt(wLen, hLen, 10), pt(0, hLen, 10)], norm, frameColor);
+          pushPoly(opaqueFloats, [pt(0, hLen - fw, 8), pt(wLen, hLen - fw, 8), pt(wLen, hLen, 8), pt(0, hLen, 8)], norm, frameColor);
           // Left stile
-          pushPoly(opaqueFloats, [pt(0, fw, 10), pt(fw, fw, 10), pt(fw, hLen - fw, 10), pt(0, hLen - fw, 10)], norm, frameColor);
+          pushPoly(opaqueFloats, [pt(0, fw, 8), pt(fw, fw, 8), pt(fw, hLen - fw, 8), pt(0, hLen - fw, 8)], norm, frameColor);
           // Right stile
-          pushPoly(opaqueFloats, [pt(wLen - fw, fw, 10), pt(wLen, fw, 10), pt(wLen, hLen - fw, 10), pt(wLen - fw, hLen - fw, 10)], norm, frameColor);
+          pushPoly(opaqueFloats, [pt(wLen - fw, fw, 8), pt(wLen, fw, 8), pt(wLen, hLen - fw, 8), pt(wLen - fw, hLen - fw, 8)], norm, frameColor);
 
-          // 3. Central Mullion Bar (импост) for wider windows
+          // 3. Central Mullion Bar for wider windows
           if (wLen > 750) {
-            const mw = 32, mx = wLen * 0.5;
-            pushPoly(opaqueFloats, [pt(mx - mw / 2, fw, 10), pt(mx + mw / 2, fw, 10), pt(mx + mw / 2, hLen - fw, 10), pt(mx - mw / 2, hLen - fw, 10)], norm, frameColor);
+            const mw = 30, mx = wLen * 0.5;
+            pushPoly(opaqueFloats, [pt(mx - mw / 2, fw, 8), pt(mx + mw / 2, fw, 8), pt(mx + mw / 2, hLen - fw, 8), pt(mx - mw / 2, hLen - fw, 8)], norm, frameColor);
           }
 
           // 4. Transparent Glass Pane recessed inside frame
-          const g0 = pt(fw, fw, -15), g1 = pt(wLen - fw, fw, -15), g2 = pt(wLen - fw, hLen - fw, -15), g3 = pt(fw, hLen - fw, -15);
+          const g0 = pt(fw, fw, -10), g1 = pt(wLen - fw, fw, -10), g2 = pt(wLen - fw, hLen - fw, -10), g3 = pt(fw, hLen - fw, -10);
           pushPoly(transparentFloats, [g0, g1, g2, g3], norm, glassColor);
-          // Back side of glass
           pushPoly(transparentFloats, [g3, g2, g1, g0], [-norm[0], -norm[1], -norm[2]], glassColor);
         }
         continue;
       }
 
-      // Skip empty door openings so the door opening is a clean open passage
+      // Skip empty door openings so the door opening is an open portal
       if (f.door) continue;
 
       const rgb = hexToRgb(f.rawColor || f.color);
@@ -534,8 +542,8 @@ export class RoomWebGLRenderer {
       const lx = this.lightPos[0], ly = this.lightPos[1], lz = this.lightPos[2];
       const r = 55;
       const count = 16;
-      const trimColor = [0.88, 0.88, 0.86, 1.0];
-      const glowColor = [1.0, 0.98, 0.92, 1.0];
+      const trimColor = [0.82, 0.82, 0.80, 1.0];
+      const glowColor = [0.98, 0.96, 0.90, 1.0];
 
       for (let i = 0; i < count; i++) {
         const a1 = (i / count) * Math.PI * 2, a2 = ((i + 1) / count) * Math.PI * 2;
@@ -634,7 +642,8 @@ export class RoomWebGLRenderer {
 
     // 2. Main Render Pass
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clearColor(0.94, 0.95, 0.93, 1.0);
+    // Soft architectural neutral backdrop (studio lighting)
+    gl.clearColor(0.86, 0.88, 0.87, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     gl.useProgram(this.mainProgram);
