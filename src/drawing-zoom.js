@@ -6,7 +6,7 @@ export class DrawingZoom {
     this.output=root.querySelector('[data-drawing-scale]');
     this.onClick=e=>{const button=e.target.closest('[data-zoom]');if(!button)return;const action=button.dataset.zoom;action==='fit'?this.fit():this.zoom(this.scale*(action==='in'?1.25:.8));};
     this.onWheel=e=>{if(!this.paper.querySelector('svg'))return;e.preventDefault();this.zoom(this.scale*Math.exp(-e.deltaY*.0015),e.clientX,e.clientY);};
-    this.onDown=e=>{if(e.button!==0||!this.paper.querySelector('svg'))return;this.drag={x:e.clientX,y:e.clientY,left:this.viewport.scrollLeft,top:this.viewport.scrollTop};this.viewport.setPointerCapture(e.pointerId);this.viewport.classList.add('dragging');};
+    this.onDown=e=>{if(e.button!==0||!this.paper.querySelector('svg')||e.target.closest('[data-inspection-marker]'))return;this.drag={x:e.clientX,y:e.clientY,left:this.viewport.scrollLeft,top:this.viewport.scrollTop};this.viewport.setPointerCapture(e.pointerId);this.viewport.classList.add('dragging');};
     this.onMove=e=>{if(this.drag){this.viewport.scrollLeft=this.drag.left+this.drag.x-e.clientX;this.viewport.scrollTop=this.drag.top+this.drag.y-e.clientY;}};
     this.onUp=()=>{this.drag=null;this.viewport.classList.remove('dragging');};
     this.onKey=e=>{if(['+','=','-','0'].includes(e.key)){e.preventDefault();e.key==='0'?this.fit():this.zoom(this.scale*(e.key==='-'?.8:1.25));}};

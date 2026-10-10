@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDefaultProject, createSection, generateParts, getCabinetLayout, getFrontLayout, getExternalDrawerLayout, getInternalDrawerLayout, getPartEdgeBanding, validateProject } from '../src/engine.js';
+import { createDefaultProject, createSection, generateParts, getCabinetLayout, getFrontLayout, getExternalDrawerLayout, getInternalDrawerLayout, getPartEdgeBanding, getCabinetRearReservation, validateProject } from '../src/engine.js';
 import { polygonsOverlap } from '../src/room-geometry.js';
 import { getProjectHardwareSchedule } from '../src/hardware.js';
 import { getProjectCostEstimate } from '../src/pricing.js';
@@ -166,7 +166,7 @@ test('every internal drawer box attaches to its own front with forty millimetres
   for (const openingMechanism of ['handle', 'push']) for (const back of ['global', 'solid', 'none']) {
     const { project, cabinet } = fixture({ includeBack: back === 'global' });
     Object.assign(cabinet.layout, { back, depth: 450, internalDrawerCount: 2, openingMechanism });
-    const section = getCabinetLayout(cabinet, project).sections[0], b = cabinet.includeBack ? cabinet.backThickness : 0;
+    const section = getCabinetLayout(cabinet, project).sections[0], b = getCabinetRearReservation(cabinet, project);
     for (const drawer of getInternalDrawerLayout(cabinet, project)) {
       near(drawer.box.z, b + section.rearOffset + 40);
       near(drawer.box.z + drawer.box.depth, b + drawer.depth);
@@ -224,7 +224,7 @@ test('finished assembly, hardware quantities and priced edge lengths agree after
   const { project, cabinet } = fixture();
   cabinet.layout.internalDrawerCount = 2;
   project.materials.forEach(m => { m.pricePerSheet = 0; });
-  project.settings.pricing = { handlePrice: 0, guideSetPrice: 0, hingePrice: 0, edgeBandPricePerMeter: 10 };
+  project.settings.pricing = { handlePrice: 0, guideSetPrice: 0, hingePrice: 0, edgeBandPricePerMeter: 10, rearScrewPrice: 0, rearNailPrice: 0 };
   const parts = generateParts(project), hardware = getProjectHardwareSchedule(project), quote = getProjectCostEstimate(project);
   assert.equal(quote.complete, true);
   const meters = parts.reduce((sum, p) => sum + getPartEdgeBanding(p).lengthMeters, 0);
@@ -306,7 +306,7 @@ test('local L backs, floor openings and raised neighbouring bottoms have no over
     cabinet.cutout.depth = 640; // deeper than the ordinary 65 mm plinth setback
     assertAssembly(generateParts(project));
     const plinth = generateParts(project).find(p => p.role === 'plinth');
-    assert.equal(plinth.position.z, 640 + (includeBack ? 3 : 0));
+    assert.equal(plinth.position.z, 640 + getCabinetRearReservation(cabinet, project));
     assert.ok(plinth.position.z + plinth.thickness <= cabinet.depth);
   }
 });

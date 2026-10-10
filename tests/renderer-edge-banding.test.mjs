@@ -23,7 +23,7 @@ test('a normal shelf highlights its one front edge and distinguishes cut blank f
   assert.deepEqual(markedEdges(svg).map(edge => edge.side), ['bottom']);
   assert.equal(markedEdges(svg)[0].start[1], markedEdges(svg)[0].end[1]);
   assert.match(svg, /Кромить торцы: Спереди 1 мм/);
-  assert.match(svg, /Оклеиваемые торцы выделены цветом\./);
+  assert.match(svg, /Двойная линия и E1–E4/);
   assert.match(svg, /Заготовка без кромки: 860 × 596 мм/);
   assert.match(svg, /Готовый размер с кромкой: 860 × 597 мм/);
   assert.match(svg, /width="297mm" height="210mm" viewBox="0 0 1120 792"/);
@@ -69,7 +69,7 @@ test('L blanks mark only their real outer segments and retain finished perimeter
   assert.equal(marked.length, 4, 'the two inner notch edges are not automatically banded');
   // The projection scale is controlled by blank height (430 / 598).
   const scale = Math.min(800 / part.width, 430 / part.height);
-  const point = ({ x, y }) => [Math.round((500 + (x - part.width / 2) * scale) * 100) / 100, Math.round((320 + (y - part.height / 2) * scale) * 100) / 100];
+  const point = ({ x, y }) => [Math.round((500 + (x - part.width / 2) * scale) * 100) / 100, Math.round((310 + (y - part.height / 2) * scale) * 100) / 100];
   assert.deepEqual(marked.find(edge => edge.side === 'top').start, point(part.outline[0]));
   assert.deepEqual(marked.find(edge => edge.side === 'left').end, point(part.outline[4]));
   assert.match(svg, /Заготовка без кромки: 998 × 598 мм/);

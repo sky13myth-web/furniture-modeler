@@ -6,7 +6,13 @@ ATÖLYE, bilgisayarınızda çalışan ücretsiz bir mobilya tasarım uygulamas�
 
 ## Windows kurulumu
 
-[Son sürümden](https://github.com/sky13myth-web/furniture-modeler/releases/latest) **ATOLYE-Setup-2.2.0-x64.exe** dosyasını indirin ve kurulum sihirbazını izleyin. ATÖLYE'yi masaüstü veya Başlat menüsü kısayolundan açın. Kurulu uygulamayı kullanmak için Node.js, terminal veya internet bağlantısı gerekmez. Kurulum geçerli kullanıcı içindir; projeler bilgisayarınızda saklanır. [Kurulum ve yedekleme bilgileri](docs/windows-install.md).
+[Son sürümden](https://github.com/sky13myth-web/furniture-modeler/releases/latest) **ATOLYE-Setup-2.2.1-x64.exe** dosyasını indirin ve kurulum sihirbazını izleyin. ATÖLYE'yi masaüstü veya Başlat menüsü kısayolundan açın. Kurulu uygulamayı kullanmak için Node.js, terminal veya internet bağlantısı gerekmez. Kurulum geçerli kullanıcı içindir; projeler bilgisayarınızda saklanır. [Kurulum ve yedekleme bilgileri](docs/windows-install.md).
+
+## Cloudflare Pages web uygulaması
+
+**Workers & Pages → Create application → Pages → Connect to Git** yolunu açın, GitHub hesabını bağlayın ve `sky13myth-web/furniture-modeler` deposunu seçin. Üretim dalı `main`, framework **None**, derleme komutu `node scripts/prepare-pages.mjs`, çıktı klasörü `.tools/pages-site` olsun. `SKIP_DEPENDENCY_INSTALL=1` değişkenini ekleyin; tarayıcı uygulaması Windows kurulum paketlerine ihtiyaç duymaz. **Save and Deploy** bir `*.pages.dev` adresi oluşturur; `main` dalına gönderilen değişiklikler siteyi otomatik günceller. [Cloudflare yönergesi](https://developers.cloudflare.com/pages/get-started/git-integration/).
+
+Yalnızca HTML, tarayıcı modülleri, stiller ve lisanslar yayımlanır. Kullanıcı projeleri kendi tarayıcılarında saklanır; sunucu veya veritabanı gerekmez. Sürümdeki `ATOLYE-Web-2.2.1.zip` elle yükleme için de kullanılabilir.
 
 ## Kaynak koddan başlatma
 
@@ -42,13 +48,17 @@ Yeni dolaplarda varsayılan arkalık **3 mm sert lif levhadır**; malzeme adı *
 
 ## Çizimler ve dosyalar
 
+Seçili panelin **Bu parçanın kenar bantları** bölümündeki küçük şemada bantlanacak kenarları işaretleyin. Kalınlık dolap ayarından alınır. Yan panellerin ön ve üst kenar bantları varsayılan olarak açıktır. Ham ölçü, bant metrajı, delikler ve dışa aktarılan dosyalar yeniden hesaplanır; bitmiş ölçüler korunur. Ayarlar projede saklanır. **Otomatik bantlara dön** hesaplanan kenar bantlarını geri getirir.
+
 Ön, arka, sol, sağ, üst ve iç bölüm görünüşlerini inceleyin; çizimleri yakınlaştırın ve kaydırın. Çizim takımını, tek parçayı veya mevcut 3B görünümü yazdırın. Belge dili ayrı seçilir; Türkçe baskı varsayılandır. Tarayıcının yazdırma penceresinden PDF kaydedebilirsiniz.
+
+Bir dolap seçip **Şema / 3D / Çizimler** sekmelerini kullanın. **3D → Parçaları ayır** ile panelleri ayırın; bir panele tıklayarak seçin, çizimini açmak için çift tıklayın. Tüm delikler ve ölçü çizgileri birlikte görünür. Aynı mesafeler satır veya sütun ölçüsünde birleştirilir; çentik kenarları ayrı ölçülür. Dikey paneller üst tarafı yukarıda gösterilir; B alttan ölçülür. Kenar kılavuz deliklerinde kalınlık kesiti de gösterilir. Çap, derinlik ve delme yönü kısa etiketlerle belirtilir. P kodu, bitmiş ve ham ölçüler yan panelde kalır. Aynı etkileşimli çizim **Çizimler → Delikler** bölümündedir. Parçaları ayırmak yalnızca görünümü değiştirir. İsteğe bağlı gövde delikleri konfirmat bağlantılarını kapsar; donanıma özel delik şablonları ayrı belirlenir.
 
 **Oda** bölümünde **Plan** veya **3B** görünüşünü seçip **Yazdır / PDF** düğmesine basın. A4 yatay oda planında gerçek oda konturu, duvar ölçüleri, pencere ve kapı mesafeleri, döndürülmüş dolaplar ve listeler bulunur. Baskı ölçeği editördeki yakınlaştırmadan bağımsızdır. Odanın 3B baskısı mevcut bakış açısını ve kapakların açık/kapalı durumunu korur. Önizlemede **Oda planını kaydet** veya **Odanın 3B görünümünü kaydet** ile bağımsız HTML dosyası kaydedebilirsiniz.
 
 Kesim planı malzeme, kalınlık, testere payı, kenar boşlukları ve doku yönünü dikkate alır. Eski projeler açıldığında da kesim ölçülerinden yalnızca uygulanan kenar bandının kalınlığı otomatik düşülür. Normal raflarda yalnızca ön kenar bantlanır: önünde 1 mm bant bulunan 864 × 600 mm raf için 864 × 599 mm parça kesilir. 3B model ve montaj çizimleri bitmiş ölçüleri korur. Parça çizimleri bantlanan kenarları renkli gösterir; kesim ölçüsü ve bitmiş ölçü ayrı belirtilir. CSV'de her iki ölçü ve kenar bandı metrajı bulunur. JSON dosyası projeyi yedeklemek ve başka bilgisayara taşımak içindir; iç bölmeleri, bölmeye özel bazaları, arka panelleri ve kayıtları da saklar. Değişiklikler tarayıcıda da kaydedilir.
 
-**Kesim planı → Fabrika için**, sütun eşleştirmesiyle içe aktarılacak CSV'yi ve ZIP paketini dışa aktarır. Pakette parça listesi, malzemeler, mm biriminde 1:1 DXF konturları, parça SVG'leri, montaj HTML'i ve talimatlar bulunur. Yalnızca bir ölçü çiftini eşleştirin: `CUT_*` ölçülerinden kenar bandı zaten düşülmüştür; tekrar düşümü kapatın. Fabrika bandı kendisi düşüyorsa `FINISHED_*` bitmiş ölçülerini kullanın. Varsayılan belge dili Türkçedir. Makine programını fabrika hazırlar. [Alan ve teslim kılavuzu (Rusça)](docs/factory-export.md); örneği `node scripts/export-factory-example.mjs` günceller.
+**Kesim planı → Fabrika için**, sütun eşleştirmesiyle içe aktarılacak CSV'yi ve ZIP paketini dışa aktarır. Pakette parça listesi, malzemeler, mm biriminde 1:1 levhalara yerleştirilmiş DXF konturları, parça SVG'leri, montaj HTML'i ve talimatlar bulunur. Yalnızca bir ölçü çiftini eşleştirin: `CUT_*` ölçülerinden kenar bandı zaten düşülmüştür; tekrar düşümü kapatın. Fabrika bandı kendisi düşüyorsa `FINISHED_*` bitmiş ölçülerini kullanın. Varsayılan belge dili Türkçedir. Makine programını fabrika hazırlar. [Alan ve teslim kılavuzu (Rusça)](docs/factory-export.md); örneği `node scripts/export-factory-example.mjs` günceller.
 
 **Gövde delikleri:** **Kesim planı → Fabrika için** bölümünde **Confirmat vidaları için gövde delikleri** seçeneğini açın. İlk profil 7×50 mm mobilya vidasıdır. Ayrı işlem CSV'sini veya parça şemaları ZIP'ini indirin; P kodları kesim listesiyle aynıdır. **Delik ayarları** bölümünde çaplar, ek derinlik, uç mesafesi ve vida aralığı değiştirilebilir. Havşa derinliğini vida başına ve matkaba göre belirleyin; boş değer atölyede ayarlanması gereken işlem olarak dışa aktarılır. [Kapsam ve koordinat bilgisi](docs/drilling.md).
 
@@ -63,5 +73,9 @@ Askı borusunun metre fiyatını ve tutucu fiyatını elle girin; belirli bir bo
 Kesim yerleşimi sezgisel bir hesaplamadır; en az levha sayısını garanti etmez. CNC yolu, donanıma özel menteşe/kızak delikleri veya dayanım hesabı üretmez. Üretimden önce ölçüleri ve montajı atölyede doğrulayın.
 
 Kontrolleri `npm test` ile çalıştırabilirsiniz. Uygulama [ATÖLYE lisansı](LICENSE.tr.md) ile ücretsiz kullanılabilir, değiştirilebilir ve dağıtılabilir. Uygulamayı veya değiştirilmiş sürümlerini satmak ve erişim için ücret almak yasaktır. Mobilya işinde kullanım ve kendi projelerinizi satmak serbesttir.
+
+Atölye Excel dosyasında her malzeme/dekor/kalınlık ayrı sekmededir; ilk sütunlar bantsız ham en ve boydur. `dxf/sheets-all.dxf` gerçek levha yerleşimini, `cuts/cuts-all.dxf` ve CSV ise varsayılan 3 mm testere payıyla düz kesim sırasını gösterir. Parçayı seçmek için tıklayın, delik şemasını açmak için çift tıklayın. Kenar bandı ölçüm kutusu delikleri taşımadan ham/bitmiş kenar başlangıcını değiştirir. 3B görünümde menteşeler şematik olarak donanım adedine göre gösterilir. S açıklamaları net açıklığı ve kullanılabilir derinliği gösterir.
+
+MDF arkalıklar, ayrı ayarlanabilir vidalar ve karşılıklı deliklerle sabitlenir; 3 mm sert lif arkalık çiviyle bağlanır ve delinmez. Arkalık vida ayarları kesim siparişi penceresindedir. Vida/çivi adetleri donanım listesinde ve maliyet hesabında yer alır; birim fiyatları ayarlardan değiştirilebilir. Bölme arkalıkları gövdenin kenarlarını örter ve ortak bölmelerin orta ekseninde birleşir. Aynı düzlemdeki uyumlu komşu paneller tek bir dikdörtgen arkalık olarak birleştirilir.
 
 Yeni lisans 2.2.1 sürümünden itibaren geçerlidir. 2.2.0 ve önceki sürümler MIT lisansını korur. [Lisans kapsamı ve önceki sürümler](docs/licensing.md).

@@ -88,13 +88,13 @@ test('full back ignores local omissions and local rails, retaining legacy global
   assert.deepEqual(errors(project), []);
 });
 
-test('a local solid back has opening bounds and reduces only that opening usable depth', () => {
+test('a local solid back covers carcass edges and reserves its thickness in the shared rear plane', () => {
   const { project, c } = fixture();
   const right = c.layout.children[1]; right.back = 'solid'; right.shelves = 1;
   const [left, section] = getCabinetLayout(c, project).sections;
-  assert.equal(left.usableDepth, 700); assert.equal(section.usableDepth, 692);
+  assert.equal(left.usableDepth, 692); assert.equal(section.usableDepth, 692);
   const parts = generateParts(project), rear = parts.find(p => p.role === 'section-back');
-  assert.deepEqual([rear.position.x, rear.position.y, rear.finishedWidth, rear.finishedHeight], [618, 118, 582, 2264]);
+  assert.deepEqual([rear.position.x, rear.position.y, rear.finishedWidth, rear.finishedHeight], [609, 100, 609, 2300]);
   const shelf = parts.find(p => p.sectionId === 'door' && p.name.includes('полка'));
   assert.equal(shelf.position.z, 8); assert.equal(shelf.finishedHeight, 672);
   assert.deepEqual(errors(project), []);

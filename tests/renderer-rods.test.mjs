@@ -51,12 +51,13 @@ test('rail CAD symbols and manufacturing schedule preserve cut length, diameter 
   const {project,cabinet}=fixture(),before=structuredClone(project);
   for(const language of ['ru','tr','en']){
     for(const view of ['front','interior','top']){
-      const svg=createDrawingSvg(project,view,{cabinetId:cabinet.id,language});
+      const options={cabinetId:cabinet.id,language},first=createDrawingSvg(project,view,options),count=Number(first.match(/data-annotation-page-count="(\d+)"/)[1]);
+      const svg=Array.from({length:count},(_,index)=>index?createDrawingSvg(project,view,{...options,annotationPage:index+1}):first).join('');
       assert.match(svg,/data-rod-id="rail" data-section-id="rail-opening" data-rod-length-mm="1160" data-rod-diameter-mm="25" data-rod-axis-height-mm="1918"/);
       assert.ok(svg.includes(`R1 · ${printNumber(1160,language)} · Ø25`));
       assert.match(svg,view==='interior'?/<path[^>]+stroke-width="1.5"\/>/:/<path[^>]+stroke-width="1.5" stroke-dasharray="7 4"\/>/);
       const compact=createDrawingSvg(project,view,{cabinetId:cabinet.id,language,compact:true});
-      assert.match(compact,/data-rod-id="rail"/);assert.match(compact,/data-min-font="9.2"/);
+      assert.match(compact,/data-rod-id="rail"/);assert.match(compact,/data-min-font="14"/);
     }
     const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language}),hardware=generateHardwareHTML(project,{cabinetId:cabinet.id,language});
     assert.ok(html.includes(translatePrintText('Штанги считаются отдельно от листовых материалов.',language)));

@@ -32,7 +32,8 @@ test('grain direction is explicit along B on individual SVGs and in each product
     assert.doesNotMatch(createPartSvg(plain, project, { language }), /data-grain-axis|along part height|parça yüksekliği boyunca/);
     const html = generateDrawingHTML(project, { cabinetId: project.cabinets[0].id, language });
     assert.ok(html.includes(`<th>${translatePrintText('Ось текстуры', language)}</th>`));
-    const rows = [...html.matchAll(/<tr><td>(P\d+)<\/td>([\s\S]*?)<\/tr>/g)];
+    const cuttingTables=[...html.matchAll(/<section class="sheet schedule parts-schedule"[\s\S]*?<\/section>/g)].map(match=>match[0]).join('');
+    const rows = [...cuttingTables.matchAll(/<tr><td>(P\d+)<\/td>([\s\S]*?)<\/tr>/g)];
     assert.equal(rows.length, parts.length);
     for (const [ , code, cells ] of rows) {
       const index = Number(code.slice(1)) - 1, values = [...cells.matchAll(/<td>([\s\S]*?)<\/td>/g)].map(cell => cell[1]);
@@ -46,7 +47,7 @@ test('decimal cabinet dimensions remain consistent in all orthographic views and
   Object.assign(cabinet, { width: 900.4, height: 2200.6, depth: 620.2 });
   for (const language of ['ru', 'tr', 'en']) for (const [view, values] of [['front', [900.4, 2200.6]], ['right', [620.2, 2200.6]], ['top', [900.4, 620.2]]]) {
     const svg = createDrawingSvg(project, view, { cabinetId: cabinet.id, language });
-    const labels = [...svg.matchAll(/font-size="12" fill="#35433d">([^<]+)<\/text>/g)].map(match => match[1]);
+    const labels = [...svg.matchAll(/font-size="14" fill="#35433d"[^>]*>([^<]+)<\/text>/g)].map(match => match[1]);
     for (const value of values) assert.ok(labels.includes(printNumber(value, language)), `${view}/${language}: ${value} mm is not rounded to a whole millimetre`);
   }
   const drawn = [], context = new Proxy({ createLinearGradient: () => ({ addColorStop() {} }), measureText: text => ({ width: String(text).length * 6 }), fillText: text => drawn.push(text) }, { get: (target, key) => key in target ? target[key] : () => {} });
@@ -72,7 +73,7 @@ test('a grain marker on the individual part drawing stays inside either deep L c
       materialId: 'mdf-oak', frontMaterialId: 'mdf-oak', layout: { ...createSection('open'), id: 'deep-opening', shelves: 1 }, cutout: { corner, width: 251.875, depth: 560 } });
     const roof = generateParts(project).find(part => part.name === 'Крышка'), before = structuredClone({ project, roof }), svg = createPartSvg(roof, project, { language: 'en' });
     const path = svg.match(/data-grain-axis="B">[\s\S]*?<path d="([^"]+)"/)[1], scale = Math.min(800 / roof.width, 430 / roof.height);
-    const points = [...path.matchAll(/[ML]([\d.-]+),([\d.-]+)/g)].map(([, x, y]) => ({ x: (Number(x) - 500) / scale + roof.width / 2, y: (Number(y) - 320) / scale + roof.height / 2 }));
+    const points = [...path.matchAll(/[ML]([\d.-]+),([\d.-]+)/g)].map(([, x, y]) => ({ x: (Number(x) - 500) / scale + roof.width / 2, y: (Number(y) - 310) / scale + roof.height / 2 }));
     assert.equal(points.length, 8);
     assert.equal(points[0].x, points[1].x);
     assert.ok(points.every(point => inside(point.x, point.y, roof.outline)), 'shaft and both arrowheads lie in actual unremoved material');

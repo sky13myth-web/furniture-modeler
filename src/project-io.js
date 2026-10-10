@@ -1,6 +1,7 @@
 /** Validate imported project data before it reaches templates and geometry. */
 import { polygonIsSimple } from './room-geometry.js';
 import { isDefaultBackMaterial } from './material-defaults.js';
+import { validatePartEdgeBandingOverrides } from './part-edge-banding-model.js';
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const fail = message => { throw new Error(message); };
 const record = (value, label) => { if (!isRecord(value)) fail(`Неверный формат: ${label}.`); };
@@ -201,6 +202,7 @@ export function checkImport(project) {
     }
     validateDoorOpenings(cabinet.doorOpenings, cabinet.doors ?? 0);
     for (const [key, limit, label] of [['plinth', 6000, 'высота цоколя'], ['gap', 10, 'зазор фасадов'], ['drawerSlideGap', 40, 'зазор направляющей'], ['edgeBand', 3, 'толщина кромки']]) finite(cabinet[key], `Модуль: ${label}`, limit);
+    validatePartEdgeBandingOverrides(cabinet.partEdgeBanding);
     for (const [key, label] of [['backThickness', 'толщина задней стенки'], ['drawerBottomThickness', 'толщина дна ящика']]) finite(cabinet[key], `Модуль: ${label}`, 60, true);
     for (const [key, label] of [['materialId', 'материал корпуса'], ['frontMaterialId', 'материал фасадов'], ['backMaterialId', 'материал задней стенки']]) materialRef(cabinet[key], materialIds, `Модуль: ${label}`);
     const layout = cabinet.layout;
@@ -249,15 +251,21 @@ export function checkImport(project) {
     record(project.settings.drilling, 'сверловка');
     const drilling = project.settings.drilling;
     if (drilling.enabled !== undefined) boolean(drilling.enabled, 'Сверловка: включена');
-    for (const [key, limit] of [['screwDiameter', 20], ['screwLength', 150], ['clearanceDiameter', 25], ['pilotDiameter', 20], ['countersinkDiameter', 35], ['endOffset', 500], ['maxSpacing', 1000]]) {
+    if (drilling.measureFromFinishedEdge !== undefined) boolean(drilling.measureFromFinishedEdge, 'Сверловка: отсчёт от готового края');
+    if (drilling.screwsPerJoint !== undefined && drilling.screwsPerJoint !== 'auto' && drilling.screwsPerJoint !== 2) fail('Сверловка: число винтов на стык должно быть auto или 2.');
+    // Legacy whole-mm spacing is accepted for import only. Drilling settings
+    // normalization discards this retired flag and always uses exact stations.
+    if (drilling.integerSpacing !== undefined) boolean(drilling.integerSpacing, 'Сверловка: прежний параметр отступов');
+    for (const [key, limit] of [['screwDiameter', 20], ['screwLength', 150], ['clearanceDiameter', 25], ['pilotDiameter', 20], ['countersinkDiameter', 35], ['endOffset', 500], ['maxSpacing', 1000], ['rearScrewDiameter', 20], ['rearScrewLength', 150], ['rearClearanceDiameter', 25], ['rearPilotDiameter', 20], ['rearEndOffset', 500], ['rearMaxSpacing', 1000]]) {
       if (drilling[key] !== undefined) finite(drilling[key], `Сверловка: ${key}`, limit, true);
     }
     if (drilling.pilotExtraDepth !== undefined) finite(drilling.pilotExtraDepth, 'Сверловка: pilotExtraDepth', 20);
+    if (drilling.rearPilotExtraDepth !== undefined) finite(drilling.rearPilotExtraDepth, 'Сверловка: rearPilotExtraDepth', 20);
     if (drilling.countersinkDepth !== undefined && drilling.countersinkDepth !== null) finite(drilling.countersinkDepth, 'Сверловка: countersinkDepth', 10, true);
   }
   if (project.settings.pricing !== undefined) {
     record(project.settings.pricing, 'цены фурнитуры');
-    for (const [key, label] of [['handlePrice', 'ручка'], ['guideSetPrice', 'направляющие, комплект'], ['hingePrice', 'петля'], ['edgeBandPricePerMeter', 'кромка за метр'], ['rodPricePerMeter', 'штанга за метр'], ['rodHolderPrice', 'держатель штанги']]) {
+    for (const [key, label] of [['handlePrice', 'ручка'], ['guideSetPrice', 'направляющие, комплект'], ['hingePrice', 'петля'], ['edgeBandPricePerMeter', 'кромка за метр'], ['rodPricePerMeter', 'штанга за метр'], ['rodHolderPrice', 'держатель штанги'], ['rearScrewPrice', 'винт задника'], ['rearNailPrice', 'гвоздь задника']]) {
       if (project.settings.pricing[key] !== undefined) finite(project.settings.pricing[key], `Цена: ${label}, TRY`, 1e9);
     }
   }

@@ -139,15 +139,15 @@ test('an internal divider edit clamps at real drawer box minima while keeping th
   assert.equal(c.layout.interiorLayout.sizes[0], 1400);
 });
 
-test('internal panels follow local rear offset and a local raised bottom, and reject full-opening shelves', () => {
+test('internal panels follow the shared rear reservation and a local raised bottom, and reject full-opening shelves', () => {
   const { project, c } = fixture();
   Object.assign(c, { plinth: 0, includeBack: false, backThickness: 8, backMaterialId: 'hdf-back' });
   Object.assign(c.layout, { plinthHeight: 100, back: 'solid', interiorLayout: { id: 'inner-open', kind: 'section', front: 'open', shelves: 1, pullOutShelf: true, depth: 500 } });
   let layout = getCabinetLayout(c, project), inner = layout.internalSections[0];
-  assert.deepEqual([inner.y, inner.height, inner.depth, inner.rearOffset, inner.usableDepth], [118, 2064, 500, 8, 492]);
+  assert.deepEqual([inner.y, inner.height, inner.depth, inner.rearOffset, inner.usableDepth], [118, 2064, 500, 0, 500]);
   const parts = generateParts(project), shelf = parts.find(p => p.component === 'interior-shelf'), pull = parts.find(p => p.pullOutShelf);
-  assert.equal(shelf.position.z, 8); assert.equal(shelf.finishedHeight, 472);
-  assert.deepEqual([pull.position.y, pull.position.z, pull.finishedHeight, pull.interiorSectionId], [123, 28, 452, 'inner-open']);
+  assert.equal(shelf.position.z, 8); assert.equal(shelf.finishedHeight, 480);
+  assert.deepEqual([pull.position.y, pull.position.z, pull.finishedHeight, pull.interiorSectionId], [123, 28, 460, 'inner-open']);
   assert.deepEqual(errors(project), []);
   c.layout.shelves = 1;
   assert.ok(errors(project).some(e => e.message.includes('пересекают внутреннее наполнение')));

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createDefaultProject } from '../src/engine.js';
 import { getRoomPlanGeometry, createRoomPlanSvg, generateRoomPlanHTML } from '../src/room-print.js';
 import { polygonArea } from '../src/room-geometry.js';
+import { getDocumentInfo } from '../src/print-document.js';
 
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-6, `${actual} != ${expected}`);
 const fixture = () => {
@@ -20,6 +21,19 @@ const freeze = object => {
   if (object && typeof object === 'object') { Object.values(object).forEach(freeze); Object.freeze(object); }
   return object;
 };
+
+test('standalone room plans identify the same manufacturing revision as their printable document', () => {
+  const project = fixture(), info = getDocumentInfo(project);
+  for (const language of ['ru', 'tr', 'en']) {
+    const svg = createRoomPlanSvg(project, { language }), html = generateRoomPlanHTML(project, { language });
+    for (const value of [info.id, info.date]) { assert.ok(svg.includes(value)); assert.ok(html.includes(value)); }
+    assert.match(svg, /class="document-identity"/u);
+    assert.match(html, /counter\(page\).*counter\(pages\)/u);
+    assert.match(svg, /[1]\/1/u);
+  }
+  const moved = structuredClone(project); moved.cabinets[0].x += 1;
+  assert.notEqual(getDocumentInfo(moved).id, info.id);
+});
 
 test('L-shaped room print preserves signed vertices, every real wall and area rather than a bounding rectangle', () => {
   const project = fixture(), geometry = getRoomPlanGeometry(project), svg = createRoomPlanSvg(project, { language: 'en' });

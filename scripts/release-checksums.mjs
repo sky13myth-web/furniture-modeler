@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -7,6 +7,10 @@ const directory = path.join(root, 'dist');
 const metadata = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
 const files = (await readdir(directory)).filter(file => file === `ATOLYE-Setup-${metadata.version}-x64.exe`).sort();
 if (!files.length) throw new Error('Build the Windows installer before generating checksums.');
-const text = (await Promise.all(files.map(async file => `${createHash('sha256').update(await readFile(path.join(directory, file))).digest('hex')}  ${file}`))).join('\n') + '\n';
+const assets = files.map(file => ({file, filename:path.join(directory,file)}));
+const webFile = `ATOLYE-Web-${metadata.version}.zip`, webPath = path.join(root,'.tools',webFile);
+const webInfo = await stat(webPath).catch(error => {if(error.code==='ENOENT')return null;throw error;});
+if(webInfo?.isFile())assets.push({file:webFile,filename:webPath});
+const text = (await Promise.all(assets.map(async ({file,filename}) => `${createHash('sha256').update(await readFile(filename)).digest('hex')}  ${file}`))).join('\n') + '\n';
 await writeFile(path.join(directory, 'SHA256SUMS.txt'), text);
 console.log(text.trim());

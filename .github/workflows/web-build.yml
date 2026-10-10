@@ -1,0 +1,40 @@
+name: Build free browser app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - src/**
+      - LICENSE
+      - LICENSE.ru.md
+      - LICENSE.tr.md
+      - docs/licenses/MIT-through-v2.2.0.txt
+      - scripts/prepare-pages.mjs
+      - tests/pages-staging.test.mjs
+      - .github/workflows/web-build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '22'
+      - name: Test browser modules and publication isolation
+        run: npm test
+      - name: Prepare only public application files and the web ZIP
+        run: node scripts/prepare-pages.mjs
+      - name: Save the static web package for download or Cloudflare Pages
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ATOLYE-Web
+          path: .tools/ATOLYE-Web-*.zip
+          if-no-files-found: error

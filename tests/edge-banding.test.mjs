@@ -92,9 +92,10 @@ test('the exposed lower portion of a floor-length L-return keeps its continuous 
     const { project, cabinet } = fixture({ includeBack, cutout: { corner, width: 300, depth: 180 } });
     const parts = generateParts(project), top = parts.find(part => part.name === 'Крышка'), shelf = parts.find(part => part.name.includes('полка 1'));
     const side = parts.find(part => part.name === 'Возвратная боковина выреза');
-    assert.deepEqual(edges(side), [0, 0, 1, 0]);
+    assert.deepEqual(edges(side), [1, 0, 1, 0]);
     assert.equal(side.finishedWidth - side.width, 1);
-    assert.equal(getPartEdgeBanding(side).lengthMm, side.finishedHeight);
+    assert.equal(side.finishedHeight - side.height, 1);
+    assert.equal(getPartEdgeBanding(side).lengthMm, side.finishedHeight + side.finishedWidth);
     for (const horizontal of [top, shelf]) {
       assert.deepEqual(edges(horizontal), [0, 1, 0, 0]);
       assert.equal(horizontal.width, horizontal.finishedWidth);
@@ -133,9 +134,13 @@ test('facades keep all four open edges, drawer joints and backs remain raw, and 
 test('edge quotes follow exposed finished lengths and stock packing follows the reduced blanks', () => {
   const { project } = fixture();
   project.materials.forEach(material => { material.pricePerSheet = 0; });
-  project.settings.pricing = { handlePrice: 0, guideSetPrice: 0, hingePrice: 0, edgeBandPricePerMeter: 10 };
+  // This fixture isolates the edge charge. Real rear fasteners still have a
+  // quantity, so give them an explicit zero rate rather than an absent quote.
+  project.settings.pricing = { handlePrice: 0, guideSetPrice: 0, hingePrice: 0, edgeBandPricePerMeter: 10, rearScrewPrice: 0, rearNailPrice: 0 };
   const parts = generateParts(project), summary = getEdgeBandingSummary(parts), estimate = getProjectCostEstimate(project);
   assert.equal(estimate.complete, true);
+  const rearNails = estimate.rows.find(row => row.id === 'rearNails');
+  assert.deepEqual([rearNails.quantity, rearNails.unitPrice, rearNails.cost], [32, 0, 0]);
   assert.equal(estimate.total, Math.round(summary.lengthMeters * 1000) / 100);
   const cutting = optimizeCutting(parts, project.materials, project.settings), shelf = parts.find(part => part.name.includes('полка 1'));
   const packed = cutting.sheets.flatMap(sheet => sheet.placements).find(placement => placement.partId === shelf.id);

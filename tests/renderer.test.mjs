@@ -7,6 +7,11 @@ import { printLanguage, printNumber, translatePrintText, translatePartName, tran
 import { defaultName, localizeMaterialPreset } from '../src/i18n.js';
 import { MATERIAL_PRESETS } from '../src/standards.js';
 
+function drawingPages(project,view,options){
+  const first=createDrawingSvg(project,view,options),count=Number(first.match(/data-annotation-page-count="(\d+)"/)?.[1]||1);
+  return Array.from({length:count},(_,index)=>index?createDrawingSvg(project,view,{...options,annotationPage:index+1}):first).join('');
+}
+
 function legacyProject() {
   const project = createDefaultProject();
   project.settings.deductEdge = false;
@@ -91,7 +96,7 @@ test('drawing exports safely escape imported text and produce five independent p
   assert.ok(svg.includes('&lt;script&gt;'));
   assert.doesNotMatch(svg, /<script>|<img|<b>/);
   const html = generateDrawingHTML(project, { language: 'ru' });
-  assert.equal((html.match(/<svg /g) || []).length, 5);
+  assert.equal((html.match(/<svg /g) || []).length-(html.match(/data-assembly-group=/g)||[]).length, 5);
   assert.doesNotMatch(html, /<script>|<img|<b>/);
   assert.match(html, /Печать \/ сохранить PDF/);
 });
@@ -223,16 +228,16 @@ test('L-outline triangulation leaves the notch empty and model panels follow exa
 
 test('selected-cabinet exports include readable facade sizes, clean section openings and real drawer components', () => {
   const project = createDefaultProject(), cabinet = project.cabinets[0];
-  const frontal = createDrawingSvg(project, 'front', { cabinetId: cabinet.id });
+  const frontal = drawingPages(project, 'front', { cabinetId: cabinet.id });
   assert.match(frontal, /F1 · дверь/);
   assert.match(frontal, /F3 · ящик/);
   assert.match(frontal, /597 × 924 мм/);
-  const interior = createDrawingSvg(project, 'interior', { cabinetId: cabinet.id });
+  const interior = drawingPages(project, 'interior', { cabinetId: cabinet.id });
   assert.match(interior, /Внутренние секции/);
   assert.ok(interior.replace(/[\u00a0\u202f]/g, ' ').includes('Проём 1 164 × 900 мм'));
   assert.doesNotMatch(interior, /data-component="front"/);
   const html = generateDrawingHTML(project, { cabinetId: cabinet.id, language: 'ru' }).replace(/[\u00a0\u202f]/g, ' ');
-  assert.equal((html.match(/<svg /g) || []).length, 6);
+  assert.deepEqual([...new Set([...html.matchAll(/data-drawing-view="([^"]+)"/g)].map(match=>match[1]))],['front','back','left','right','top','interior']);
   assert.match(html, /детали и короба ящиков/);
   assert.match(html, /577 × 198/);
   assert.match(html, /1 138 × 577/);
@@ -319,7 +324,7 @@ test('a partial floor portal retains neighbour bottoms while leaving the actual 
     assert.equal(extended.length, 2);
     assert.ok(extended.every(part => viewport.hits.some(face => face.partId === part.id && face.points.some(point => point[1] === 0))));
   });
-  const svg = createDrawingSvg(project, 'interior', { cabinetId: cabinet.id }).replace(/[\u00a0\u202f]/g, ' ');
+  const svg = drawingPages(project, 'interior', { cabinetId: cabinet.id }).replace(/[\u00a0\u202f]/g, ' ');
   assert.match(svg, /Проём 928 × 1 486 мм/);
   assert.doesNotMatch(svg, /Проём [^<]*-\d|NaN|Infinity|undefined/);
   cabinet.layout.children[1].children[2].front = 'doors';
@@ -447,35 +452,45 @@ test('technical clearances annotate the required niche while keeping the machine
   assert.ok(disabled.includes('<td>600 × 850 × 600</td><td>—</td><td>—</td><td>—</td><td>Помещается</td>'));
 });
 
-test('compact production printing fits six readable views, hardware and the referenced estimate in four sheets', () => {
+test('compact production printing retains six views and gives opening summaries a full detail sheet', () => {
   const project = createDefaultProject(), cabinet = project.cabinets[0];
   const html = generateDrawingHTML(project, { cabinetId: cabinet.id });
   assert.match(html, /<html lang="tr">/);
-  assert.equal((html.match(/class="sheet projection-sheet"/g) || []).length, 1);
-  assert.match(html, /data-projections="6"/);
-  assert.equal((html.match(/class="sheet /g) || []).length, 4, 'views, combined opening/front/hardware schedules, complete parts and a sourced estimate');
+  assert.equal((html.match(/class="sheet projection-sheet"/g) || []).length, 2);
+  assert.deepEqual(html.match(/data-projections="\d"/g), ['data-projections="2"','data-projections="2"']);
+  const wide = structuredClone(project); wide.cabinets[0].height=1000; wide.cabinets[0].layout = { id:'wide-open', kind:'section', front:'open', shelves:0 };
+  const wideHtml=generateDrawingHTML(wide,{cabinetId:wide.cabinets[0].id});
+  assert.match(wideHtml,/data-projections="4"/);
+  assert.match(wideHtml,/data-drawing-view="front"[\s\S]*?data-section-callout="S1"/);
+  assert.match(wideHtml,/data-drawing-view="interior" data-annotation-page="1"/);
+  assert.match(wideHtml,/data-section-callout="S1"/);
+  assert.equal((html.match(/class="sheet assembly-sheet"/g) || []).length, Math.ceil(generateParts(project).length/12),'all panels receive readable assembly callouts');
+  assert.ok((html.match(/class="sheet schedule installation-schedule"/g)||[]).length,'finished panel positions have a companion schedule');
   assert.equal((html.match(/data-schedule-kind="hardware"/g)||[]).length,1);
   assert.equal((html.match(/data-schedule-kind="cost"/g)||[]).length,1);
   assert.doesNotMatch(html,/data-schedule-kind="price-sources"/,'short source lists remain beside the cost table');
   assert.match(html, /combined-schedule/);
   assert.match(html, /parts-schedule/);
   const projections = [...html.matchAll(/<svg[^>]+data-compact-view="([^"]+)"[\s\S]*?<\/svg>/g)];
-  assert.deepEqual(projections.map(match => match[1]), ['front','back','left','right','top','interior']);
+  assert.deepEqual(projections.map(match => match[1]), ['back','left','right','top']);
+  assert.deepEqual([...new Set([...html.matchAll(/data-drawing-view="([^"]+)"/g)].map(match=>match[1]))], ['front','back','left','right','top','interior']);
   for (const [svg] of projections) {
     const fonts = [...svg.matchAll(/font-size="([\d.]+)"/g)].map(match => Number(match[1]));
-    assert.ok(fonts.length && fonts.every(font => font >= 9.2), 'text is laid out freshly in each panel at a minimum 6.5 pt print size');
-    assert.match(svg, /viewBox="0 0 350 335"/);
+    assert.ok(fonts.length && fonts.every(font => font >= 14), 'text uses approximately 3.5 mm nominal font size at A4');
+    assert.match(svg, /viewBox="0 0 530 676"/);
   }
   const full = generateDrawingHTML(project, { cabinetId: cabinet.id, compact: false, language: 'en' });
   assert.doesNotMatch(full, /data-compact-view=/);
-  assert.equal((full.match(/width="297mm" height="210mm"/g)||[]).length, 6);
+  assert.deepEqual([...new Set([...full.matchAll(/data-drawing-view="([^"]+)"/g)].map(match=>match[1]))], ['front','back','left','right','top','interior']);
   const complex = createLaundryExample();
   const detailed = generateDrawingHTML(complex, { cabinetId: complex.cabinets[0].id });
-  assert.deepEqual(detailed.match(/data-projections="\d"/g), ['data-projections="2"','data-projections="2"','data-projections="2"']);
+  assert.deepEqual([...new Set([...detailed.matchAll(/data-drawing-view="([^"]+)"/g)].map(match=>match[1]))], ['front','back','left','right','top','interior']);
+  assert.match(detailed, /data-drawing-view="interior" data-annotation-page="1"/);
+  assert.match(detailed,/Техника|Çamaşır|Kurutma/, 'equipment names remain present beside the local drawing or in its schedule');
   assert.match(detailed, /viewBox="0 0 530 676"/);
 });
 
-test('short internal drawer schedules share the readable opening and facade sheet in every print language', () => {
+test('short internal drawer schedules combine where readable and retain every opening and facade row', () => {
   const project=createDefaultProject(),cabinet=project.cabinets[0],top=getCabinetLayout(cabinet,project).sections[0].node;
   cabinet.name='Шкаф 1';top.shelves=0;top.internalDrawerCount=2;top.doorOpenings=['up','right'];
   const before=structuredClone(project);
@@ -483,15 +498,18 @@ test('short internal drawer schedules share the readable opening and facade shee
   for(const language of ['ru','tr','en']){
     const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language});
     const pages=[...html.matchAll(/<section class="sheet [\s\S]*?<\/section>/g)].map(match=>match[0]);
-    assert.equal(pages.length,8,'three view pages, one S/F/I page, hardware, two production pages and one sourced estimate');
+    assert.ok(pages.some(page=>page.includes('class="sheet assembly-sheet"')),'the cabinet passport also includes panel assembly');
     const schedules=pages.filter(page=>/data-schedule-kind="(?:openings|fronts|internal-fronts)"/.test(page));
-    assert.equal(schedules.length,1,'two internal drawer rows do not consume their own page');
-    for(const kind of ['openings','fronts','internal-fronts'])assert.ok(schedules[0].includes(`data-schedule-kind="${kind}"`));
-    assert.match(schedules[0],/>I1<\/td>/);assert.match(schedules[0],/>I2<\/td>/);
-    assert.match(schedules[0],/>S3<\/td>/);assert.match(schedules[0],/>F6<\/td>/);
-    const height=Number(schedules[0].match(/data-estimated-content-height="(\d+)"/)[1]),limit=Number(schedules[0].match(/data-content-height-limit="(\d+)"/)[1]);
-    assert.ok(height<=limit-80,'wrapped captions, headers and rows retain a substantial page margin');
-    assert.match(html,/\.sheet\.combined-schedule td,\.sheet\.combined-schedule th\{padding:5px 6px;font-size:10px;line-height:1\.25\}/,'compactness preserves readable 7.5 pt table text');
+    assert.ok(schedules.length<=2,'readable opening/facade schedules share at most two A4 sheets');
+    const contents=schedules.join('');
+    for(const kind of ['openings','fronts','internal-fronts'])assert.ok(contents.includes(`data-schedule-kind="${kind}"`));
+    assert.match(contents,/>I1<\/td>/);assert.match(contents,/>I2<\/td>/);
+    assert.match(contents,/>S3<\/td>/);assert.match(contents,/>F6<\/td>/);
+    for(const page of schedules){
+      const height=Number(page.match(/data-estimated-content-height="(\d+)"/)[1]),limit=Number(page.match(/data-content-height-limit="(\d+)"/)[1]);
+      assert.ok(height<=limit-20,'wrapped captions, headers and rows retain the reserved document-footer margin');
+    }
+    assert.match(html,/\.sheet\.combined-schedule td,\.sheet\.combined-schedule th\{padding:5px 6px;font-size:14px;line-height:1\.25\}/,'compactness preserves comfortable 10.5 pt table text');
   }
   assert.deepEqual(project,before);
   const full=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'tr',compact:false});
@@ -532,7 +550,7 @@ test('Turkish and English export vocabulary translates construction terms while 
     sections.forEach(section => assert.ok(html.includes(section.node.name),'custom section names are not dictionary fragments'));
     assert.ok(html.includes(opening));
     assert.ok(html.includes(drawer));
-    const visible = html.replace(/<style>[\s\S]*?<\/style>/g,'').replace(/<[^>]*>/g,' ');
+    const visible = html.replace(/<style>[\s\S]*?<\/style>/g,'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ');
     const systemText = [cabinet.name,...sections.map(section=>section.node.name)].reduce((text,name)=>text.replaceAll(name,''),visible);
     assert.doesNotMatch(systemText,/[А-Яа-яЁё]/,'all generated labels, part names, gauge units and table prose are localized');
     const drawerPart = generateParts(project).find(part=>/Ящик 1 · дно$/.test(part.name));
@@ -715,7 +733,9 @@ test('floor-length sides keep the raised bottom and front plinth without fabrica
     assert.ok(plinth.length>0);
     assert.ok(plinth.every(face=>face.points.every(point=>point[1]>=cabinet.y&&point[1]<cabinet.y+100)));
   });
-  assert.match(createPartSvg(sides[0],project,{language:'en'}),/>2,200<\/text>/);
+  const sideDrawing = createPartSvg(sides[0],project,{language:'en'});
+  assert.match(sideDrawing,/>2,199<\/text>/);
+  assert.match(sideDrawing,/Finished size including edge bands: 616 \u00d7 2,200 mm|Finished size including edge bands: 617 \u00d7 2,200 mm/);
   assert.match(createDrawingSvg(project,'front',{cabinetId:cabinet.id,language:'en'}),/>2,200<\/text>/);
   assert.deepEqual(project,before);
   delete cabinet.sidesToFloor;
@@ -882,15 +902,15 @@ test('front and construction drawings distinguish real panel-centre mounting hei
   const before=structuredClone(project), middle=getSectionMountingAxes(cabinet,project).find(axis=>axis.id==='section-middle');
   assert.deepEqual([middle.bottom,middle.top,middle.height,middle.openingHeight],[775,1273,498,480]);
   for(const view of ['front','interior']) {
-    const svg=createDrawingSvg(project,view,{cabinetId:cabinet.id,language:'en'});
+    const svg=drawingPages(project,view,{cabinetId:cabinet.id,language:'en'});
     assert.match(svg,/data-section-axis="section-middle" data-axis-bottom-mm="775" data-axis-top-mm="1273" data-axis-height-mm="498"/);
-    assert.match(svg,/>S2 A498<\/text>/);
-    assert.match(svg,/A · Between fixing centers, mm/);
+    assert.match(svg,/>A=498<\/text>/);
+    assert.match(svg,/A = Between fixing centers, mm/);
     assert.doesNotMatch(svg,/NaN|undefined|Infinity/);
     if(view==='interior')assert.match(svg,/Opening 1,164 × 480 mm/);
     const compact=createDrawingSvg(project,view,{cabinetId:cabinet.id,language:'en',compact:true});
-    assert.match(compact,/>S2 A498<\/text>/);
-    assert.match(compact,/data-min-font="9.2"/);
+    assert.match(compact,/>A=498<\/text>/);
+    assert.match(compact,/data-min-font="14"/);
   }
   for(const [language,label] of [['ru','Между осями крепления, мм'],['tr','Bağlantı eksenleri arası, mm'],['en','Between fixing centers, mm']]) {
     const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language}).replace(/[\u00a0\u202f]/g,' ');
@@ -908,9 +928,9 @@ test('floor portals display a missing lower fixing axis instead of zero height o
     const svg=createDrawingSvg(project,view,{cabinetId:cabinet.id,language:'en'});
     const missing=/<g data-section-axis="laundry-floor" data-axis-bottom-mm="missing" data-axis-top-mm="1495" data-axis-height-mm="missing">([\s\S]*?)<\/g>/.exec(svg);
     assert.ok(missing);
-    assert.match(missing[1],/>S4 A—<\/text>/);
+    assert.match(missing[1],/<title>S4 A—<\/title>/);
     assert.doesNotMatch(missing[1],/<path|A0</,'an absent lower plate cannot produce a mounting dimension or endpoint');
-    if(view==='interior')assert.match(svg,/No lower fixing axis/);
+    if(view==='interior')assert.match(drawingPages(project,view,{cabinetId:cabinet.id,language:'en'}),/No lower fixing axis/);
   }
   const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.match(html,/<td>928 × 1,486<\/td><td>—<\/td>/);
@@ -1038,8 +1058,8 @@ test('push-to-open removes handles while internal print fronts remain distinct f
 test('production printing reports each real edge-band length and grouped material totals without changing finished geometry', () => {
   const project=createDefaultProject(),cabinet=project.cabinets[0],parts=generateParts(project),summary=getEdgeBandingSummary(parts);
   const before=structuredClone(project), sides=parts.filter(part=>/^Боковина/.test(part.name));
-  assert.equal(getPartEdgeBanding(sides[0]).lengthMeters,2.2);
-  assert.equal(summary.lengthMeters,33.868);
+  assert.equal(getPartEdgeBanding(sides[0]).lengthMeters,2.817);
+  assert.equal(summary.lengthMeters,35.102);
   const html=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.match(html,/<th>Edge band length, m<\/th>/);
   assert.ok(html.includes(`Total edge band: ${printNumber(summary.lengthMeters,'en')} m`));
@@ -1052,9 +1072,10 @@ test('production printing reports each real edge-band length and grouped materia
   const deducted=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'en'});
   assert.ok(deducted.includes(`Total edge band: ${printNumber(summary.lengthMeters,'en')} m`),'deducting cutting blanks does not shorten band lengths based on finished outlines');
   const tr=generateDrawingHTML(project,{cabinetId:cabinet.id,language:'tr'});
-  assert.match(tr,/Toplam kenar bandı: 33,868 m/);
-  assert.match(tr,/class="edge-summary"/);
-  assert.equal((tr.match(/class="sheet /g)||[]).length,4,'edge totals still fit beneath production; the sourced cost estimate has its own sheet');
+  assert.match(tr,/Toplam kenar bandı: 35,102 m/);
+  assert.match(tr,/Toplam kenar bandı:/);
+  const cutting=[...tr.matchAll(/<section class="sheet schedule parts-schedule"[\s\S]*?<\/section>/g)].map(match=>match[0]).join('');
+  assert.equal((cutting.match(/<td>P\d+<\/td>/g)||[]).length,parts.length,'pagination retains every real cutting panel');
 });
 
 function sectionBaseProject(globalPlinth=100) {

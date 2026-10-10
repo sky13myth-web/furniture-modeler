@@ -24,7 +24,7 @@ test('purchase estimate includes full sheets and hidden-drawer hardware without 
 test('rod lengths and two holders each are quoted separately without MDF sheet or hardware duplication',()=>{
   const project=createRodsExample('tr');
   project.materials.forEach(material=>material.pricePerSheet=0);
-  project.settings.pricing={handlePrice:0,guideSetPrice:0,hingePrice:0,edgeBandPricePerMeter:0};
+  project.settings.pricing={handlePrice:0,guideSetPrice:0,hingePrice:0,edgeBandPricePerMeter:0,rearNailPrice:0};
   const before=structuredClone(project),missing=getProjectCostEstimate(project);
   assert.equal(missing.hardware.rods,2);
   assert.equal(missing.hardware.rodHolders,4);

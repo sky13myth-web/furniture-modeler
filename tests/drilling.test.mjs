@@ -54,6 +54,8 @@ test('drilling is an optional nonmutating feature; incomplete countersink setup 
   assert.ok(plan.warnings.some(w => w.code === 'countersink-setup'));
   assert.equal(DRILLING_DEFAULTS.screwDiameter, 7);
   assert.equal(normalizeDrillingSettings({ enabled: true, screwLength: '60' }).screwLength, 60);
+  assert.ok(!Object.hasOwn(DRILLING_DEFAULTS, 'integerSpacing'));
+  for (const integerSpacing of [true, false]) assert.ok(!Object.hasOwn(normalizeDrillingSettings({ integerSpacing }), 'integerSpacing'));
 });
 
 test('raw references account for only the physical band sides; screw axes follow actual plate centres', () => {
@@ -73,11 +75,176 @@ test('raw references account for only the physical band sides; screw axes follow
   assert.deepEqual([...new Set(leftThrough.map(h => h.a))].sort((a, b) => a - b), [50, 307.5, 565]);
 });
 
+test('legacy integer-spacing flags cannot change exact paired drilling stations', () => {
+  const { project } = fixture({ depth: 623 });
+  const exact = generateDrillingPlan(project);
+  assertPaired(exact);
+  const left = exact.parts.find(part => part.name === 'Боковина левая');
+  const stations = plan => [...new Set(plan.holes.filter(hole => hole.partId === left.id && hole.kind === 'clearance').map(hole => hole.a))].sort((a,b)=>a-b);
+  assert.deepEqual(stations(exact), [50, 309.5, 569]);
+  for (const integerSpacing of [true, false]) {
+    project.settings.drilling.integerSpacing = integerSpacing;
+    const before = structuredClone(project), restored = generateDrillingPlan(project);
+    assertPaired(restored); assert.deepEqual(project, before);
+    assert.deepEqual(restored, exact);
+    assert.ok(!Object.hasOwn(restored.settings, 'integerSpacing'));
+  }
+});
+
+test('two-screw mode uses exactly two safe shared stations while automatic mode preserves legacy coordinates',()=>{
+  const {project}=fixture({depth:623}),before=structuredClone(project),automatic=generateDrillingPlan(project);
+  project.settings.drilling.screwsPerJoint='auto';assert.deepEqual(generateDrillingPlan(project),automatic);
+  assert.equal(normalizeDrillingSettings({screwsPerJoint:'2'}).screwsPerJoint,2);
+  project.settings.drilling.screwsPerJoint=2;
+  const two=generateDrillingPlan(project);assertPaired(two);assert.equal(two.settings.screwsPerJoint,2);
+  assert.ok(two.joints.every(joint=>joint.pairIds.length===2));assert.equal(two.holes.length,two.joints.length*6);
+  const left=two.parts.find(part=>part.name==='Боковина левая');
+  assert.deepEqual([...new Set(two.holes.filter(h=>h.partId===left.id&&h.kind==='clearance').map(h=>h.a))].sort((a,b)=>a-b),[50,569]);
+  for(const hole of two.holes){if(hole.kind==='pilot')assert.equal(hole.depth,34);if(hole.kind==='countersink')assert.equal(hole.depth,null);}
+  project.settings.drilling=before.settings.drilling;assert.deepEqual(project,before);
+});
+
+test('exactly two screws retain fractional stations, raw edges and 18/25 mm centres through mirrored L rotations',()=>{
+  for(const thickness of [18,25])for(const corner of ['back-left','back-right'])for(const rotation of [90,-90,37]) {
+    const {project,cabinet}=fixture({width:913.7654321,depth:620.1234567,height:2200.9876543,rotation,x:1342.17,z:2123.91,y:350.25,cutout:{corner,width:300.1234567,depth:200.1234567}},{screwsPerJoint:2,endOffset:50.5,maxSpacing:20.1,countersinkDepth:1.234,pilotExtraDepth:2.25});
+    project.materials.find(m=>m.id===cabinet.materialId).thickness=thickness;
+    const before=structuredClone(project),plan=generateDrillingPlan(project);assertPaired(plan);assert.equal(plan.joints.length,6);
+    assert.ok(plan.joints.every(joint=>joint.pairIds.length===2));assert.equal(plan.holes.length,36);
+    assert.ok(plan.holes.some(h=>h.a%1!==0||h.b%1!==0));
+    for(const hole of plan.holes){if(hole.kind==='pilot'){assert.equal(hole.thicknessCoordinate,thickness/2);assert.equal(hole.depth,52.25-thickness);}if(hole.kind==='countersink')assert.equal(hole.depth,1.234);}
+    assert.deepEqual(project,before);
+  }
+});
+
+test('two-screw mode places two total across separate accessible ranges of one joint',()=>{
+  const {project}=fixture({depth:623}),parts=generateParts({...project,settings:{...project.settings,deductEdge:true}});
+  const left=parts.find(part=>part.name==='Боковина левая');
+  // A real plate outside the head-entry face closes only the middle of the
+  // joint. Supplied geometry isolates access handling from layout generation.
+  parts.push({...structuredClone(left),id:'qa-access-blocker',name:'QA access blocker',width:200,finishedWidth:200,height:2200,finishedHeight:2200,
+    position:{x:-18,y:0,z:200},edges:{left:0,right:0,top:0,bottom:0}});
+  const before=structuredClone(parts),automatic=generateDrillingPlan(project,{parts});assertPaired(automatic);
+  assert.ok(automatic.joints.filter(joint=>joint.throughPartId===left.id).every(joint=>joint.pairIds.length===4));
+  project.settings.drilling.screwsPerJoint=2;
+  const two=generateDrillingPlan(project,{parts});assertPaired(two);
+  assert.equal(two.joints.length,4);assert.equal(two.holes.length,24);assert.ok(two.joints.every(joint=>joint.pairIds.length===2));
+  for(const joint of two.joints.filter(joint=>joint.throughPartId===left.id)) {
+    const stations=two.holes.filter(hole=>joint.pairIds.includes(hole.pairId)&&hole.kind==='clearance').map(hole=>hole.cabinetEntry.z);
+    assert.deepEqual(stations,[53,572]);assert.ok(stations.every(z=>z<=150||z>=450));
+  }
+  assert.deepEqual(parts,before);
+});
+
+test('two-screw mode blocks invalid counts and joints that cannot hold two safe distinct holes',()=>{
+  for(const screwsPerJoint of [0,1,3,'invalid',null,true]) {
+    const plan=generateDrillingPlan(fixture({}, {screwsPerJoint}).project);
+    assert.equal(plan.valid,false);assert.deepEqual(plan.holes,[]);assert.ok(plan.errors.some(e=>e.code==='invalid-setting'&&e.field==='screwsPerJoint'));
+  }
+  const plan=generateDrillingPlan(fixture({depth:110},{screwsPerJoint:2}).project);
+  assert.equal(plan.valid,false);assert.ok(plan.errors.some(e=>e.code==='joint-too-short'));assert.ok(plan.joints.every(j=>j.pairIds.length===2));
+});
+
+test('exact stations preserve 18/25 mm plate centres and decimal mirrored L boundaries after rotation', () => {
+  for (const thickness of [18,25]) for (const corner of ['back-left','back-right']) for (const rotation of [90,-90,37]) {
+    const { project,cabinet } = fixture({ width: 913.7654321, depth: 620.1234567, height: 2200.9876543, rotation, x:1342.17,z:2123.91,y:350.25,
+      cutout:{corner,width:300.1234567,depth:200.1234567} }, {countersinkDepth:1.5,pilotExtraDepth:2.25});
+    project.materials.find(material => material.id === cabinet.materialId).thickness=thickness;
+    const exact=generateDrillingPlan(project);
+    project.settings.drilling.integerSpacing=true;
+    const restored=generateDrillingPlan(project);
+    assertPaired(restored); assert.equal(restored.joints.length,6);
+    assert.deepEqual(restored,exact);
+    assert.ok(!restored.warnings.some(warning=>warning.code==='fractional-references'));
+    for(const hole of restored.holes){
+      if(hole.kind==='pilot')assert.equal(hole.thicknessCoordinate,thickness/2);
+      if(hole.kind==='countersink')assert.equal(hole.depth,1.5);
+    }
+  }
+});
+
+test('fractional minimum offsets and maximum gaps are preserved without duplicate stations', () => {
+  const {project}=fixture({depth:623},{endOffset:50.5,maxSpacing:149.5,countersinkDiameter:10.5});
+  project.settings.drilling.integerSpacing=true;
+  const plan=generateDrillingPlan(project);assertPaired(plan);
+  for(const joint of plan.joints){
+    const positions=joint.pairIds.map(pairId=>plan.holes.find(hole=>hole.pairId===pairId).cabinetEntry.z).sort((a,b)=>a-b);
+    // Cabinet Z includes the existing 3 mm rear origin of this fixture.
+    assert.deepEqual(positions,[53.5,183,312.5,442,571.5]);
+    assert.equal(new Set(positions).size,positions.length);
+    assert.ok(positions.every((position,index)=>index===0||position-positions[index-1]<=149.5));
+  }
+});
+
 test('hole pairs and raw bases remain coaxial after cabinet rotation, room placement and elevation', () => {
   for (const rotation of [0, 37, 90, 180, 270]) {
     const { project } = fixture({ rotation, x: 1342.17, z: 2123.91, y: 350 });
     assertPaired(generateDrillingPlan(project));
   }
+});
+
+test('submillimetre model dimensions retain right-hand joints after cut-size recording', () => {
+  for (const width of [913.7654321, 913.7645679, 900.00049, 900.00051]) {
+    const { project } = fixture({ width, height: 2200.9876543, depth: 620.1234567, rotation: 37 });
+    const before = structuredClone(project), source = generateParts(project), plan = generateDrillingPlan(project);
+    assertPaired(plan);
+    assert.deepEqual(project, before);
+    assert.equal(plan.joints.length, 4);
+    assert.equal(plan.holes.length, 36);
+    for (const part of plan.parts) {
+      const cutPart = source.find(item => item.id === part.id);
+      assert.equal(part.width, cutPart.width);
+      assert.equal(part.height, cutPart.height);
+      assert.deepEqual(part.position, cutPart.position);
+    }
+    const rightPilots = plan.holes.filter(hole => hole.kind === 'pilot' && hole.face === 'edge-a-max');
+    assert.equal(rightPilots.length, 6);
+    for (const hole of rightPilots) {
+      const part = plan.parts.find(item => item.id === hole.partId);
+      assert.equal(hole.a, part.width);
+    }
+  }
+});
+
+test('recording tolerance does not accept a larger real gap at a receiving edge', () => {
+  const { project } = fixture(), source = generateParts(project);
+  source.find(part => part.name === 'Боковина правая').position.x += .00075;
+  const before = structuredClone(source), plan = generateDrillingPlan(project, { parts: source });
+  assert.equal(plan.valid, false);
+  assert.equal(plan.errors.filter(error => error.code === 'pilot-outside').length, 2);
+  assert.deepEqual(source, before);
+});
+
+test('decimal L-notch joints use contour extrema when the blank width rounds up or down', () => {
+  for (const width of [900.00049, 900.00051]) for (const corner of ['back-left', 'back-right']) {
+    const { project } = fixture({ width, cutout: { corner, width: 300, depth: 200 } });
+    const plan = generateDrillingPlan(project);
+    assertPaired(plan);
+    assert.equal(plan.joints.length, 6);
+    assert.equal(plan.joints.filter(joint => joint.throughPartId === plan.parts.find(part => part.name === 'Боковина правая').id).length, 2);
+  }
+});
+
+test('seeded decimal L cabinets preserve all six outer joints without moving recorded panels', () => {
+  let seed = 17421;
+  const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  for (let index = 0; index < 100; index++) {
+    const width = 600 + random() * 1000, height = 900 + random() * 1200, depth = 500 + random() * 350;
+    const { project } = fixture({ width, height, depth, cutout: {
+      corner: index % 2 ? 'back-left' : 'back-right', width: width * (.2 + random() * .25), depth: depth * (.3 + random() * .15)
+    } });
+    const source = generateParts(project), plan = generateDrillingPlan(project);
+    assertPaired(plan);
+    assert.equal(plan.joints.length, 6, `seeded cabinet ${index}`);
+    assert.deepEqual(plan.parts.map(part => [part.width, part.height, part.position, part.outline]), source.map(part => [part.width, part.height, part.position, part.outline]));
+  }
+});
+
+test('recording tolerance does not expand an internal notch boundary', () => {
+  const { project } = fixture({ cutout: { corner: 'back-left', width: 300, depth: 200 } }), source = generateParts(project);
+  source.find(part => part.name === 'Возвратная боковина выреза').position.x -= .0004;
+  const plan = generateDrillingPlan(project, { parts: source });
+  assert.equal(plan.valid, false);
+  assert.equal(plan.errors.filter(error => error.code === 'pilot-outside').length, 2);
 });
 
 test('pilot depth follows the actual through plate gauge, with editable tip allowance', () => {

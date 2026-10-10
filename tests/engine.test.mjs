@@ -710,12 +710,12 @@ test('new floor-length outer sides retain the raised bottom, plinth front and se
   const layout = getCabinetLayout(cabinet, project);
   const parts = generateParts(project);
   const sideParts = parts.filter(item => item.name.startsWith('Боковина'));
-  assert.deepEqual(sideParts.map(item => [item.height, item.position.y]), [[2200, -100], [2200, -100]]);
+  assert.deepEqual(sideParts.map(item => [item.height, item.finishedHeight, item.position.y]), [[2199, 2200, -100], [2199, 2200, -100]]);
   const retained = parts.filter(item => !item.name.startsWith('Боковина') && item.role !== 'plinth');
   const plinth = parts.find(item => item.role === 'plinth');
   cabinet.sidesToFloor = false;
   const shorter = generateParts(project);
-  assert.deepEqual(shorter.filter(item => item.name.startsWith('Боковина')).map(item => [item.height, item.position.y]), [[2100, 0], [2100, 0]]);
+  assert.deepEqual(shorter.filter(item => item.name.startsWith('Боковина')).map(item => [item.height, item.finishedHeight, item.position.y]), [[2099, 2100, 0], [2099, 2100, 0]]);
   assert.deepEqual(shorter.filter(item => !item.name.startsWith('Боковина') && item.role !== 'plinth'), retained);
   const exposedPlinth = shorter.find(item => item.role === 'plinth');
   assert.deepEqual([plinth.position.x, plinth.finishedWidth, plinth.finishedHeight], [18, 1164, 90]);

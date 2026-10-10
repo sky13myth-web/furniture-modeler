@@ -1,6 +1,7 @@
 /** Quantity schedule only. Hardware model, loading, drilling and compatibility
  * must be selected from the actual hinge/runner/lift manufacturer's passport. */
 import { getCabinetLayout, getFrontLayout, getInternalDrawerLayout, getRodLayout } from './engine.js';
+import { getRearFasteningSchedule } from './drilling.js';
 
 /** Our editable preliminary height estimate, never a universal hardware rule.
  * Door width, mass, material and the chosen mechanism remain to be checked. */
@@ -55,7 +56,22 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
 
 export function getProjectHardwareSchedule(project) {
   const cabinets = (project?.cabinets ?? []).map(cabinet => getHardwareSchedule(cabinet, project));
+  const rear = getRearFasteningSchedule(project);
+  for (const cabinet of cabinets) {
+    cabinet.rearFastenings = rear.rows.filter(row => row.cabinetId === cabinet.cabinetId);
+    cabinet.rearTotals = { screws: 0, nails: 0 };
+    for (const row of cabinet.rearFastenings) {
+      const kind = row.method === 'screw' ? 'rear-screw' : row.method === 'nail' ? 'rear-nail' : null;
+      if (!kind || !row.quantity) continue;
+      cabinet.rearTotals[kind === 'rear-screw' ? 'screws' : 'nails'] += row.quantity;
+      cabinet.rows.push({ id: `${row.partId}-fasteners`, cabinetId: cabinet.cabinetId, cabinetName: cabinet.cabinetName,
+        partId: row.partId, partCode: row.partCode, kind, quantity: row.quantity, unit: 'pcs', source: 'back-panel',
+        planned: false, ...(kind === 'rear-screw' ? { diameter: row.screwDiameter, length: row.screwLength } : {}) });
+    }
+  }
   const totals = emptyTotals();
   for (const schedule of cabinets) for (const key of Object.keys(totals)) totals[key] += schedule.totals[key];
-  return { cabinets, rows: cabinets.flatMap(schedule => schedule.rows), totals };
+  return { cabinets, rows: cabinets.flatMap(schedule => schedule.rows), totals,
+    rearTotals: rear.totals, rearFastenings: rear.rows, rearIssues: rear.errors,
+    rearValid: rear.valid && !rear.rows.some(row=>row.unsupported) };
 }

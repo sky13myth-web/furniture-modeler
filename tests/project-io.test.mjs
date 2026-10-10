@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createDefaultProject, validateProject } from '../src/engine.js';
 import { checkImport, csvCell, validateLayoutSchema, validateHingesPerDoor } from '../src/project-io.js';
 import { remapWindows } from '../src/room-geometry.js';
+import { normalizeDrillingSettings } from '../src/drilling.js';
 
 test('optional drilling settings preserve legacy projects and nullable head seat setup', () => {
   const project = createDefaultProject();
@@ -13,7 +14,14 @@ test('optional drilling settings preserve legacy projects and nullable head seat
   assert.deepEqual(restored.settings.drilling, project.settings.drilling);
   restored.settings.drilling.countersinkDepth = 1.5;
   assert.doesNotThrow(() => checkImport(restored));
-  for (const settings of [null, [], 'drill', { enabled: 'true' }, { pilotExtraDepth: -1 }, { screwLength: Infinity }, { pilotDiameter: '5' }, { countersinkDepth: 0 }, { maxSpacing: 1e9 }]) {
+  for (const integerSpacing of [true, false]) {
+    restored.settings.drilling.integerSpacing = integerSpacing;
+    assert.doesNotThrow(() => checkImport(restored));
+    const normalized = normalizeDrillingSettings(restored.settings.drilling);
+    assert.ok(!Object.hasOwn(normalized, 'integerSpacing'));
+    assert.equal(normalized.countersinkDepth, 1.5);
+  }
+  for (const settings of [null, [], 'drill', { enabled: 'true' }, { integerSpacing: 'false' }, { integerSpacing: null }, { pilotExtraDepth: -1 }, { screwLength: Infinity }, { pilotDiameter: '5' }, { countersinkDepth: 0 }, { maxSpacing: 1e9 }]) {
     const invalid = structuredClone(project);
     invalid.settings.drilling = settings;
     assert.throws(() => checkImport(invalid), /сверловка|Сверловка/);

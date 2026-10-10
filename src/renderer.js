@@ -1,10 +1,12 @@
 import * as engine from './engine.js';
 import { getRoomOutline } from './room-geometry.js';
 import { printLanguage, printNumber, translatePrintText, translatePartName, translateMaterialName, translateBuiltInName } from './print-i18n.js';
-import { getProjectHardwareSchedule } from './hardware.js';
+import { getProjectHardwareSchedule, getHardwareSchedule } from './hardware.js';
+import { createDoorHingeSymbols } from './hinge-preview.js';
 import { generateCostHTML as renderCostSummary } from './pricing.js';
 import { productionPartCode } from './production-id.js';
 import { contourMarkerRegions } from './contour-markers.js';
+import { getDocumentInfo, printDocumentText, documentMetadataLine } from './print-document.js';
 const { getFrontLayout } = engine;
 
 const VIEWS = {
@@ -30,6 +32,41 @@ const round = value => Math.round(value * 100) / 100;
 const sizeText = (dimensions, language = 'ru') => ['width', 'height', 'depth'].map(axis => printNumber(number(dimensions[axis]), language)).join(' × ');
 const doorOpening = front => ['left','right','up'].includes(front.opening) ? front.opening : number(front.index)%2===1 ? 'right' : 'left';
 const doorOpeningText = opening => ({left:'Влево',right:'Вправо',up:'Вверх'}[opening] || 'Влево');
+
+const COMPACT_LABEL_FONT = 14;
+const PANEL_EDGE_CODES = { top: 'E1', right: 'E2', bottom: 'E3', left: 'E4' };
+function physicalPartEdges(part) {
+  return part.orientation === 'horizontal'
+    ? { top: 'Сзади', bottom: 'Спереди', left: 'Слева', right: 'Справа' }
+    : part.orientation === 'vertical-depth'
+      ? { top: 'Сверху', bottom: 'Снизу', left: 'Спереди', right: 'Сзади' }
+      : { top: 'Сверху', bottom: 'Снизу', left: 'Слева', right: 'Справа' };
+}
+function readingNotes(language, illustration = false) {
+  return [illustration && printDocumentText('illustration', language), printDocumentText('notToScale', language), printDocumentText('nominalTolerances', language)].filter(Boolean).join(' ');
+}
+function svgDocumentMetadata(project, language, { page=1, pageCount=1 }={}) {
+  const info = getDocumentInfo(project);
+  return `<text data-document-id="${escape(info.id)}" x="60" y="22" font-size="10" fill="#46554b">${escape(documentMetadataLine(info, { language, page, pageCount }))}</text>`;
+}
+/** Number only physical sheets, rather than nested schedule/estimate sections. */
+function identifyDrawingSheets(html, project, language) {
+  const info = getDocumentInfo(project), pattern = /<section\b[^>]*class="sheet(?: [^"]*)?"[^>]*>/g;
+  const sheets = [...html.matchAll(pattern)], count = sheets.length;
+  let numbered = html.slice(0, sheets[0]?.index ?? html.length);
+  sheets.forEach((sheet, index) => {
+    const page = index + 1, metadata = escape(documentMetadataLine(info, { language, page, pageCount: count }));
+    let body = html.slice(sheet.index + sheet[0].length, sheets[index + 1]?.index ?? html.length);
+    if (/^\s*<svg\b/.test(body)) {
+      // A full-sheet SVG already has a safe metadata area. Reuse it instead
+      // of overlaying a footer on the finished-size row at the bottom.
+      body = body.replace(/(<text data-document-id="[^"]+"[^>]*>)[\s\S]*?(<\/text>)/, (_, open, close) => open + metadata + close);
+    } else body = `<div class="document-identification" data-document-id="${escape(info.id)}">${metadata}<br>${escape(printDocumentText('nominalTolerances', language))}</div>` + body;
+    numbered += sheet[0].replace(/>$/, ` data-document-page="${page}" data-document-page-count="${count}">`) + body;
+  });
+  const css = '.sheet{position:relative}.sheet>.document-identification{position:absolute;left:12mm;right:12mm;bottom:2mm;font:8pt/1.25 Arial,sans-serif;color:#46554b;overflow-wrap:anywhere;z-index:1}.sheet.projection-sheet .projection-grid{height:170mm}@media print{.sheet.projection-sheet .projection-grid{height:170mm}}';
+  return numbered.replace('</style>', css + '</style>');
+}
 
 function colorShade(color, factor = 1) {
   const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color || '');
@@ -61,7 +98,7 @@ function cabinetData(project, source) {
     frontColor: material(project, source.frontMaterialId || source.materialId).color || '#d6c4a4',
     frontThickness: Math.max(3, number(material(project, source.frontMaterialId || source.materialId).thickness, 18)),
     backColor: material(project, source.backMaterialId || source.materialId).color || '#d6c4a4',
-    backThickness: source.includeBack === false ? 0 : Math.max(1, number(source.backThickness, number(material(project, source.backMaterialId).thickness, 3))),
+    backThickness: engine.getCabinetRearReservation(source, project),
   };
 }
 
@@ -82,7 +119,7 @@ function rotateCabinetNormal(c, n) {
 
 function modelLayout(c, project) {
   if (engine.getCabinetLayout) return engine.getCabinetLayout(c, project);
-  const t = number(material(project, c.materialId).thickness, 18), h = number(c.height) - number(c.plinth), d = number(c.depth) - (c.includeBack === false ? 0 : number(c.backThickness, 3));
+  const t = number(material(project, c.materialId).thickness, 18), h = number(c.height) - number(c.plinth), d = number(c.depth) - engine.getCabinetRearReservation(c, project);
   return { sections: [{ id: 'legacy', node: c, x: t, y: t, width: number(c.width) - t * 2, height: h - t * 2, depth: d, frontX: 0, frontY: 0, frontWidth: number(c.width), frontHeight: h }], partitions: [], thickness: t, bodyHeight: h, bodyDepth: d };
 }
 
@@ -203,6 +240,7 @@ export function layoutApplianceCallouts(annotations, { width, height, modelWidth
 }
 
 function makeScene(project, options, direction) {
+  if(options.exploded)return makeExplodedScene(project,options,direction);
   const faces = [], lines = [], shadows = [], labels = [];
   let currentCabinet = null, currentLayout = null;
   const face = (points, color, normal, id = null, extras = {}) => {
@@ -412,12 +450,22 @@ function makeScene(project, options, direction) {
         }
       }
     }
+    const hingeRows = options.hinges === true ? getHardwareSchedule(raw, project).rows.filter(row => row.kind === 'hinge') : [];
     for (const f of fronts) {
       const section = layout.sections.find(s => s.id === f.sectionId), fd = number(f.depth, bodyD);
       const fx = x + number(f.x), fy = bodyY + number(f.y), fw = number(f.width), fh = number(f.height), fz = bodyZ + fd;
       const opening=f.kind==='door'?doorOpening(f):null;
       const frontExtras = { component: 'front', sectionId: f.sectionId, frontIndex:f.index, openingMechanism:f.openingMechanism||'handle', ...(opening?{doorOpening:opening}:{}) };
       if (fw <= 0 || fh <= 0) continue;
+      if (f.kind === 'door' && options.hinges === true && !options.interior) {
+        const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? 2;
+        for (const hinge of createDoorHingeSymbols({ width: fw, height: fh, thickness: frontT, opening, opened: Boolean(options.doorsOpen), count })) {
+          const world = p => [fx + p[0], fy + p[1], fz + p[2]], extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, schematic: true, stroke: '#53605e' };
+          face(hinge.cupOutline.map(world), '#aebdb9', null, id, { ...extras, hingePart: 'cup' });
+          face(hinge.plate.map(world), '#b9c8c4', null, id, { ...extras, hingePart: 'plate' });
+          for (let index = 1; index < hinge.arm.length; index++) line(world(hinge.arm[index - 1]), world(hinge.arm[index]), '#465c58', 2.2, id, { ...extras, hingePart: 'arm' });
+        }
+      }
       if (f.kind === 'drawer') {
         const usableDepth = number(section?.usableDepth, fd), rearOffset = number(section?.rearOffset);
         const slide = options.doorsOpen ? Math.min(usableDepth * .48, 260) : 0;
@@ -540,16 +588,17 @@ function triangulate(vertices) {
   return result;
 }
 
-export function rasterizeFaces(faces, width, height, scale = 1, wireframe = false) {
+export function rasterizeFaces(faces, width, height, scale = 1, wireframe = false, {partPicking=false}={}) {
   const pixels = new Uint8ClampedArray(width * height * 4);
   const depth = new Float32Array(width * height);
   const owners = new Uint32Array(width * height);
   depth.fill(-Infinity);
-  const ownerIds = [null], ownerIndex = new Map();
+  const ownerIds = [null], ownerPartIds=[null], ownerPartCodes=[null], ownerIndex = new Map();
   const colors = new Map();
   for (const face of faces) {
-    let owner = ownerIndex.get(face.id);
-    if (owner === undefined) { owner = ownerIds.length; ownerIndex.set(face.id, owner); ownerIds.push(face.id); }
+    const ownerKey=partPicking?face.partId||null:face.id;
+    let owner = ownerIndex.get(ownerKey);
+    if (owner === undefined) { owner = ownerIds.length; ownerIndex.set(ownerKey, owner); ownerIds.push(face.id);ownerPartIds.push(partPicking?face.partId||null:null);ownerPartCodes.push(partPicking?face.partCode||null:null); }
     const color = wireframe ? '#e6e4da' : face.color;
     let rgb = colors.get(color);
     if (!rgb) {
@@ -584,19 +633,21 @@ export function rasterizeFaces(faces, width, height, scale = 1, wireframe = fals
       }
     }
   }
-  return { pixels, depth, owners, ownerIds, width, height, scale };
+  return { pixels, depth, owners, ownerIds, ownerPartIds, ownerPartCodes, width, height, scale };
 }
 
 /** A dependency-free furniture viewport. Coordinates and all dimensions are millimetres. */
 export class FurnitureViewport {
-  constructor(canvas, { onSelect = () => {}, onChange = () => {} } = {}) {
+  constructor(canvas, { onSelect = () => {}, onChange = () => {}, onPartSelect=()=>{}, onPartOpen=()=>{} } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.onSelect = onSelect;
+    this.onPartSelect=onPartSelect;
+    this.onPartOpen=onPartOpen;
     this.onChange = onChange;
     this.project = { cabinets: [], materials: [], room: {} };
     this.selectedId = null;
-    this.options = { dimensions: true, room: true, wireframe: false, doorsOpen: false, ceiling: false };
+    this.options = { dimensions: true, room: true, wireframe: false, doorsOpen: false, ceiling: false, hinges: true };
     this.view = '3d';
     this.yaw = VIEWS['3d'].yaw;
     this.elevation = VIEWS['3d'].elevation;
@@ -615,6 +666,7 @@ export class FurnitureViewport {
     this.listen('pointerdown', event => this.pointerDown(event));
     this.listen('pointermove', event => this.pointerMove(event));
     this.listen('pointerup', event => this.pointerUp(event));
+    this.listen('dblclick', event => this.doubleClick(event));
     this.listen('pointercancel', () => { this.drag = null; canvas.style.cursor = 'grab'; });
     this.listen('wheel', event => {
       event.preventDefault();
@@ -754,22 +806,33 @@ export class FurnitureViewport {
 
   pointerUp(event) {
     if (!this.drag) return;
+    this.lastPointerWasDrag=this.drag.moved;
     if (!this.drag.moved) {
-      const rect = this.canvas.getBoundingClientRect(), x = event.clientX - rect.left, y = event.clientY - rect.top;
-      if (this.view === '3d' && this.camera?.width < this.width && x >= this.camera.width) {
-        // An annotation is not a model face, and must not pick a clipped face.
-      } else if (this.depthFrame) {
-        const frame = this.depthFrame, px = Math.floor(x * frame.scale), py = Math.floor(y * frame.scale);
-        const owner = px >= 0 && py >= 0 && px < frame.width && py < frame.height ? frame.owners[py * frame.width + px] : 0;
-        this.onSelect(frame.ownerIds[owner] || null);
-      } else {
-        const hit = [...this.hits].reverse().find(item => pointInPolygon(x, y, item.screen));
-        this.onSelect(hit?.id || null);
-      }
+      const hit=this.visualHit(event);
+      if(hit){if(this.options.exploded)this.onPartSelect(hit.partId);else this.onSelect(hit.cabinetId);}
     }
     this.drag = null;
     this.canvas.style.cursor = 'grab';
     if (this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+  }
+
+  visualHit(event){
+    const rect=this.canvas.getBoundingClientRect(),x=event.clientX-rect.left,y=event.clientY-rect.top;
+    // Annotation gutters are not painted model faces.
+    if(this.view==='3d'&&this.camera?.width<this.width&&x>=this.camera.width)return null;
+    if(this.depthFrame){
+      const frame=this.depthFrame,px=Math.floor(x*frame.scale),py=Math.floor(y*frame.scale);
+      const owner=px>=0&&py>=0&&px<frame.width&&py<frame.height?frame.owners[py*frame.width+px]:0;
+      return {partId:frame.ownerPartIds?.[owner]||null,cabinetId:frame.ownerIds[owner]||null};
+    }
+    const hit=[...this.hits].reverse().find(item=>pointInPolygon(x,y,item.screen));
+    return {partId:hit?.partId||null,cabinetId:hit?.id||null};
+  }
+
+  doubleClick(event){
+    if(event.button!==0||!this.options.exploded||this.drag||this.lastPointerWasDrag)return;
+    const hit=this.visualHit(event);
+    if(hit?.partId)this.onPartOpen(hit.partId);
   }
 
   draw() {
@@ -783,12 +846,12 @@ export class FurnitureViewport {
     const axes = basis(this.yaw, this.elevation);
     const focused = this.options.focusCabinet ? (this.project.cabinets || []).find(c => c.id === this.selectedId) : null;
     const displayProject = focused ? { ...this.project, cabinets: [focused] } : this.project;
-    const showRoom = this.options.room && !focused;
-    const scene = makeScene(displayProject, { ...this.options, room: showRoom, interior: this.view === 'interior' || this.options.interior }, axes.direction);
+    const showRoom = this.options.room && !focused && !this.options.exploded;
+    const scene = makeScene(displayProject, { ...this.options, sourceProject:this.project, room: showRoom, interior: this.view === 'interior' || this.options.interior }, axes.direction);
     const calloutLabels = this.view === '3d' ? scene.labels.filter(label => label.appliance && (!showRoom || label.id === this.selectedId)) : [];
     const modelWidth = calloutLabels.length ? this.width - applianceCalloutBand(this.width) : this.width;
     let bounds = extent(displayProject, focused?.id, showRoom);
-    if (focused) {
+    if (focused||this.options.exploded) {
       const points = scene.faces.filter(face => face.id).flatMap(face => face.points);
       if (points.length) bounds = { min: [0, 1, 2].map(axis => Math.min(...points.map(p => p[axis]))), max: [0, 1, 2].map(axis => Math.max(...points.map(p => p[axis]))) };
     }
@@ -818,8 +881,8 @@ export class FurnitureViewport {
         ctx.fill();
         if (!item.shadow && item.stroke !== 'transparent') {
           ctx.globalAlpha = item.opacity ?? 1;
-          ctx.strokeStyle = item.stroke || (item.id === this.selectedId ? '#537f77' : '#686458');
-          ctx.lineWidth = item.id ? .8 : .6;
+          ctx.strokeStyle = item.stroke || (this.options.exploded&&item.partId===this.options.selectedPartId?'#009d8e':!this.options.exploded&&item.id===this.selectedId?'#537f77':'#686458');
+          ctx.lineWidth = this.options.exploded&&item.partId===this.options.selectedPartId?2:item.id ? .8 : .6;
           ctx.stroke();
         }
         if (item.id && !item.shadow) this.hits.push(item);
@@ -830,8 +893,8 @@ export class FurnitureViewport {
     const furniture = items.filter(item => item.layer === 5);
     if (!this.drawDepthFurniture(furniture, camera.scale)) furniture.forEach(paint);
     items.filter(item => item.layer > 5).forEach(paint);
-    if (this.options.selection !== false && this.selectedId) this.drawSelection(camera.project);
-    if (this.options.selection !== false && this.options.selectedSectionId) this.drawSectionSelection(camera.project);
+    if (this.options.selection !== false && this.selectedId&&!this.options.exploded) this.drawSelection(camera.project);
+    if (this.options.selection !== false && this.options.selectedSectionId&&!this.options.exploded) this.drawSectionSelection(camera.project);
     for (const label of scene.labels || []) {
       if (this.view === '3d' && label.appliance) continue;
       const position = camera.project(label.point);
@@ -842,7 +905,7 @@ export class FurnitureViewport {
       ctx.fillStyle = '#f7f9f3ee'; ctx.fillRect(position[0] - size / 2, position[1] - 10, size, 20);
       ctx.fillStyle = '#53675e'; ctx.fillText(text, position[0], position[1]); ctx.restore();
     }
-    if (this.options.dimensions) {
+    if (this.options.dimensions&&!this.options.exploded) {
       for (const dim of dimensionPairs(displayProject, this.selectedId, this.view, showRoom)) this.drawDimension(camera.project(dim.a), camera.project(dim.b), dim.label, dim.offset);
     }
     ctx.restore();
@@ -907,7 +970,7 @@ export class FurnitureViewport {
     const resolution = Math.min(number(this.options.rasterResolution,Math.min(1.5,globalThis.devicePixelRatio || 1)),Math.sqrt(number(this.options.rasterPixelBudget,1500000) / (this.width * this.height)));
     const width = Math.max(1, Math.ceil(this.width * resolution)), height = Math.max(1, Math.ceil(this.height * resolution));
     const faces = items.filter(item => !item.line);
-    this.depthFrame = rasterizeFaces(faces, width, height, resolution, this.options.wireframe);
+    this.depthFrame = rasterizeFaces(faces, width, height, resolution, this.options.wireframe,{partPicking:Boolean(this.options.exploded)});
     this.hits = faces;
     if (this.rasterCanvas.width !== width) this.rasterCanvas.width = width;
     if (this.rasterCanvas.height !== height) this.rasterCanvas.height = height;
@@ -918,8 +981,9 @@ export class FurnitureViewport {
     const tolerance = .45 / Math.max(.01, cameraScale);
     for (const item of items) {
       if(!item.line&&item.stroke==='transparent'&&!this.options.wireframe)continue;
-      const color = item.line ? item.color : this.options.selection !== false && item.id === this.selectedId ? '#537f77' : '#686458';
-      const width = item.line ? item.width : .8;
+      const selectedPart=this.options.exploded&&this.options.selection!==false&&item.partId===this.options.selectedPartId;
+      const color = item.line ? item.color : selectedPart?'#009d8e':!this.options.exploded&&this.options.selection!==false&&item.id===this.selectedId?'#537f77':'#686458';
+      const width = item.line ? item.width : selectedPart?2:.8;
       this.drawVisibleEdges(item.screen, !item.line, color, width, tolerance);
     }
     return true;
@@ -1015,13 +1079,147 @@ function svgDimension(a, b, label, offset) {
   const d = dimensionGeometry(a, b, offset);
   if (!d) return '';
   const line = (p, q) => `<path d="M${round(p[0])},${round(p[1])} L${round(q[0])},${round(q[1])}"/>`;
-  const textWidth = String(label).length * 7 + 14;
-  return `<g fill="none" stroke="#53605b" stroke-width="1">${line(a, add(d.a, mul(d.normal, 5)))}${line(b, add(d.b, mul(d.normal, 5)))}${line(d.a, d.b)}${[d.a, d.b].map(p => line([p[0] - 4, p[1] + 4], [p[0] + 4, p[1] - 4])).join('')}</g><rect x="${round(d.center[0] - textWidth / 2)}" y="${round(d.center[1] - 10)}" width="${textWidth}" height="20" fill="white"/><text x="${round(d.center[0])}" y="${round(d.center[1] + 4)}" text-anchor="middle" font-size="12" fill="#35433d">${escape(label)}</text>`;
+  const textWidth = String(label).length * 8 + 14;
+  const vertical=Math.abs(d.b[1]-d.a[1])>Math.abs(d.b[0]-d.a[0]),angle=vertical&&Math.hypot(d.b[0]-d.a[0],d.b[1]-d.a[1])>textWidth?-90:0;
+  const rotation=angle?` transform="rotate(${angle} ${round(d.center[0])} ${round(d.center[1])})"`:'';
+  return `<g fill="none" stroke="#53605b" stroke-width="1">${line(a, add(d.a, mul(d.normal, 5)))}${line(b, add(d.b, mul(d.normal, 5)))}${line(d.a, d.b)}${[d.a, d.b].map(p => line([p[0] - 4, p[1] + 4], [p[0] + 4, p[1] - 4])).join('')}</g><g data-drawing-label="dimension" data-anchor-x="${round(d.center[0])}" data-anchor-y="${round(d.center[1])}"><rect x="${round(d.center[0] - textWidth / 2)}" y="${round(d.center[1] - 10)}" width="${textWidth}" height="20" fill="white"${rotation}/><text x="${round(d.center[0])}" y="${round(d.center[1] + 4)}" text-anchor="middle" font-size="14" fill="#35433d"${rotation}>${escape(label)}</text></g>`;
 }
 
 function svgTextBlock(position, lines, fontSize = 11, maxWidth = 210) {
   const width = Math.min(maxWidth, Math.max(42, ...lines.map(line => String(line).length * fontSize * .57 + 14))), height = lines.length * (fontSize + 3) + 8;
-  return `<g><rect x="${round(position[0] - width / 2)}" y="${round(position[1] - height / 2)}" width="${round(width)}" height="${height}" rx="3" fill="white" fill-opacity=".92"/>${lines.map((line, i) => `<text x="${round(position[0])}" y="${round(position[1] - height / 2 + 7 + fontSize + i * (fontSize + 3))}" text-anchor="middle" font-size="${fontSize}" fill="#334a40">${escape(line)}</text>`).join('')}</g>`;
+  return `<g data-drawing-label="component" data-anchor-x="${round(position[0])}" data-anchor-y="${round(position[1])}"><rect x="${round(position[0] - width / 2)}" y="${round(position[1] - height / 2)}" width="${round(width)}" height="${height}" rx="3" fill="white" fill-opacity=".92"/>${lines.map((line, i) => `<text x="${round(position[0])}" y="${round(position[1] - height / 2 + 7 + fontSize + i * (fontSize + 3))}" text-anchor="middle" font-size="${fontSize}" fill="#334a40">${escape(line)}</text>`).join('')}</g>`;
+}
+
+const unescapeSvg=value=>String(value).replace(/&(amp|lt|gt|quot|#39);/g,(_,name)=>({amp:'&',lt:'<',gt:'>',quot:'"','#39':"'"}[name]));
+const printCharacterUnits=value=>Array.from(String(value)).reduce((sum,char)=>sum+(/[MWmw@%]/.test(char)?1.05:/[1ilI .,;:'|\u00a0\u202f]/.test(char)?.38:/[0-9]/.test(char)?.62:/[\x00-\x7f]/.test(char)?.75:1.05),0);
+function wrapDrawingLabel(value,limit=25,units=printCharacterUnits){
+  // Conservative Arial em widths keep wide capitals and Cyrillic custom names
+  // inside the fixed box; counting characters alone does not do that.
+  const max=limit*.64;
+  const words=String(value).split(/ +/),lines=[];let line='';
+  for(const word of words){
+    if(line&&units(line+' '+word)>max){lines.push(line);line='';}
+    const chars=Array.from(word);
+    while(units(chars.join(''))>max){if(line){lines.push(line);line='';}let chunk='';while(chars.length&&units(chunk+chars[0])<=max)chunk+=chars.shift();lines.push(chunk||chars.shift());}
+    const tail=chars.join('');if(tail)line+=(line?' ':'')+tail;
+  }
+  if(line||!lines.length)lines.push(line);return lines;
+}
+/** Numbers stay on their dimension lines; an opening summary gets its own
+ * section card and one straight leader. Dense collisions use another
+ * view page at the same scale instead of moving numbers away from the object. */
+function packDrawingLabels(markup,requestedPage=1){
+  const pattern=/<g data-drawing-label="([^"]+)" data-anchor-x="([^"]+)" data-anchor-y="([^"]+)">([\s\S]*?)<\/g>/g;
+  const entries=[...markup.matchAll(pattern)].map((match,index)=>{
+    const original=[...match[4].matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map(m=>unescapeSvg(m[1]));
+    const anchor=[Number(match[2]),Number(match[3])],kind=match[1];
+    if(kind==='dimension'){
+      const angle=Number(match[4].match(/transform="rotate\(([-\d.]+)/)?.[1]||0),width=Number(match[4].match(/width="([\d.]+)"/)?.[1]||80),height=20;
+      return {match,index,kind,anchor,original,raw:match[0],x:anchor[0]-(angle?height:width)/2,y:anchor[1]-(angle?width:height)/2,width:angle?height:width,height:angle?width:height};
+    }
+    const first=original[0]||'',mark=first.match(/^(S\d+(?:\.\d+)?|F\d+|I\d+)(?: · | )/),isLegend=/^A · /.test(first);
+    if(isLegend)return {match,index,kind,anchor,original,skip:true};
+    if(kind==='section'){
+      const code=mark?.[1]||first,lines=[code,...original.slice(1,3).flatMap(line=>wrapDrawingLabel(line,21))];
+      const metadata=match[4].match(/<rect\s+([^>]*?)\s+x=/)?.[1]||'';
+      return {match,index,kind,anchor,original,lines,section:true,code,metadata,width:210,height:lines.length*18+8,x:790,y:Math.max(12,Math.min(540-(lines.length*18+8),anchor[1]-(lines.length*18+8)/2))};
+    }
+    let lines,leader=false;
+    if(mark){
+      const code=mark[1];
+      if(code.startsWith('S'))lines=[first];
+      else{
+        const size=original[1]||first.slice(mark[0].length);
+        const value=size.replace(/\s*(?:мм|mm)$/, '').replace(/\s*×\s*/g,'×');
+        lines=/дверь|door|kapak/i.test(first)?[code,value]:[`${code} ${value}`];
+      }
+    }else if(/^R\d+ · /.test(first))lines=[first];
+    else{lines=wrapDrawingLabel(first.split(' · ')[0],21);leader=true;}
+    const width=leader?210:Math.max(30,Math.ceil(Math.max(...lines.map(line=>printCharacterUnits(line)*14))+12)),height=lines.length*18+8;
+    return {match,index,kind,anchor,original,lines,leader,width,height,x:leader?790:anchor[0]-width/2,y:leader?Math.max(12,Math.min(540-height,anchor[1]-height/2)):anchor[1]-height/2};
+  });
+  const visible=entries.filter(entry=>!entry.skip),pageBoxes=[];
+  const intersects=(a,b)=>Math.min(a.x+a.width,b.x+b.width)-Math.max(a.x,b.x)>-2.8&&Math.min(a.y+a.height,b.y+b.height)-Math.max(a.y,b.y)>-2.8;
+  // Main outline dimensions are generated last. Place them first so a dense
+  // optional annotation cannot displace the overall width/height to page two.
+  const layoutOrder=entries.filter(entry=>!entry.section).sort((a,b)=>(a.kind==='dimension'?0:1)-(b.kind==='dimension'?0:1)||(a.kind==='dimension'?b.index-a.index:a.index-b.index));
+  for(const entry of layoutOrder){
+    if(entry.skip)continue;
+    let page=pageBoxes.findIndex(boxes=>boxes.every(other=>!intersects(entry,other)));
+    if(page<0){page=pageBoxes.length;pageBoxes.push([]);}
+    entry.page=page+1;pageBoxes[page].push(entry);
+  }
+  const crossesBox=(leader,box)=>{
+    let low=0,high=1;
+    for(let axis=0;axis<2;axis++){
+      const start=leader.connection[axis],delta=leader.anchor[axis]-start,min=(axis?box.y:box.x)-3,max=(axis?box.y+box.height:box.x+box.width)+3;
+      if(Math.abs(delta)<1e-8){if(start<min||start>max)return false;continue;}
+      const a=(min-start)/delta,b=(max-start)/delta;low=Math.max(low,Math.min(a,b));high=Math.min(high,Math.max(a,b));
+      if(low>high)return false;
+    }
+    return high>.001&&low<.999;
+  };
+  const leadersOf=entry=>entry.section?[entry]:entry.leader?[{connection:entry.anchor,anchor:[entry.x-10,entry.anchor[1]]},{connection:[entry.x-10,entry.anchor[1]],anchor:[entry.x,entry.y+entry.height/2]}]:[];
+  // Search full-size free slots before adding a page; a straight leader must
+  // not cross another card/leader or pass through another opening's dot.
+  const sectionSlots=entry=>{
+    const preferred=entry.y,columns=entry.anchor[0]<500?[0,790]:[790,0];
+    return [preferred,...Array.from({length:Math.floor((528-entry.height)/18)+1},(_,index)=>12+index*18)].sort((a,b)=>Math.abs(a-preferred)-Math.abs(b-preferred)||a-b).flatMap(y=>columns.map(x=>({...entry,x,y,connection:[x===0?entry.width:x,y+entry.height/2]})));
+  };
+  const fits=(trial,boxes)=>!boxes.some(other=>intersects(trial,other)||crossesBox(trial,other)||leadersOf(other).some(leader=>assemblyLeadersConflict(trial,leader)||crossesBox(leader,trial)));
+  const sections=entries.filter(entry=>entry.section);
+  // Resolve the most constrained direct line first. A free-looking slot may
+  // otherwise reserve the only path through fixed facade/axis annotations.
+  const fixedBoxes=[...(pageBoxes[0]??[])];
+  sections.sort((a,b)=>sectionSlots(a).filter(trial=>fits(trial,fixedBoxes)).length-sectionSlots(b).filter(trial=>fits(trial,fixedBoxes)).length||a.anchor[1]-b.anchor[1]||a.index-b.index);
+  let attempts=0;
+  const solve=(pending,boxes)=>{
+    if(!pending.length)return [];
+    if(++attempts>5000)return null;
+    const available=pending.map(entry=>({entry,slots:sectionSlots(entry).filter(trial=>fits(trial,boxes))})).sort((a,b)=>a.slots.length-b.slots.length||a.entry.index-b.entry.index);
+    const {entry,slots}=available[0];if(!slots.length)return null;
+    const remaining=pending.filter(item=>item!==entry);
+    for(const trial of slots){const rest=solve(remaining,[...boxes,trial]);if(rest)return [trial,...rest];}
+    return null;
+  };
+  // A bounded search keeps the ordinary few-section cabinet on one sheet;
+  // pagination remains the readable fallback for genuinely dense layouts.
+  const together=sections.length<=8?solve(sections,fixedBoxes):null;
+  if(together){if(!pageBoxes[0])pageBoxes.push([]);for(const trial of together){const entry=entries[trial.index];Object.assign(entry,{x:trial.x,y:trial.y,connection:trial.connection,page:1});pageBoxes[0].push(entry);}}
+  for(const entry of together?[]:sections){
+    const preferred=entry.y,candidates=[preferred,...Array.from({length:Math.floor((528-entry.height)/18)+1},(_,index)=>12+index*18)].sort((a,b)=>Math.abs(a-preferred)-Math.abs(b-preferred)||a-b);
+    let placed=false;
+    for(let page=0;page<=pageBoxes.length&&!placed;page++){
+      const boxes=pageBoxes[page]||[];
+      const columns=entry.anchor[0]<500?[0,790]:[790,0];
+      for(const candidate of candidates.flatMap(y=>columns.map(x=>({x,y})))){
+        const {x,y}=candidate,trial={...entry,x,y,connection:[x===0?entry.width:x,y+entry.height/2]};
+        if(!fits(trial,boxes))continue;
+        Object.assign(entry,{x,y,connection:trial.connection,page:page+1});
+        if(!pageBoxes[page])pageBoxes.push([]);pageBoxes[page].push(entry);placed=true;break;
+      }
+    }
+  }
+  const pageCount=Math.max(1,pageBoxes.length),pageNumber=Math.max(1,Math.min(pageCount,Math.floor(number(requestedPage,1))));
+  let index=0,leaders='';
+  const html=markup.replace(pattern,()=>{
+    const entry=entries[index++];if(entry.skip||entry.page!==pageNumber)return '';
+    const {x,y,height,width,anchor,lines}=entry,connection=entry.connection??[x,y+height/2];
+    if(entry.leader)leaders+=`<path data-label-leader="${entry.index+1}" d="M${anchor.map(round).join(',')} L${x-10},${round(anchor[1])} L${connection.join(',')}" fill="none" stroke="#53605b" stroke-width=".8"/><circle cx="${round(anchor[0])}" cy="${round(anchor[1])}" r="2.3" fill="#53605b"/>`;
+    if(entry.section)leaders+=`<path data-section-leader="${entry.code}" d="M${connection.map(round).join(',')} L${anchor.map(round).join(',')}" fill="none" stroke="#53605b" stroke-width=".9"/><circle data-section-anchor-dot="${entry.code}" cx="${round(anchor[0])}" cy="${round(anchor[1])}" r="2.3" fill="#53605b"/>`;
+    const content=entry.raw||`<rect x="${round(x)}" y="${round(y)}" width="${width}" height="${height}" rx="2" fill="white" fill-opacity=".94"/>${lines.map((line,i)=>`<text x="${round(x+6)}" y="${round(y+18+i*18)}" font-size="14" fill="#35433d">${escape(line)}</text>`).join('')}`;
+    return `<g data-callout-index="${entry.index+1}" data-callout-page="${entry.page}" data-label-x="${round(x)}" data-label-y="${round(y)}" data-label-width="${width}" data-label-height="${height}" data-label-kind="${entry.leader?'name':entry.kind}" data-source-anchor-x="${round(anchor[0])}" data-source-anchor-y="${round(anchor[1])}"><title>${escape(entry.original.join(' · '))}</title>${entry.section?`<g data-section-callout="${entry.code}" data-section-mark="${entry.code}" ${entry.metadata}>${content}</g>`:content}</g>`;
+  });
+  return {html:`<g data-label-leaders="true">${leaders}</g>`+html,page:pageNumber,pageCount,labelCount:visible.length};
+}
+
+function sectionDrawingLabel(position,section,mark,cabinet,language,camera,bodyY,x,z,extraTitle=''){
+  const n=value=>printNumber(number(value),language),t=value=>translatePrintText(value,language),unit=language==='ru'?'мм':'mm';
+  const depth={ru:'Глубина',tr:'Derinlik',en:'Usable depth'}[language],name=translateBuiltInName(section.node.name,language,'section')||t('секция');
+  const lines=[`${mark} · ${name}`,`${t('Проём')} ${n(section.width)} × ${n(section.height)} ${unit}`,`${depth} ${n(section.usableDepth??section.depth)} ${unit}`,...(extraTitle?[extraTitle]:[])];
+  const lower=camera.project([x+section.x,bodyY+section.y,z+section.depth]),upper=camera.project([x+section.x+section.width,bodyY+section.y+section.height,z+section.depth]);
+  const metadata=`data-section-source-id="${escape(section.id)}" data-section-cabinet="${escape(cabinet.id)}" data-opening-width-mm="${section.width}" data-opening-height-mm="${section.height}" data-usable-depth-mm="${section.usableDepth??section.depth}" data-opening-screen-x="${round(Math.min(lower[0],upper[0]))}" data-opening-screen-y="${round(Math.min(lower[1],upper[1]))}" data-opening-screen-width="${round(Math.abs(upper[0]-lower[0]))}" data-opening-screen-height="${round(Math.abs(upper[1]-lower[1]))}"`;
+  return svgTextBlock(position,lines,14,230).replace('data-drawing-label="component"','data-drawing-label="section"').replace('<rect ',`<rect ${metadata} `);
 }
 
 function interiorSectionMark(layout,section){
@@ -1036,7 +1234,7 @@ function rodDrawingAnnotations(source,cabinet,view,camera,dimensions,language,co
   return (engine.getRodLayout?.(cabinet,source)||[]).map((rod,index)=>{
     const a=camera.project([number(cabinet.x)+rod.x,number(cabinet.y)+number(cabinet.plinth)+rod.y,number(cabinet.z)+rod.z]),b=camera.project([number(cabinet.x)+rod.x+rod.length,number(cabinet.y)+number(cabinet.plinth)+rod.y,number(cabinet.z)+rod.z]);
     const label=`R${index+1} · ${n(rod.length)} · Ø${n(rod.diameter)}`,point=[(a[0]+b[0])/2,(a[1]+b[1])/2-(compact?10:15)];
-    return `<g data-rod-id="${escape(rod.rodId||rod.id)}" data-section-id="${escape(rod.sectionId)}"${rod.interiorSectionId?` data-interior-section-id="${escape(rod.interiorSectionId)}"`:''} data-rod-length-mm="${round(rod.length)}" data-rod-diameter-mm="${round(rod.diameter)}" data-rod-axis-height-mm="${round(number(cabinet.plinth)+rod.y)}"><title>${escape(t('Штанга'))} R${index+1} · ${n(rod.length)} ${unit} · Ø${n(rod.diameter)}</title><path d="M${round(a[0])},${round(a[1])} L${round(b[0])},${round(b[1])}" fill="none" stroke="#5c797b" stroke-width="1.5"${view==='interior'?'':` stroke-dasharray="${compact?'4 3':'7 4'}"`}/>${svgTextBlock(point,[label],compact?9.2:10,Math.max(65,Math.abs(b[0]-a[0])-4))}${dimensions&&!compact?svgDimension(a,b,n(rod.length),view==='top'?20:-20):''}</g>`;
+    return `<g data-rod-id="${escape(rod.rodId||rod.id)}" data-section-id="${escape(rod.sectionId)}"${rod.interiorSectionId?` data-interior-section-id="${escape(rod.interiorSectionId)}"`:''} data-rod-length-mm="${round(rod.length)}" data-rod-diameter-mm="${round(rod.diameter)}" data-rod-axis-height-mm="${round(number(cabinet.plinth)+rod.y)}"><title>${escape(t('Штанга'))} R${index+1} · ${n(rod.length)} ${unit} · Ø${n(rod.diameter)}</title><path d="M${round(a[0])},${round(a[1])} L${round(b[0])},${round(b[1])}" fill="none" stroke="#5c797b" stroke-width="1.5"${view==='interior'?'':` stroke-dasharray="${compact?'4 3':'7 4'}"`}/>${svgTextBlock(point,[label],compact?14:10,Math.max(65,Math.abs(b[0]-a[0])-4))}${dimensions&&!compact?svgDimension(a,b,n(rod.length),view==='top'?20:-20):''}</g>`;
   }).join('');
 }
 
@@ -1050,7 +1248,7 @@ function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, la
       const point = camera.project([x + position.x + number(part.finishedWidth, part.width) / 2, bodyY + position.y + number(part.finishedHeight, part.height) / 2, number(cabinet.z) + position.z]);
       const sectionIndex=layout.sections.findIndex(section=>section.id===part.sectionId), localBottom=!part.sectionId||part.braceBaseY == null ? null : number(position.y)-number(part.braceBaseY);
       const mark=`C${i+1}${sectionIndex<0?'':` · S${sectionIndex+1}`}`;
-      return `<g data-brace-id="${escape(part.braceId||part.id)}"${part.sectionId?` data-section-id="${escape(part.sectionId)}"`:''} data-mount-cabinet-mm="${round(bottom)}"${localBottom==null?'':` data-mount-section-mm="${round(localBottom)}"`}>${svgTextBlock(point, compact ? [`${mark} · ${n(bottom)} ${unit}`] : [`${mark} · ${n(number(part.finishedWidth, part.width))} × ${n(number(part.finishedHeight, part.height))} × ${n(part.thickness)} ${unit}`, `${t('Низ от основания шкафа:')} ${n(bottom)} ${unit}`, ...(localBottom==null?[]:[`${t('Низ от основания секции:')} ${n(localBottom)} ${unit}`])], compact ? 9.2 : 10, 310)}</g>`;
+      return `<g data-brace-id="${escape(part.braceId||part.id)}"${part.sectionId?` data-section-id="${escape(part.sectionId)}"`:''} data-mount-cabinet-mm="${round(bottom)}"${localBottom==null?'':` data-mount-section-mm="${round(localBottom)}"`}>${svgTextBlock(point, compact ? [`${mark} · ${n(bottom)} ${unit}`] : [`${mark} · ${n(number(part.finishedWidth, part.width))} × ${n(number(part.finishedHeight, part.height))} × ${n(part.thickness)} ${unit}`, `${t('Низ от основания шкафа:')} ${n(bottom)} ${unit}`, ...(localBottom==null?[]:[`${t('Низ от основания секции:')} ${n(localBottom)} ${unit}`])], compact ? 14 : 10, 310)}</g>`;
     }).join('');
   }
   if (!['front', 'interior'].includes(view)) return '';
@@ -1066,24 +1264,29 @@ function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, la
     fronts.forEach((front, i) => {
       const position = camera.project([x + front.x + front.width / 2, bodyY + front.y + front.height / 2, z + number(front.depth, layout.bodyDepth)]);
       const availableWidth = front.width * camera.scale, availableHeight = front.height * camera.scale;
-      const font = compact ? 9.2 : Math.min(12, Math.max(8, Math.min(availableWidth / 13, availableHeight / 3.1)));
+      // Keep the opening-centre dot and its direct leader clear on tall doors.
+      // The facade's own numeric card remains within that same facade.
+      if(!compact&&front.kind==='door'&&availableHeight>=80)position[1]+=Math.min(52,availableHeight*.4)*(availableWidth<70&&availableHeight>=280&&i%2?1:-1);
+      const font = compact ? 14 : Math.min(12, Math.max(10, Math.min(availableWidth / 13, availableHeight / 3.1)));
       if (!compact || availableHeight >= 19) output += svgTextBlock(position, compact ? [`F${i + 1} ${n(front.width)}×${n(front.height)}`] : [`F${i + 1} · ${t(front.kind === 'door' ? 'дверь' : 'ящик')}`, `${n(front.width)} × ${n(front.height)} ${unit}`], font, Math.max(40, availableWidth - 6));
     });
-  } else {
+  }
+  if (view === 'interior' || !compact) {
     layout.sections.forEach((section, i) => {
       const hasInternal=number(section.node.internalDrawerCount)>0||Boolean(section.node.interiorLayout);
-      const position = camera.project([x + section.x + section.width / 2, bodyY + section.y + (hasInternal?section.height+16:section.height/2), z + section.depth]);
+      const position = camera.project([x + section.x + section.width / 2, bodyY + section.y + (compact&&hasInternal?section.height+16:section.height/2), z + section.depth]);
       const axis=mountingById.get(section.id), axisLine=axis?.height == null ? t(axis?.bottom == null?'Нет нижней оси крепления':'Нет пары осей крепления') : `A ${n(axis.height)} ${unit}`;
-      if (!compact || section.height * camera.scale >= 19) output += svgTextBlock(position, compact||hasInternal ? [`S${i + 1} ${n(section.width)}×${n(section.height)}`] : [`S${i + 1} · ${translateBuiltInName(section.node.name,language,'section') || t('секция')}`, `${t('Проём')} ${n(section.width)} × ${n(section.height)} ${unit}`, `${t('Полезная глубина')} ${n(section.usableDepth ?? section.depth)} ${unit}`, ...(dimensions?[axisLine]:[])], compact||hasInternal ? 9.2 : Math.min(11, Math.max(8, section.width * camera.scale / 23)), 230);
+      if(!compact)output+=sectionDrawingLabel(position,section,`S${i+1}`,cabinet,language,camera,bodyY,x,z,dimensions?axisLine:'');
+      else if(section.height*camera.scale>=19)output+=svgTextBlock(position,[`S${i+1} ${n(section.width)}×${n(section.height)}`],14,230);
     });
     (layout.internalSections||[]).forEach(section=>{
-      const mark=interiorSectionMark(layout,section),drawers=section.node.front==='drawers',position=camera.project([x+section.x+section.width/2,bodyY+section.y+(drawers?section.height+12:section.height/2),z+section.depth]);
+      const mark=interiorSectionMark(layout,section),drawers=section.node.front==='drawers',position=camera.project([x+section.x+section.width/2,bodyY+section.y+(compact&&drawers?section.height+12:section.height/2),z+section.depth]);
       const lines=compact||drawers?[`${mark} ${n(section.width)}×${n(section.height)}`]:[`${mark} · ${translateBuiltInName(section.node.name,language,'section')||t('секция')}`,`${t('Проём')} ${n(section.width)} × ${n(section.height)} ${unit}`,`${t('Полезная глубина')} ${n(section.usableDepth??section.depth)} ${unit}`];
-      output+=`<g data-interior-section="${escape(section.id)}" data-parent-section-id="${escape(section.parentSectionId)}" data-section-mark="${mark}" data-opening-width-mm="${round(section.width)}" data-opening-height-mm="${round(section.height)}">${svgTextBlock(position,lines,9.2,230)}</g>`;
+      output+=`<g data-interior-section="${escape(section.id)}" data-parent-section-id="${escape(section.parentSectionId)}" data-section-mark="${mark}" data-opening-width-mm="${round(section.width)}" data-opening-height-mm="${round(section.height)}">${compact?svgTextBlock(position,lines,14,230):sectionDrawingLabel(position,section,mark,cabinet,language,camera,bodyY,x,z)}</g>`;
     });
-    engine.getInternalDrawerLayout(cabinet,source).forEach((drawer,index)=>{
+    if(view==='interior')engine.getInternalDrawerLayout(cabinet,source).forEach((drawer,index)=>{
       const position=camera.project([x+drawer.x+drawer.width/2,bodyY+drawer.y+drawer.height/2,z+drawer.depth]);
-      output+=`<g data-internal-front="${index+1}" data-section-id="${escape(drawer.sectionId)}">${svgTextBlock(position,compact||drawer.height*camera.scale<34?[`I${index+1} ${n(drawer.width)}×${n(drawer.height)}`]:[`I${index+1} · ${t('Внутренний фасад')}`,`${n(drawer.width)} × ${n(drawer.height)} ${unit}`],9.2,240)}</g>`;
+      output+=`<g data-internal-front="${index+1}" data-section-id="${escape(drawer.sectionId)}">${svgTextBlock(position,compact||drawer.height*camera.scale<34?[`I${index+1} ${n(drawer.width)}×${n(drawer.height)}`]:[`I${index+1} · ${t('Внутренний фасад')}`,`${n(drawer.width)} × ${n(drawer.height)} ${unit}`],14,240)}</g>`;
     });
   }
   if (dimensions) {
@@ -1101,16 +1304,16 @@ function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, la
       const attributes=`data-section-axis="${escape(axis.id)}" data-axis-bottom-mm="${axis.bottom ?? 'missing'}" data-axis-top-mm="${axis.top ?? 'missing'}" data-axis-height-mm="${axis.height ?? 'missing'}"`;
       if (axis.height == null) {
         const p=camera.project([x+number(cabinet.width),bodyY+section.y+section.height/2,z+layout.bodyDepth]);
-        output+=`<g ${attributes}><text x="${round(p[0]+(compact?24:48))}" y="${round(p[1]+3)}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${compact?9.2:11}" fill="#586b63">${mark} A—</text></g>`;
+        output+=`<g ${attributes}>${svgTextBlock([p[0]+(compact?24:48),p[1]+3],[`${mark} A—`],14,230)}</g>`;
         return;
       }
       const lane=lanes.findIndex(intervals=>intervals.every(interval=>axis.top<=interval.bottom+.001 || axis.bottom>=interval.top-.001));
-      if (lane<0) return;
-      lanes[lane].push(axis);
+      const assigned=lane<0?lanes.push([])-1:lane;
+      lanes[assigned].push(axis);
       const a=camera.project([x+number(cabinet.width),number(cabinet.y)+axis.bottom,z+layout.bodyDepth]), b=camera.project([x+number(cabinet.width),number(cabinet.y)+axis.top,z+layout.bodyDepth]);
-      output+=`<g ${attributes}>${svgDimension(a,b,`${mark} A${n(axis.height)}`,(compact?15:48)+lane*(compact?15:28))}</g>`;
+      output+=`<g ${attributes}>${svgDimension(a,b,`A=${n(axis.height)}`,(compact?15:28)+(assigned%3)*(compact?15:26))}</g>`;
     });
-    output+=`<text x="${compact?10:camera.width-8}" y="${compact?camera.height-1:18}" text-anchor="${compact?'start':'end'}" font-family="Arial, sans-serif" font-size="${compact?9.2:10}" fill="#586b63">A · ${escape(t('Между осями крепления'))}, ${unit}</text>`;
+    if(!compact)output+=svgTextBlock([camera.width-8,18],[`A · ${t('Между осями крепления')}, ${unit}`],14,230);
   }
   if (!dimensions || compact) return output;
   for (const axis of ['width', 'height']) {
@@ -1121,22 +1324,24 @@ function cabinetDrawingAnnotations(source, cabinet, view, camera, dimensions, la
     const occupied = [[], []];
     for (const interval of intervals) {
       const lane = occupied.findIndex(items => items.every(item => interval.end <= item.start + .01 || interval.start >= item.end - .01));
-      if (lane < 0) continue;
-      occupied[lane].push(interval);
+      const assigned=lane<0?occupied.push([])-1:lane;
+      occupied[assigned].push(interval);
       const a = axis === 'width' ? [x + interval.start, number(cabinet.y), z + layout.bodyDepth] : [x, bodyY + interval.start, z + layout.bodyDepth];
       const b = axis === 'width' ? [x + interval.end, number(cabinet.y), z + layout.bodyDepth] : [x, bodyY + interval.end, z + layout.bodyDepth];
-      output += svgDimension(camera.project(a), camera.project(b), n(interval.length), (axis === 'width' ? 1 : -1) * (53 + lane * 23));
+      output += svgDimension(camera.project(a), camera.project(b), n(interval.length), (axis === 'width' ? 1 : -1) * (53 + (assigned%2) * 23));
     }
   }
   return output;
 }
 
 /** Standalone, vector, landscape A4 drawing with millimetre dimensions. */
-export function createDrawingSvg(project, view = 'front', { cabinetId = null, dimensions = true, language = 'ru', compact = false } = {}) {
+export function createDrawingSvg(project, view = 'front', { cabinetId = null, dimensions = true, language = 'ru', compact = false, annotationPage = 1 } = {}) {
   language = printLanguage(language);
   const t = text => translatePrintText(text, language), n = value => printNumber(number(value), language), unit = language === 'ru' ? 'мм' : 'mm';
   if (!VIEWS[view] || view === '3d') view = 'front';
   const selected = (project.cabinets || []).find(c => c.id === cabinetId);
+  const title = selected ? translateBuiltInName(selected.name,language,'cabinet') || t('Корпус') : translateBuiltInName(project.name || project.title,language,'project') || t('Проект корпусной мебели');
+  const titleRows=Math.min(2,wrapDrawingLabel(title,50).length);
   if (cabinetId && !selected) cabinetId = null;
   // A cabinet manufacturing drawing follows its own axes regardless of its
   // position or rotation in a room. Room drawings preserve the actual placement.
@@ -1145,7 +1350,9 @@ export function createDrawingSvg(project, view = 'front', { cabinetId = null, di
   const axes = basis(VIEWS[view].yaw, VIEWS[view].elevation);
   const panel = typeof compact === 'object' ? compact : { width: 350, height: 335, padding: 35 };
   const compactPadding=selected&&dimensions&&['front','interior'].includes(view)?{x:panel.padding+48,y:panel.padding}:panel.padding;
-  const camera = projection(extent(source, cabinetId, !cabinetId), axes, compact ? panel.width : 1000, compact ? panel.height - 50 : 640, 1, { x: 0, y: 0 }, compact ? compactPadding : dimensions ? (selected && ['front', 'interior'].includes(view) ? 100 : 80) : 50);
+  const packed=Boolean(selected&&!compact);
+  const compactAxes=selected&&dimensions&&['front','interior'].includes(view);
+  const camera = projection(extent(source, cabinetId, !cabinetId), axes, compact ? panel.width : 1000, compact ? panel.height - (compactAxes?150:110) : packed?540:640, 1, { x: 0, y: 0 }, compact ? compactPadding : packed?{x:110,y:titleRows>1?45:20}:dimensions?80:50);
   camera.project.axes = axes;
   const scene = makeScene(source, { room: !cabinetId, dimensions, doorsOpen: false, ceiling: false, interior: view === 'interior' }, axes.direction);
   const items = screenItems(scene, camera.project).filter(item => !item.shadow);
@@ -1167,24 +1374,23 @@ export function createDrawingSvg(project, view = 'front', { cabinetId = null, di
       const fit = engine.getApplianceFit(label.section, label.appliance), gaps = fit.clearances;
       lines.push(`${t('Ниша с зазорами:')} ${sizeText(fit.required, language)} ${unit}`, t(`Зазоры: бок/сторона ${n(gaps.side)} · сверху ${n(gaps.top)} · сзади ${n(gaps.rear)} ${unit}`));
     }
-    return svgTextBlock(camera.project(label.point), lines, lines.length > 1 ? 9 : 10, 410);
+    return svgTextBlock(camera.project(label.point), lines, compact ? COMPACT_LABEL_FONT : lines.length > 1 ? 10 : 11, 410);
   }).join('') : '';
   const dims = dimensions ? dimensionPairs(source, cabinetId, view, !cabinetId).map(dim => svgDimension(camera.project(dim.a), camera.project(dim.b), n(Number(dim.label.replace(/[\s\u00a0\u202f]/g,''))), compact ? Math.sign(dim.offset) * 22 : dim.offset)).join('') : '';
-  const title = selected ? translateBuiltInName(selected.name,language,'cabinet') || t('Корпус') : translateBuiltInName(project.name || project.title,language,'project') || t('Проект корпусной мебели');
+  const annotation=packed?packDrawingLabels(labels+applianceLabels+dims,annotationPage):{html:labels+applianceLabels+dims,page:1,pageCount:1,labelCount:0};
   const viewName = t(VIEWS[view].name);
-  if (compact) return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="${panel.width}" height="${panel.height}" viewBox="0 0 ${panel.width} ${panel.height}" role="img" aria-label="${escape(title)}: ${escape(viewName)}" data-compact-view="${view}" data-min-font="9.2"><title>${escape(title)} — ${escape(viewName)}</title><rect width="${panel.width}" height="${panel.height}" fill="white"/><g font-family="Arial, sans-serif"><text x="10" y="18" font-size="13" font-weight="600" fill="#233c34">${escape(viewName)}</text><g transform="translate(0,28)">${geometry}${labels}${applianceLabels}${dims}</g><text x="10" y="${panel.height - 7}" font-size="10" fill="#617268">${selected ? `${sizeText(selected, language)} ${unit}` : `${t('Все размеры в миллиметрах')}`}</text></g></svg>`;
+  const compactNote=printDocumentText('notToScale',language),compactNoteLines=wrapDrawingLabel(compactNote,Math.floor((panel.width-20)/(14*.7)));
+  if (compact) return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="${panel.width}" height="${panel.height}" viewBox="0 0 ${panel.width} ${panel.height}" role="img" aria-label="${escape(title)}: ${escape(viewName)}" data-drawing-view="${view}" data-compact-view="${view}" data-min-font="14"><title>${escape(title)} — ${escape(viewName)}</title><rect width="${panel.width}" height="${panel.height}" fill="white"/><g font-family="Arial, sans-serif"><text x="10" y="18" font-size="14" font-weight="600" fill="#233c34">${escape(viewName)}</text><g transform="translate(0,28)">${geometry}${labels}${applianceLabels}${dims}</g>${compactAxes?`<text x="10" y="${panel.height-46-(compactNoteLines.length-1)*18}" font-size="14" fill="#586b63">A · ${escape(t('Между осями крепления'))}, ${unit}</text>`:''}<text x="10" y="${panel.height-24-(compactNoteLines.length-1)*18}" font-size="14" fill="#617268">${selected ? `${sizeText(selected, language)} ${unit}` : `${t('Все размеры в миллиметрах')}`}</text><g data-reading-note="not-to-scale"><title>${escape(compactNote)}</title>${compactNoteLines.map((line,index)=>`<text x="10" y="${panel.height-4-(compactNoteLines.length-1-index)*18}" font-size="14" fill="#46554b">${escape(line)}</text>`).join('')}</g></g></svg>`;
   const scaleDenominator = Math.max(1, Math.round(1000 / 265 / camera.scale));
-  return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}: ${escape(viewName)}"><title>${escape(title)} — ${escape(viewName)}</title><rect width="1120" height="792" fill="white"/><g font-family="Arial, sans-serif"><text x="60" y="44" font-size="20" font-weight="600" fill="#233c34">${escape(title)}</text><text x="60" y="67" font-size="12" fill="#617268">${escape(viewName)} · ${escape(t('Все размеры в миллиметрах'))}${selected && view === 'front' ? ` · ${escape(t('F = размеры фасада; внешние цепочки = проёмы'))}` : ''}</text><path d="M60,83 H1060" stroke="#c3cec6"/><g transform="translate(60,90)">${geometry}${labels}${applianceLabels}${dims}</g><path d="M60,741 H1060" stroke="#c3cec6"/><text x="60" y="764" font-size="11" fill="#617268">${selected ? `${t('Корпус без фасада:')} ${sizeText(selected, language)} ${unit}` : `${t('Помещение:')} ${sizeText(roomData(project), language)} ${unit}`}</text><text x="1060" y="764" text-anchor="end" font-size="11" fill="#617268">${t('Масштаб ≈')} 1:${scaleDenominator} ${t('при печати 100%')} · A4</text></g></svg>`;
+  const titleLines=wrapDrawingLabel(title,50),shownTitle=titleLines.slice(0,2);if(titleLines.length>2)shownTitle[1]+='…';
+  const viewY=44+(shownTitle.length-1)*24+22,axesLegend=selected&&dimensions&&['front','interior'].includes(view),separatorY=viewY+(axesLegend?33:14),sceneY=separatorY+11;
+  return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}: ${escape(viewName)}" data-drawing-view="${view}" data-annotation-page="${annotation.page}" data-annotation-page-count="${annotation.pageCount}" data-annotation-label-count="${annotation.labelCount}"><title>${escape(title)} — ${escape(viewName)}</title><rect width="1120" height="792" fill="white"/><g font-family="Arial, sans-serif">${svgDocumentMetadata(project, language,{page:annotation.page,pageCount:annotation.pageCount}).replace('y="22" font-size="10"','y="18" font-size="14"')}${shownTitle.map((line,index)=>`<text x="60" y="${44+index*24}" font-size="20" font-weight="600" fill="#233c34">${escape(line)}</text>`).join('')}<text x="60" y="${viewY}" font-size="14" fill="#617268">${escape(viewName)} · ${escape(t('Все размеры в миллиметрах'))}${selected && view === 'front' ? ` · ${escape(t('F = размеры фасада; внешние цепочки = проёмы'))}` : ''}${annotation.pageCount>1?` · ${annotation.page}/${annotation.pageCount}`:''}</text>${axesLegend?`<text data-fixing-legend="true" x="60" y="${viewY+22}" font-size="14" fill="#617268">A = ${escape(t('Между осями крепления'))}, ${unit}</text>`:''}<path d="M60,${separatorY} H1060" stroke="#c3cec6"/><g data-drawing-scene="true" transform="translate(60,${sceneY})">${geometry}${annotation.html}</g><path d="M60,741 H1060" stroke="#c3cec6"/><text x="60" y="764" font-size="14" fill="#617268">${selected ? `${t('Корпус без фасада:')} ${sizeText(selected, language)} ${unit}` : `${t('Помещение:')} ${sizeText(roomData(project), language)} ${unit}`}</text><text x="1060" y="764" text-anchor="end" font-size="14" fill="#617268">${t('Масштаб ≈')} 1:${scaleDenominator} ${t('при печати 100%')} · A4</text><text data-reading-note="not-to-scale" x="60" y="713" font-size="14" fill="#46554b">${escape(printDocumentText('notToScale',language))}</text><text x="60" y="733" font-size="14" fill="#46554b">${escape(printDocumentText('nominalTolerances',language))}</text></g></svg>`;
 }
 
 /** Physical edge names follow the panel's production plane, not its SVG axes. */
 export function describePartEdges(part, { language = 'ru' } = {}) {
   language = printLanguage(language);
-  const sides = part.orientation === 'horizontal'
-    ? { top: 'Сзади', bottom: 'Спереди', left: 'Слева', right: 'Справа' }
-    : part.orientation === 'vertical-depth'
-      ? { top: 'Сверху', bottom: 'Снизу', left: 'Спереди', right: 'Сзади' }
-      : { top: 'Сверху', bottom: 'Снизу', left: 'Слева', right: 'Справа' };
+  const sides = physicalPartEdges(part);
   const unit = language === 'ru' ? 'мм' : 'mm';
   return Object.entries(engine.getPartEdgeBanding(part).edges)
     .filter(([, edge]) => edge.thickness > 0 && edge.lengthMm > 0)
@@ -1199,7 +1405,7 @@ export function createPartSvg(part, project = { materials: [] }, { language = 'r
   const width = Math.max(1, number(part.width)), height = Math.max(1, number(part.height));
   const outline = part.outline || [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }];
   const scale = Math.min(800 / width, 430 / height);
-  const projectPoint = p => [500 + (p.x - width / 2) * scale, 320 + (p.y - height / 2) * scale];
+  const projectPoint = p => [500 + (p.x - width / 2) * scale, 310 + (p.y - height / 2) * scale];
   const polygon = outline.map(p => projectPoint(p).map(round).join(',')).join(' ');
   let grainArrow = '';
   if (part.grain) {
@@ -1211,6 +1417,7 @@ export function createPartSvg(part, project = { materials: [] }, { language = 'r
     }
   }
   const edgeBanding = engine.getPartEdgeBanding(part), edgeColor = '#007d68';
+  const physicalEdges = physicalPartEdges(part);
   const bandedSegments = [];
   for (const [side, band] of Object.entries(edgeBanding.edges)) {
     if (band.thickness <= 0 || band.lengthMm <= 0) continue;
@@ -1221,6 +1428,12 @@ export function createPartSvg(part, project = { materials: [] }, { language = 'r
       if (Math.abs(p[axis] - bound) > .001 || Math.abs(q[axis] - bound) > .001 || Math.hypot(q.x - p.x, q.y - p.y) <= .001) return;
       const a = projectPoint(p), b = projectPoint(q);
       bandedSegments.push(`<path data-edge-band="${side}" data-edge-thickness-mm="${band.thickness}" d="M${a.map(round).join(',')} L${b.map(round).join(',')}" fill="none" stroke="${edgeColor}" stroke-width="4.5" stroke-linecap="butt"/>`);
+      // Parallel inner line and E code remain recognizable on a monochrome
+      // photocopy. These are annotations, never another cut contour.
+      const inward = { top: [0, 5], bottom: [0, -5], left: [5, 0], right: [-5, 0] }[side];
+      const innerA = [a[0] + inward[0], a[1] + inward[1]], innerB = [b[0] + inward[0], b[1] + inward[1]];
+      const center = [(a[0] + b[0]) / 2 + inward[0] * 3, (a[1] + b[1]) / 2 + inward[1] * 3];
+      bandedSegments.push(`<path data-edge-band-monochrome="${side}" d="M${innerA.map(round).join(',')} L${innerB.map(round).join(',')}" fill="none" stroke="#243d31" stroke-width="1"/><text data-edge-band-code="${PANEL_EDGE_CODES[side]}" x="${round(center[0])}" y="${round(center[1] + 4)}" text-anchor="middle" font-size="14" font-weight="bold" fill="#243d31">${PANEL_EDGE_CODES[side]}</text>`);
     });
   }
   let dimensions = svgDimension(projectPoint({ x: 0, y: height }), projectPoint({ x: width, y: height }), n(width), 32) + svgDimension(projectPoint({ x: 0, y: 0 }), projectPoint({ x: 0, y: height }), n(height), 34);
@@ -1234,29 +1447,264 @@ export function createPartSvg(part, project = { materials: [] }, { language = 'r
   const stock = material(project, part.materialId), title = `${code ? `${code} · ` : ''}${translateBuiltInName(part.cabinetName,language,'cabinet') || t('Корпус')} · ${part.name ? translatePartName(part.name,language) : t('Деталь')}`;
   const finishedWidth = number(part.finishedWidth, width), finishedHeight = number(part.finishedHeight, height);
   const differentSize = Math.abs(finishedWidth - width) > .001 || Math.abs(finishedHeight - height) > .001;
-  const legend = bandedSegments.length ? `<path d="M60,689 H88" stroke="${edgeColor}" stroke-width="4.5"/><text x="99" y="693" font-size="12" fill="#334a40">${escape(t('Оклеиваемые торцы выделены цветом.'))}</text>` : '';
+  const bandLegend = { ru: 'Двойная линия и E1–E4 — кромить указанный торец.', tr: 'Çift çizgi ve E1–E4: belirtilen kenarı bantlayın.', en: 'Double line and E1–E4: band the indicated edge.' }[language];
+  const legend = bandedSegments.length ? `<path d="M60,689 H88 M60,695 H88" stroke="#243d31" stroke-width="1"/><text x="99" y="693" font-size="12" fill="#334a40">${escape(bandLegend)}</text>` : '';
   const grainLegend = part.grain ? `<text x="560" y="693" font-size="12" fill="#334a40">${escape(t('Текстура: B — вдоль высоты детали'))}</text>` : '';
+  const viewNotes = {
+    ru: { horizontal: 'Вид сверху. A → слева направо; B ↓ от задника к фасаду.', 'vertical-depth': 'Вид справа. A → от фасада к заднику; B ↓ сверху вниз.', 'vertical-width': 'Вид спереди. A → слева направо; B ↓ сверху вниз.' },
+    tr: { horizontal: 'Üstten bakış. A → soldan sağa; B ↓ arkadan öne.', 'vertical-depth': 'Sağdan bakış. A → önden arkaya; B ↓ üstten alta.', 'vertical-width': 'Önden bakış. A → soldan sağa; B ↓ üstten alta.' },
+    en: { horizontal: 'View from above. A → left to right; B ↓ rear to front.', 'vertical-depth': 'View from the right. A → front to rear; B ↓ top to bottom.', 'vertical-width': 'View from the front. A → left to right; B ↓ top to bottom.' }
+  };
+  const mapOrientationNote = {
+    ru: 'Карты раскроя и сверловки могут иметь разную ориентацию. Сверяйте физические торцы и ноль карты.',
+    tr: 'Kesim ve delik planlarının yönleri farklı olabilir. Fiziksel kenarları ve planın sıfırını kontrol edin.',
+    en: 'Cutting and drilling maps can have different orientations. Check the physical edges and the map origin.'
+  }[language];
+  const [left, top] = projectPoint({ x: 0, y: 0 }), [right, bottom] = projectPoint({ x: width, y: height });
+  const captions = { top: [(left + right) / 2, top - 16, 0], bottom: [(left + right) / 2, bottom + 62, 0], left: [left - 92, (top + bottom) / 2, -90], right: [right + 18, (top + bottom) / 2, 90] };
+  const physicalEdgeCaptions = Object.entries(captions).map(([side, [x, y, angle]]) => `<text data-physical-edge="${side}" x="${round(x)}" y="${round(y)}" text-anchor="middle" font-size="14" fill="#243d31"${angle ? ` transform="rotate(${angle} ${round(x)} ${round(y)})"` : ''}>${escape(t(physicalEdges[side]))}</text>`).join('');
   const finishedSize = differentSize ? `<text data-part-finished-size="true" x="60" y="777" font-size="11" fill="#617268">${escape(t('Готовый размер с кромкой'))}: ${n(finishedWidth)} × ${n(finishedHeight)} ${unit}</text>` : '';
-  return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}"${code ? ` data-production-part-code="${escape(code)}"` : ''}><title>${escape(title)}</title><rect width="1120" height="792" fill="white"/><g font-family="Arial, sans-serif"><text x="60" y="45" font-size="16" font-weight="600" fill="#233c34">${escape(title)}</text><text x="60" y="68" font-size="12" fill="#607268">${t('Деталь раскроя')} · ${escape(stock.name ? translateMaterialName(stock.name,language) : t('МДФ'))} · ${t('толщина')} ${n(part.thickness)} ${unit} · ${t('все размеры в мм')}</text><path d="M60,83 H1060" stroke="#c3cec6"/><g transform="translate(60,90)"><polygon data-part-cut-outline="true" points="${polygon}" fill="${escape(stock.color || '#e1d6c4')}" stroke="#44574b" stroke-width="1.5"/>${bandedSegments.join('')}${grainArrow}${dimensions}</g>${legend}${grainLegend}<text data-part-edge-description="true" x="60" y="716" font-size="12" fill="#334a40">${escape(t('Кромить торцы'))}: ${escape(describePartEdges(part, { language }))}</text><path d="M60,741 H1060" stroke="#c3cec6"/><text data-part-cut-size="true" x="60" y="${differentSize ? 758 : 764}" font-size="11" fill="#617268">${escape(t('Заготовка без кромки'))}: ${n(width)} × ${n(height)} ${unit}</text>${finishedSize}<text x="1060" y="764" text-anchor="end" font-size="11" fill="#617268">${escape(code || part.id || '')} · A4</text></g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}"${code ? ` data-production-part-code="${escape(code)}"` : ''}><title>${escape(title)}</title><rect width="1120" height="792" fill="white"/><g font-family="Arial, sans-serif">${svgDocumentMetadata(project, language)}<text x="60" y="45" font-size="16" font-weight="600" fill="#233c34">${escape(title)}</text><text x="60" y="68" font-size="12" fill="#607268">${t('Деталь раскроя')} · ${escape(stock.name ? translateMaterialName(stock.name,language) : t('МДФ'))} · ${t('толщина')} ${n(part.thickness)} ${unit} · ${t('все размеры в мм')}</text><path d="M60,83 H1060" stroke="#c3cec6"/><g transform="translate(60,90)"><polygon data-part-cut-outline="true" points="${polygon}" fill="${escape(stock.color || '#e1d6c4')}" stroke="#44574b" stroke-width="1.5"/>${bandedSegments.join('')}${grainArrow}${dimensions}${physicalEdgeCaptions}</g><text data-part-view-orientation="true" x="60" y="112" font-size="11" fill="#46554b">${escape(viewNotes[language][part.orientation] || viewNotes[language]['vertical-width'])}</text><text data-cut-drill-orientation-note="true" x="60" y="135" font-size="10" fill="#46554b">${escape(mapOrientationNote)}</text>${legend}${grainLegend}<text data-part-edge-description="true" x="60" y="716" font-size="12" fill="#334a40">${escape(t('Кромить торцы'))}: ${escape(describePartEdges(part, { language }))}</text><text data-reading-note="not-to-scale" x="60" y="735" font-size="10" fill="#46554b">${escape(readingNotes(language))}</text><path d="M60,741 H1060" stroke="#c3cec6"/><text data-part-cut-size="true" x="60" y="${differentSize ? 758 : 764}" font-size="11" fill="#617268">${escape(t('Заготовка без кромки'))}: ${n(width)} × ${n(height)} ${unit}</text>${finishedSize}<text x="1060" y="764" text-anchor="end" font-size="11" fill="#617268">${escape(code || part.id || '')} · A4</text></g></svg>`;
+}
+
+const ASSEMBLY_PAGE_SIZE = 12;
+const assemblyNameUnits=value=>Array.from(String(value)).reduce((sum,char)=>sum+(/[ЖШЩЮМФжшщюмф]/u.test(char)?.96:/[А-Яа-яЁё]/u.test(char)?.74:printCharacterUnits(char)),0);
+function assemblyPartGroups(parts) {
+  const blocks=[];
+  for(let index=0;index<parts.length;){
+    const first=parts[index],next=parts[index+1];
+    const externalIndex=first.role==='external-drawer-box'?first.drawerIndex:/Фасад ящика \d+$/.test(first.name)&&next?.role==='external-drawer-box'?next.drawerIndex:null;
+    const internalIndex=first.role?.startsWith('internal-drawer')?first.internalDrawerIndex:null;
+    if(externalIndex==null&&internalIndex==null){blocks.push([first]);index++;continue;}
+    const block=[first];index++;
+    while(index<parts.length){
+      const part=parts[index],sameSection=part.sectionId===first.sectionId&&part.interiorSectionId===first.interiorSectionId;
+      const sameDrawer=externalIndex!=null?part.role==='external-drawer-box'&&part.drawerIndex===externalIndex:part.role?.startsWith('internal-drawer')&&part.internalDrawerIndex===internalIndex;
+      if(!sameSection||!sameDrawer)break;
+      block.push(part);index++;
+    }
+    blocks.push(block);
+  }
+  const pages=[];
+  for(const block of blocks){
+    let page=pages.find(candidate=>candidate.length+block.length<=ASSEMBLY_PAGE_SIZE);
+    if(!page){page=[];pages.push(page);}
+    page.push(...block);
+  }
+  if(!pages.length)pages.push([]);
+  return pages;
+}
+
+export function getAssemblyPageCount(project,{cabinetId=project.cabinets?.[0]?.id}={}) {
+  return assemblyPartGroups(engine.generateParts(project).filter(part=>part.cabinetId===cabinetId)).length;
+}
+
+const ASSEMBLY_WORDS = {
+  ru: { title:'Схема сборки деталей', group:'Группа деталей', note:'Детали раздвинуты условно. Прямая линия указывает на деталь; Pxxxx соответствует ведомости раскроя.', coordinates:'Локальные оси шкафа: X — слева направо, Y — вверх от основания, Z — от задника к фасаду. Раздвижка не задаёт монтажный зазор.', positions:'Установка деталей', positionNote:'Координаты начала готовой детали относительно шкафа, включая цоколь по Y. Это не координаты сверловки. Названия и Pxxxx соответствуют схеме сборки.', detail:'Деталь', orientation:'Положение плиты', horizontal:'Горизонтальная', 'vertical-depth':'Вертикальная, в глубину', 'vertical-width':'Вертикальная, по ширине', size:'Готовые Ш × В × Т, мм' },
+  tr: { title:'Parça montaj şeması', group:'Parça grubu', note:'Parçalar şematik olarak ayrılmıştır. Düz çizgi parçayı gösterir; Pxxxx kesim listesiyle aynıdır.', coordinates:'Dolap eksenleri: X soldan sağa, Y tabandan yukarı, Z arkadan öne. Ayrılmış görünüş montaj boşluğunu belirtmez.', positions:'Parça yerleştirme listesi', positionNote:'Bitmiş parçanın başlangıç koordinatları dolaba göredir; Y baza yüksekliğini içerir. Bunlar delik koordinatları değildir. Adlar ve Pxxxx montaj şemasıyla aynıdır.', detail:'Parça', orientation:'Levha konumu', horizontal:'Yatay', 'vertical-depth':'Dikey, derinlik yönü', 'vertical-width':'Dikey, genişlik yönü', size:'Bitmiş G × Y × K, mm' },
+  en: { title:'Panel assembly diagram', group:'Panel group', note:'Panels are separated schematically. A straight line identifies the panel; Pxxxx matches the cutting schedule.', coordinates:'Cabinet axes: X left to right, Y up from the base, Z rear to front. Exploded spacing is not an installation clearance.', positions:'Panel installation schedule', positionNote:'Origins of finished panels are relative to the cabinet; Y includes the plinth. These are not drilling coordinates. Names and Pxxxx match the assembly diagram.', detail:'Part', orientation:'Panel orientation', horizontal:'Horizontal', 'vertical-depth':'Vertical, depth plane', 'vertical-width':'Vertical, width plane', size:'Finished W × H × T, mm' }
+};
+
+function assemblyPanelShape(part, cabinet) {
+  const width=number(part.finishedWidth,part.width),height=number(part.finishedHeight,part.height),thickness=number(part.thickness);
+  const axes = part.orientation==='horizontal' ? {a:[1,0,0],b:[0,0,1],t:[0,1,0]} : part.orientation==='vertical-depth' ? {a:[0,0,1],b:[0,1,0],t:[1,0,0]} : {a:[1,0,0],b:[0,1,0],t:[0,0,1]};
+  const origin=[number(part.position?.x),number(cabinet.plinth)+number(part.position?.y),number(part.position?.z)];
+  const outline=part.orientation==='horizontal' && part.finishedOutline ? part.finishedOutline : [{x:0,y:0},{x:width,y:0},{x:width,y:height},{x:0,y:height}];
+  const lower=outline.map(p=>add(origin,add(mul(axes.a,p.x),mul(axes.b,p.y)))),upper=lower.map(p=>add(p,mul(axes.t,thickness)));
+  const faces=[{points:lower,normal:mul(axes.t,-1)},{points:upper,normal:axes.t}];
+  outline.forEach((p,index)=>{const next=(index+1)%outline.length,q=outline[next],length=Math.hypot(q.x-p.x,q.y-p.y);if(length)faces.push({points:[lower[index],lower[next],upper[next],upper[index]],normal:add(mul(axes.a,(q.y-p.y)/length),mul(axes.b,-(q.x-p.x)/length))});});
+  const marker=contourMarkerRegions(outline,width,height).label||{x:width/2,y:height/2};
+  const center=add(origin,add(mul(axes.a,marker.x),add(mul(axes.b,marker.y),mul(axes.t,thickness/2))));
+  const displacement = part.orientation==='horizontal' ? [0,center[1]>=number(cabinet.height)/2?240:-240,0] : part.orientation==='vertical-depth' ? [center[0]>=number(cabinet.width)/2?220:-220,0,0] : [0,0,center[2]>=number(cabinet.depth)/2?260:-220];
+  return {faces,center,displacement,origin,marker};
+}
+
+function makeExplodedScene(project,options,direction) {
+  const faces=[],source=options.sourceProject||project,production=engine.generateParts(source).map((part,index)=>({...part,partCode:productionPartCode(index)}));
+  for(const raw of project.cabinets||[]){
+    const cabinet=cabinetData(project,raw),ranks=new Map();
+    for(const part of production.filter(part=>part.cabinetId===raw.id)){
+      const shape=assemblyPanelShape(part,raw),axis=part.orientation==='horizontal'?1:part.orientation==='vertical-depth'?0:2,sign=shape.displacement[axis]<0?-1:1,key=`${axis}:${sign}`,rank=ranks.get(key)||0;
+      ranks.set(key,rank+1);
+      const displacement=shape.displacement.map(value=>value*1.8);displacement[axis]+=sign*rank*117;
+      if(/(?:Дверь \d+|Фасад ящика \d+)$/i.test(part.name)||part.component==='internal-drawer-front'){
+        const side=shape.center[0]<number(raw.width)/2?-1:1;
+        displacement[0]+=side*Math.max(350,number(raw.width)*.65);
+      }
+      for(const surface of shape.faces){
+        const normal=rotateCabinetNormal(cabinet,surface.normal);
+        if(dot(normal,direction)<.00001)continue;
+        const points=surface.points.map(point=>rotateCabinetPoint(cabinet,add([cabinet.x,cabinet.y,cabinet.z],add(point,displacement))));
+        const selected=options.selection!==false&&part.id===options.selectedPartId,color=selected?'#b2dfcb':material(project,part.materialId).color||'#e3dfd5';
+        const shade=.82+Math.max(0,normal[1])*.23+Math.max(0,normal[2])*.14;
+        faces.push({points,color:colorShade(color,shade),id:raw.id,cabinetId:raw.id,partId:part.id,partCode:part.partCode,component:part.component||part.role||'body',sectionId:part.sectionId,interiorSectionId:part.interiorSectionId,exploded:true,displayDisplacement:[...displacement],productionOrigin:[...shape.origin]});
+      }
+    }
+  }
+  return {faces,lines:[],shadows:[],labels:[]};
+}
+
+function visibleAssemblyAnchor(part, initial, faces, accept=()=>true) {
+  const own=faces.flatMap((face,index)=>face.part.assemblyCode===part.assemblyCode?[{...face,index}]:[]);
+  const visible=(point,face,margin)=>{
+    if(!pointInPolygon(...point,face.screen))return false;
+    if(margin&&face.screen.some((a,index)=>{
+      const b=face.screen[(index+1)%face.screen.length],dx=b[0]-a[0],dy=b[1]-a[1],length=dx*dx+dy*dy;
+      const t=length?Math.max(0,Math.min(1,((point[0]-a[0])*dx+(point[1]-a[1])*dy)/length)):0;
+      return Math.hypot(point[0]-a[0]-t*dx,point[1]-a[1]-t*dy)<margin;
+    }))return false;
+    return accept(point)&&!faces.slice(face.index+1).some(later=>later.part.assemblyCode!==part.assemblyCode&&pointInPolygon(...point,later.screen));
+  };
+  if(own.some(face=>visible(initial,face,4)))return initial;
+  // Move only the annotation endpoint. Find the closest exposed patch of its
+  // actual painted face so a later door cannot visually identify the wrong
+  // panel. Finished contours and the exploded construction stay unchanged.
+  let best=null,bestDistance=Infinity;
+  for(const margin of [4,1]){
+    for(const face of own){
+      const left=Math.min(...face.screen.map(p=>p[0])),right=Math.max(...face.screen.map(p=>p[0])),top=Math.min(...face.screen.map(p=>p[1])),bottom=Math.max(...face.screen.map(p=>p[1]));
+      for(let y=top+margin;y<bottom-margin;y+=4)for(let x=left+margin;x<right-margin;x+=4){
+        const distance=(x-initial[0])**2+(y-initial[1])**2;
+        if(distance<bestDistance&&visible([x,y],face,margin)){best=[x,y];bestDistance=distance;}
+      }
+    }
+    if(best)return best;
+  }
+  return null;
+}
+
+function assemblyLeadersConflict(a,b) {
+  const delta=(p,q)=>[p[0]-q[0],p[1]-q[1]],cross=(p,q)=>p[0]*q[1]-p[1]*q[0];
+  const r=delta(a.anchor,a.connection),s=delta(b.anchor,b.connection),den=cross(r,s),d=delta(b.connection,a.connection);
+  if(Math.abs(den)>1e-8){const t=cross(d,s)/den,u=cross(d,r)/den;if(t>.001&&t<.999&&u>.001&&u<.999)return true;}
+  if(Math.hypot(...delta(a.anchor,b.anchor))<8)return true;
+  const distance=(p,start,end)=>{const v=delta(end,start),w=delta(p,start),length=v[0]**2+v[1]**2,t=length?Math.max(0,Math.min(1,(v[0]*w[0]+v[1]*w[1])/length)):0;return Math.hypot(p[0]-start[0]-t*v[0],p[1]-start[1]-t*v[1]);};
+  return distance(a.anchor,b.connection,b.anchor)<4.2||distance(b.anchor,a.connection,a.anchor)<4.2;
+}
+
+function separateAssemblyLeaders(columns,faces) {
+  const refresh=()=>columns.forEach((column,side)=>column.sort((a,b)=>a.anchor[1]-b.anchor[1]).forEach((entry,index)=>Object.assign(entry,{connection:[side?905:215,194+index*96],side,index})));
+  refresh();
+  const leaders=columns.flat(),conflicts=items=>items.reduce((count,a,index)=>count+items.slice(index+1).filter(b=>assemblyLeadersConflict(a,b)).length,0);
+  for(let pass=0;pass<8;pass++){
+    let changed=false;
+    for(const entry of leaders){
+      const others=leaders.filter(other=>other!==entry);
+      if(!others.some(other=>assemblyLeadersConflict(entry,other)))continue;
+      const column=columns[entry.side],lower=column[entry.index-1]?.anchor[1]??-Infinity,upper=column[entry.index+1]?.anchor[1]??Infinity;
+      let candidate=visibleAssemblyAnchor(entry.part,entry.anchor,faces,point=>point[1]>=lower&&point[1]<=upper&&!others.some(other=>assemblyLeadersConflict({...entry,anchor:point},other)));
+      if(!candidate){
+        const current=conflicts(leaders);
+        candidate=visibleAssemblyAnchor(entry.part,entry.anchor,faces,point=>{
+          const trial=columns.flatMap((column,side)=>column.map(item=>({...item,anchor:item===entry?point:item.anchor})).sort((a,b)=>a.anchor[1]-b.anchor[1]).map((item,index)=>({...item,connection:[side?905:215,194+index*96]})));
+          return conflicts(trial)<current;
+        });
+      }
+      if(candidate){entry.anchor=candidate;refresh();changed=true;}
+    }
+    if(!changed)break;
+  }
+}
+
+/** A per-cabinet exploded, vector assembly page. Every panel keeps its actual
+ * finished shape and global P code. Dense cabinets use groups of at most 12;
+ * the companion installation table retains every full name and position. */
+export function createAssemblySvg(project, { cabinetId=project.cabinets?.[0]?.id, language=project.settings?.printLanguage??'tr', page=1 }={}) {
+  language=printLanguage(language,'tr');
+  const cabinet=(project.cabinets||[]).find(c=>c.id===cabinetId);
+  if(!cabinet)throw new Error(translatePrintText('Шкаф не найден.',language));
+  const words=ASSEMBLY_WORDS[language],n=value=>printNumber(number(value),language);
+  const allParts=engine.generateParts(project).map((part,index)=>({...part,assemblyCode:productionPartCode(index)})).filter(part=>part.cabinetId===cabinet.id);
+  const groups=assemblyPartGroups(allParts),pageCount=groups.length,pageNumber=Math.max(1,Math.min(pageCount,Math.floor(number(page,1))));
+  const parts=groups[pageNumber-1].map(part=>({...part,shape:assemblyPanelShape(part,cabinet)}));
+  const ghostCorners=[[0,0,0],[cabinet.width,0,0],[cabinet.width,cabinet.height,0],[0,cabinet.height,0],[0,0,cabinet.depth],[cabinet.width,0,cabinet.depth],[cabinet.width,cabinet.height,cabinet.depth],[0,cabinet.height,cabinet.depth]];
+  const axes=basis(Math.PI/5,Math.PI/6);
+  const projectAssembly=()=>{
+    const allPoints=[...ghostCorners,...parts.flatMap(part=>part.shape.faces.flatMap(face=>face.points.map(p=>add(p,part.shape.displacement))))];
+    const bounds={min:[0,1,2].map(axis=>Math.min(...allPoints.map(p=>p[axis]))),max:[0,1,2].map(axis=>Math.max(...allPoints.map(p=>p[axis])))};
+    const camera=projection(bounds,axes,640,500,1,{x:0,y:0},18),screen=p=>{const q=camera.project(p);return [q[0]+240,q[1]+150];};
+    const faces=parts.flatMap(part=>part.shape.faces.filter(face=>dot(face.normal,axes.direction)>.001).map(face=>({part,face,points:face.points.map(p=>add(p,part.shape.displacement))}))).sort((a,b)=>dot(average(a.points),axes.direction)-dot(average(b.points),axes.direction));
+    return {camera,screen,projectedFaces:faces.map(face=>({...face,screen:face.points.map(screen)}))};
+  };
+  let assembly=projectAssembly();
+  for(let attempt=0;attempt<12;attempt++){
+    const hidden=parts.flatMap(part=>{
+      const initial=assembly.screen(add(part.shape.center,part.shape.displacement));
+      return visibleAssemblyAnchor(part,initial,assembly.projectedFaces)?[]:[{part,initial}];
+    });
+    if(!hidden.length)break;
+    // Only an entirely hidden panel receives extra schematic separation.
+    // Its real origin, finished contour and all production dimensions remain
+    // unchanged. Refit the illustration and reassess every exposed endpoint.
+    for(const {part,initial} of hidden){
+      const distance=24/assembly.camera.scale;
+      part.shape.displacement=add(part.shape.displacement,add(mul(axes.right,initial[0]<560?-distance:distance),mul(axes.up,initial[1]<400?distance:-distance)));
+    }
+    assembly=projectAssembly();
+  }
+  const {screen,projectedFaces}=assembly;
+  const geometry=projectedFaces.map(({part,face,screen:points})=>`<polygon data-assembly-part="${part.assemblyCode}" data-source-part-id="${escape(part.id)}" points="${points.map(p=>p.map(round).join(',')).join(' ')}" fill="${escape(colorShade(material(project,part.materialId).color||'#e3dfd5',.87+Math.max(0,dot(face.normal,axes.direction))*.12))}" fill-opacity=".82" stroke="#344b3e" stroke-width="1.2"/>`).join('');
+  const edges=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+  const ghost=edges.map(([a,b])=>`<path d="M${screen(ghostCorners[a]).map(round).join(',')} L${screen(ghostCorners[b]).map(round).join(',')}" fill="none" stroke="#a1ada6" stroke-width=".8" stroke-dasharray="5 5"/>`).join('');
+  const separated=parts.map(part=>{const initial=screen(add(part.shape.center,part.shape.displacement));return {part,anchor:visibleAssemblyAnchor(part,initial,projectedFaces)||initial};}).sort((a,b)=>a.anchor[0]-b.anchor[0]);
+  const leftCount=Math.ceil(separated.length/2),columns=[separated.slice(0,leftCount),separated.slice(leftCount)].map(column=>column.sort((a,b)=>a.anchor[1]-b.anchor[1]));
+  separateAssemblyLeaders(columns,projectedFaces);
+  let callouts='';
+  columns.forEach((column,side)=>column.forEach(({part,anchor},index)=>{
+    const y=150+index*96,x=side?905:25,width=190,height=88,connection=[side?x:x+width,y+height/2];
+    const name=translatePartName(part.name,language),terms=String(part.name).split(' · ');
+    // Preserve the full custom name in the title and installation table. The
+    // leader box names the component without chopping a custom section name.
+    const component=!/^Секция \d+ · /.test(part.name)?part.name:/^(?:Внутренний ящик|Ящик) \d+$/.test(terms.at(-2)||'')?terms.slice(-2).join(' · '):terms.at(-1);
+    const label=translatePartName(component,language),wrapped=wrapDrawingLabel(label,(width-18)/13/.64,assemblyNameUnits),lines=wrapped.slice(0,2);
+    if(wrapped.length>2){
+      const words=lines[1].split(' ');
+      while(words.length>1&&assemblyNameUnits(words.join(' ')+'…')*13>width-18)words.pop();
+      lines[1]=words.join(' ')+'…';
+    }
+    const size=`${n(number(part.finishedWidth,part.width))} × ${n(number(part.finishedHeight,part.height))}`;
+    const thickness=`${language==='tr'?'K':'T'} = ${n(part.thickness)} mm`;
+    callouts+=`<g data-assembly-callout="${part.assemblyCode}" data-label-x="${x}" data-label-y="${y}" data-label-width="${width}" data-label-height="${height}" data-assembled-origin="${part.shape.origin.map(fmt).join(',')}" data-assembly-marker-ab="${fmt(part.shape.marker.x)},${fmt(part.shape.marker.y)}" data-assembly-anchor="${anchor.map(round).join(',')}" data-assembly-connection="${connection.map(round).join(',')}"><title>${escape(part.assemblyCode+' · '+name)}</title><path data-assembly-leader="${part.assemblyCode}" d="M${connection.map(round).join(',')} L${anchor.map(round).join(',')}" fill="none" stroke="#526b5c" stroke-width="1.1"/><circle data-assembly-anchor-dot="${part.assemblyCode}" cx="${round(anchor[0])}" cy="${round(anchor[1])}" r="3.8" fill="#375c43" stroke="white" stroke-width="1"/><rect x="${x}" y="${y}" width="${width}" height="${height}" rx="3" fill="#fff" stroke="#c4cec6"/><text x="${x+9}" y="${y+17}" font-size="14" font-weight="bold" fill="#243d31">${part.assemblyCode}</text>${lines.map((line,i)=>`<text x="${x+9}" y="${y+34+i*15}" font-size="13" fill="#243d31">${escape(line)}</text>`).join('')}<text x="${x+9}" y="${y+66}" font-size="14" fill="#243d31">${escape(size)}</text><text x="${x+9}" y="${y+83}" font-size="14" fill="#243d31">${escape(thickness)}</text></g>`;
+  }));
+  const name=translateBuiltInName(cabinet.name,language,'cabinet')||translatePrintText('Корпус',language),title=`${name} · ${words.title}`;
+  const captionLines=wrapDrawingLabel(title,65),caption=captionLines[0]+(captionLines.length>1?'…':'');
+  return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}" data-assembly-cabinet="${escape(cabinet.id)}" data-assembly-group="${pageNumber}" data-assembly-group-count="${pageCount}"><title>${escape(title)}</title><rect width="1120" height="792" fill="#fff"/><g font-family="Arial,sans-serif">${svgDocumentMetadata(project,language,{page:pageNumber,pageCount})}<text x="60" y="48" font-size="20" font-weight="bold" fill="#243d31">${escape(caption)}</text><text x="60" y="75" font-size="13" fill="#46554b">${escape(words.group)} ${pageNumber}/${pageCount} · ${n(cabinet.width)} × ${n(cabinet.height)} × ${n(cabinet.depth)} mm</text><text x="60" y="101" font-size="12" fill="#46554b">${escape(words.note)}</text><text x="60" y="122" font-size="12" fill="#46554b">${escape(words.coordinates)}</text>${ghost}${geometry}${callouts}<text x="60" y="741" font-size="12" fill="#46554b">${escape(printDocumentText('illustration',language))}</text><text data-reading-note="not-to-scale" x="60" y="766" font-size="11" fill="#46554b">${escape(readingNotes(language))}</text></g></svg>`;
 }
 
 function tableSheets(title, intro, headings, rows, limit = 14, language = 'ru') {
-  let html = '';
-  for (let offset = 0; offset < Math.max(1, rows.length); offset += limit) {
-    html += `<section class="sheet schedule"><h1>${escape(title)}</h1><p>${escape(translatePrintText(intro,language))}</p><table><thead><tr>${headings.map(heading => `<th>${escape(translatePrintText(heading,language))}</th>`).join('')}</tr></thead><tbody>${rows.slice(offset, offset + limit).map(row => `<tr>${row.map(cell => `<td>${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table><small>${translatePrintText(`${offset + 1}–${Math.min(rows.length, offset + limit)} из ${rows.length}`,language)} · ${translatePrintText('все размеры в миллиметрах',language)}</small></section>`;
-  }
+  const production = headings.includes('Раскрой: Ш × В, мм'), tableWidth = (297 - (production ? 24 : 32)) * 96 / 25.4;
+  const column = index => production ? [.06,.27,.15,.06,.20,.05,.14,.07][index] : index === 0 ? .06 : index === 1 ? .28 : index === 2 ? .18 : .48 / Math.max(1, headings.length - 3);
+  const lines = (value, width, font) => Math.max(1, Math.ceil(printCharacterUnits(value) * font / Math.max(1,width)));
+  const rowHeight = row => (production ? 7 : 16) + 18.9 * Math.max(1,...row.map((cell,index) => lines(cell, tableWidth * column(index) - 12,14)));
+  const introText = translatePrintText(intro,language), translatedHeadings = headings.map(heading => translatePrintText(heading,language));
+  const headerHeight = lines(title,tableWidth,20)*24 + 10 + lines(introText,tableWidth,11)*16.5 + 18 + rowHeight(translatedHeadings);
+  // Keep the content above the actual shared footer, including wrapped
+  // material names. A fixed row count cannot guarantee a printable sheet.
+  const budget = Math.max(100,(210 - (production ? 16 : 24) - 14) * 96 / 25.4 - headerHeight - 28);
+  let html = '', offset = 0;
+  do {
+    let count=0, height=0;
+    while(offset+count<rows.length && count<limit){
+      const next=rowHeight(rows[offset+count]);
+      if(count && height+next>budget)break;
+      height+=next;count++;
+    }
+    const pageRows = rows.slice(offset,offset+count);
+    html += `<section class="sheet schedule${production?' parts-schedule':''}"><h1>${escape(title)}</h1><p>${escape(introText)}</p><table><thead><tr>${translatedHeadings.map(heading => `<th>${escape(heading)}</th>`).join('')}</tr></thead><tbody>${pageRows.map(row => `<tr>${row.map(cell => `<td>${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table><small>${translatePrintText(`${rows.length?offset+1:0}–${Math.min(rows.length, offset + count)} из ${rows.length}`,language)} · ${translatePrintText('все размеры в миллиметрах',language)}</small></section>`;
+    offset+=count;
+  } while(offset<rows.length);
   return html;
 }
 
 // These dimensions match the compact schedule CSS at 96 CSS pixels per inch.
-// Budget the actual wrapped rows and captions, keeping the existing 7.5 pt type.
+// Budget the actual wrapped rows and captions, keeping comfortable 10.5 pt table type.
 const COMPACT_SCHEDULE_GAP = 5 * 96 / 25.4;
-const COMPACT_SCHEDULE_BUDGET = (210 - 18) * 96 / 25.4 - 40;
+const COMPACT_SCHEDULE_BUDGET = (210 - 18) * 96 / 25.4 - 70;
 function compactScheduleHeight(block, language) {
   const tableWidth = (297 - 28) * 96 / 25.4;
-  const lines = (text, width, font) => Math.max(1, Math.ceil(String(text).length * font * .62 / Math.max(1, width)));
+  const lines = (text, width, font) => Math.max(1, Math.ceil(printCharacterUnits(text) * font / Math.max(1, width)));
   const columnWidth = index => tableWidth * (index === 0 ? .06 : index === 1 ? .28 : index === 2 ? .18 : .48 / Math.max(1, block.headings.length - 3));
-  const rowHeight = row => 11 + 12.5 * Math.max(1, ...row.map((cell,index) => lines(cell,columnWidth(index) - 12,10)));
+  const rowHeight = row => 11 + 17.5 * Math.max(1, ...row.map((cell,index) => lines(cell,columnWidth(index) - 12,14)));
   return lines(block.title,tableWidth,16) * 19.2 + 7
     + lines(translatePrintText(block.intro,language),tableWidth,11) * 16.5 + 10
     + rowHeight(block.headings.map(heading => translatePrintText(heading,language)))
@@ -1293,6 +1741,8 @@ function hardwarePrintBlocks(project,{cabinetId=null,language='tr'}={}){
   const block=(name,totals,rows,kind='hardware')=>({kind,title:`${name} · ${t('Фурнитура')}`,intro:`${t('Один комплект направляющих — пара для одного ящика или выдвижной полки.')}${rows.some(row=>row.kind==='hinge'&&row.planned)?` ${t('Количество петель по высоте — предварительный расчёт. Нагрузку и механизм подъёмной двери проверьте по выбранной фурнитуре.')}`:''}`,headings:['№','Фурнитура','Количество','Ед.'],rows:[
     ['1',t('Ручки'),n(totals.handles),t('шт.')],['2',t('Комплекты направляющих'),n(totals.guideSets),t('Комплект (пара)')],['3',t('Петли'),n(totals.hinges),t('шт.')],
     ...(totals.rods>0?[['4',t('Штанги для одежды'),n(totals.rods),t('шт.')]]:[]),...(totals.rodHolders>0?[['5',t('Держатели штанг'),n(totals.rodHolders),t('шт.')]]:[]),
+    ...(rows.some(row=>row.kind==='rear-screw')?[['6',t('Винты задника'),n(rows.filter(row=>row.kind==='rear-screw').reduce((sum,row)=>sum+row.quantity,0)),t('шт.')]]:[]),
+    ...(rows.some(row=>row.kind==='rear-nail')?[['7',t('Гвозди задника'),n(rows.filter(row=>row.kind==='rear-nail').reduce((sum,row)=>sum+row.quantity,0)),t('шт.')]]:[]),
   ]});
   const listed=selected||schedule.cabinets.length<2?schedule.cabinets:schedule.cabinets.filter(cabinet=>Object.values(cabinet.totals).some(quantity=>quantity>0));
   const blocks=listed.map(cabinet=>block(translateBuiltInName(cabinet.cabinetName,language,'cabinet')||t('Корпус'),cabinet.totals,cabinet.rows));
@@ -1334,7 +1784,7 @@ function costPrintSheets(project,{cabinetId=null,language='tr'}={}){
     }else tail=tail.replace(details,details.replace('<details>','<div class="cost-sources">').replace('</details>','</div>').replace('<summary>','<h3>').replace('</summary>','</h3>'));
   }
   const widths=[.45,.12,.13,.15,.15],rowHeight=row=>10+13.5*Math.max(1,...[...row.matchAll(/<td>([\s\S]*?)<\/td>/g)].map((cell,index)=>Math.ceil(text(cell[1]).length*6.2/(1016*widths[index]-12))));
-  const footerHeight=noteHeight+(tail.includes('cost-sources')?sourceHeight:0),lastBudget=Math.max(40,690-headerHeight-footerHeight),chunks=[];
+  const footerHeight=noteHeight+(tail.includes('cost-sources')?sourceHeight:0),lastBudget=Math.max(40,725-headerHeight-footerHeight),chunks=[];
   let chunk=[],height=0;
   for(const row of rows){const next=rowHeight(row);if(chunk.length&&height+next>710-headerHeight){chunks.push(chunk);chunk=[];height=0;}chunk.push(row);height+=next;}
   chunks.push(chunk);
@@ -1354,7 +1804,8 @@ export function generateCostPrintHTML(project,{cabinetId=null,language=project.s
   return `<style>${COST_PRINT_CSS}</style>${costPrintSheets(project,{cabinetId,language})}`;
 }
 
-/** Five projections, opening/facade measurements and actual cutting components. */
+/** Orthographic views, exploded panel groups, installation positions, opening/
+ * facade measurements and actual cutting components. */
 function buildDrawingHTML(project, { cabinetId = null, language = project.settings?.printLanguage ?? 'tr', compact = project.settings?.compactPrint !== false } = {}) {
   language = printLanguage(language,'tr');
   const t = text => translatePrintText(text, language), n = value => printNumber(number(value), language), unit = language === 'ru' ? 'мм' : 'mm';
@@ -1364,15 +1815,27 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
   const source = selected ? { ...project, cabinets: [selected] } : project;
   const title = translateBuiltInName(selected?.name,language,'cabinet') || translateBuiltInName(project.name || project.title,language,'project') || t('Проект корпусной мебели');
   const views = ['front', 'back', 'left', 'right', 'top', ...(selected ? ['interior'] : [])];
+  const annotatedSheets=view=>{
+    const first=createDrawingSvg(project,view,{cabinetId,dimensions:true,language});
+    const count=Number(first.match(/data-annotation-page-count="(\d+)"/)?.[1]||1);
+    return Array.from({length:count},(_,index)=>`<section class="sheet">${index?createDrawingSvg(project,view,{cabinetId,dimensions:true,language,annotationPage:index+1}):first}</section>`).join('');
+  };
   let sheets = '';
   if (compact) {
     const geometry = selected ? modelLayout(selected,project) : null, fronts = selected ? getFrontLayout(selected,project) : [];
     const scale = selected ? Math.min(184 / (selected.width + 18),215 / selected.height) : 0;
-    const readable = (width,height,label) => height * scale >= 22 && width * scale >= label.length * 9.2 * .54 + 2;
+    const readable = (width,height,label) => height * scale >= 22 && width * scale >= label.length * COMPACT_LABEL_FONT * .57 + 14;
     const six = selected && geometry.sections.length <= 6 && fronts.length <= 8 && !geometry.internalSections?.length && !selected.rearBraces?.length && !engine.getInternalDrawerLayout(selected,project).length && !geometry.sections.some(s=>s.node.appliance||s.node.rearBraces?.length||(s.floorEligible&&s.node.plinthHeight!=null&&number(s.effectivePlinth)!==number(selected.plinth))) && geometry.sections.every((s,i)=>readable(s.width,s.height,`S${i+1} ${n(s.width)}×${n(s.height)}`)) && fronts.every((f,i)=>readable(f.width,f.height,`F${i+1} ${n(f.width)}×${n(f.height)}`));
     const count = six ? 6 : 2, columns = six ? 3 : 2, panel = six ? { width:350,height:335,padding:35 } : { width:530,height:676,padding:55 };
-    for (let offset=0;offset<views.length;offset+=count) sheets += `<section class="sheet projection-sheet" data-projections="${Math.min(count,views.length-offset)}"><header><h1>${escape(title)} · ${t('Ортогональные виды')}</h1><p>${t('Все размеры в миллиметрах')} · ${t('Размеры проёмов, фасадов и деталей — в ведомостях')}</p></header><div class="projection-grid" style="grid-template-columns:repeat(${columns},1fr);grid-template-rows:repeat(${six?2:1},1fr)">${views.slice(offset,offset+count).map(view=>`<div class="projection-panel">${createDrawingSvg(project,view,{cabinetId,dimensions:true,language,compact:panel})}</div>`).join('')}</div></section>`;
-  } else sheets = views.map(view => `<section class="sheet">${createDrawingSvg(project, view, { cabinetId, dimensions: true, language })}</section>`).join('');
+    const complex=selected&&(!six||geometry.sections.length>1||fronts.length||geometry.internalSections?.length||engine.getInternalDrawerLayout(selected,project).length||geometry.sections.some(s=>s.node.appliance||s.node.rearBraces?.length)||selected.rearBraces?.length||engine.getRodLayout(selected,project).length);
+    const detailViews=new Set(complex?['front','interior',...(geometry.sections.some(s=>s.node.rearBraces?.length)||selected.rearBraces?.length?['back']:[]),...(engine.getRodLayout(selected,project).length?['top']:[])]:selected?['front','interior']:[]);
+    let pending=[];
+    const flush=()=>{
+      if(!pending.length)return;
+      sheets+=`<section class="sheet projection-sheet" data-projections="${pending.length}"><header><h1>${escape(title)} · ${t('Ортогональные виды')}</h1><p>${t('Все размеры в миллиметрах')} · ${t('Размеры проёмов, фасадов и деталей — в ведомостях')}</p></header><div class="projection-grid" style="grid-template-columns:repeat(${columns},1fr);grid-template-rows:repeat(${six?2:1},1fr)">${pending.map(view=>`<div class="projection-panel">${createDrawingSvg(project,view,{cabinetId,dimensions:true,language,compact:panel})}</div>`).join('')}</div></section>`;pending=[];
+    };
+    for(const view of views){if(detailViews.has(view)){flush();sheets+=annotatedSheets(view);}else{pending.push(view);if(pending.length===count)flush();}}flush();
+  } else sheets = views.map(annotatedSheets).join('');
   if (selected) {
     const layout = modelLayout(selected, project);
     const mountingById=new Map(engine.getSectionMountingAxes(selected,project).map(axis=>[axis.id,axis]));
@@ -1403,6 +1866,19 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
   if (appliances.length) sheets += schedule(`${title} · ${t('техника и монтажные зазоры')}`, 'Требуемая ниша: ширина техники + два боковых зазора; высота + зазор сверху; глубина + зазор сзади. Проверка использует чистый проём и его полезную глубину. «—» означает, что монтажные зазоры отключены. Все размеры и зазоры задаются для выбранной техники.', ['Секция', 'Оборудование: Ш × В × Г, мм', 'Требуемая ниша: Ш × В × Г, мм', 'Боковой / сторона, мм', 'Сверху, мм', 'Сзади, мм', 'Проверка'], appliances, 12);
   const projectParts = engine.generateParts(project), codeById = new Map(projectParts.map((part, index) => [part.id, productionPartCode(index)]));
   const parts = selected ? projectParts.filter(part => part.cabinetId === selected.id) : projectParts;
+  const assemblyWords=ASSEMBLY_WORDS[language];
+  for (const cabinet of source.cabinets || []) {
+    const cabinetParts=parts.filter(part=>part.cabinetId===cabinet.id),groupCount=assemblyPartGroups(cabinetParts).length;
+    for(let page=1;page<=groupCount;page++)sheets+=`<section class="sheet assembly-sheet">${createAssemblySvg(project,{cabinetId:cabinet.id,language,page})}</section>`;
+    const cabinetName=translateBuiltInName(cabinet.name,language,'cabinet')||t('Корпус');
+    const installationRows=cabinetParts.map(part=>[
+      codeById.get(part.id),translatePartName(part.name,language),
+      `${n(part.position.x)} × ${n(number(cabinet.plinth)+number(part.position.y))} × ${n(part.position.z)}`,
+      `${n(number(part.finishedWidth,part.width))} × ${n(number(part.finishedHeight,part.height))} × ${n(part.thickness)}`,
+      assemblyWords[part.orientation]||assemblyWords['vertical-width']
+    ]);
+    sheets+=schedule(`${cabinetName} · ${assemblyWords.positions}`,`${assemblyWords.positionNote} ${assemblyWords.coordinates}`,['№',assemblyWords.detail,'X × Y × Z, mm',assemblyWords.size,assemblyWords.orientation],installationRows,14).replaceAll('class="sheet schedule"',`class="sheet schedule installation-schedule" data-assembly-cabinet="${escape(cabinet.id)}"`);
+  }
   const rods=(source.cabinets||[]).flatMap(cabinet=>(engine.getRodLayout?.(cabinet,source)||[]).map((rod,index)=>{
     const layout=modelLayout(cabinet,source),section=rod.interiorSectionId?interiorSectionMark(layout,layout.internalSections.find(s=>s.id===rod.interiorSectionId)):`S${layout.sections.findIndex(s=>s.id===rod.sectionId)+1}`;
     return [selected?`R${index+1}`:`${translateBuiltInName(cabinet.name,language,'cabinet')||t('Корпус')} · R${index+1}`,section,n(rod.length),n(rod.diameter),n(number(cabinet.plinth)+rod.y),n(rod.frontInset),n(rod.holders)];
@@ -1419,53 +1895,29 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
   const partTitle = `${title} · ${t('детали и короба ящиков')}`, partIntro = 'Точные размеры каждой детали раскроя из инженерной модели. Короба ящиков перечислены отдельно от фасадов. Для L-деталей далее приведён контур.', partHeadings = ['№', 'Деталь / секция', 'Раскрой: Ш × В, мм', 'Толщина, мм', 'Материал', 'Ось текстуры', 'Кромка, мм','Расход кромки, м'];
   const edgeSummary=engine.getEdgeBandingSummary(parts), edgeRows=edgeSummary.groups.map(group=>[translateMaterialName(material(project,group.materialId).name,language)||t('МДФ'),n(group.thickness),n(group.partCount),n(group.lengthMeters)]);
   const edgePage=schedule(`${t('Всего кромки')}: ${n(edgeSummary.lengthMeters)} ${t('м')}`,'Расход кромки рассчитан по готовым размерам и выбранным сторонам каждой детали.',['Материал','Кромка, мм','Деталей с кромкой','Расход кромки, м'],edgeRows);
-  let edgeAttached=false;
-  if (compact) {
-    // Rows are budgeted by their wrapped text, rather than a blind fixed count.
-    // A normal 24-part wardrobe fits one sheet at 7.5 pt; long custom names
-    // consume more vertical space and cause an earlier page break.
-    // Physical edge names need a wider column than schematic top/bottom keys.
-    // Match the 9 px type and the production table's actual column widths.
-    const capacities = [6,60,24,10,43,10,28,9];
-    let offset=0;
-    while(offset<cutRows.length){
-      let count=0,height=0;
-      while(offset+count<cutRows.length && count<24){
-        const lines=Math.max(1,...cutRows[offset+count].map((cell,i)=>Math.ceil(String(cell).length/capacities[i]))), rowHeight=7+11*lines;
-        if(count&&height+rowHeight>590)break;
-        height+=rowHeight;count++;
-      }
-      let page=schedule(partTitle,partIntro,partHeadings,cutRows.slice(offset,offset+count),24).replace('class="sheet schedule"','class="sheet schedule parts-schedule"');
-      page=page.replace(/<small>[^<]*<\/small>/,`<small>${t(`${offset+1}–${offset+count} из ${cutRows.length}`)} · ${t('все размеры в миллиметрах')}</small>`);
-      if(offset+count===cutRows.length && edgeRows.length<=4 && height+55+edgeRows.length*20<=620){
-        const inner=edgePage.replace(/^<section[^>]*>/,'').replace(/<\/section>$/,'').replace(/<small>[^<]*<\/small>/g,'');
-        page=page.replace(/<small>/,`<article class="edge-summary">${inner}</article><small>`);edgeAttached=true;
-      }
-      sheets+=page;offset+=count;
-    }
-  } else sheets += schedule(partTitle,partIntro,partHeadings,cutRows,12);
-  if(!edgeAttached)sheets+=edgePage;
+  sheets += schedule(partTitle,partIntro,partHeadings,cutRows,compact?24:12);
+  sheets += edgePage;
   if (selected) for (const part of parts.filter(part => part.outline)) sheets += `<section class="sheet">${createPartSvg(part, project, {language, partCode: codeById.get(part.id)})}</section>`;
   sheets += costPrintSheets(project,{cabinetId,language});
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escape(title)} — чертежи</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;background:#e8ece7;font:14px Arial,sans-serif;color:#263e35}.toolbar{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:#fff;position:sticky;top:0;box-shadow:0 1px 8px #0001}.toolbar button{background:#167e75;color:#fff;border:0;border-radius:6px;padding:10px 18px;cursor:pointer;font:inherit}.sheet{width:297mm;height:210mm;margin:16px auto;background:#fff;break-after:page;page-break-after:always}.sheet svg{display:block;width:100%;height:100%}.schedule{padding:12mm 16mm}.schedule h1{font-size:20px;line-height:1.2;margin:0 0 10px}.schedule p{color:#607468;font-size:11px;line-height:1.5;margin:0 0 18px}.schedule table{width:100%;border-collapse:collapse;table-layout:fixed}.schedule th{text-align:left;color:#496156;font-size:10px}.schedule td,.schedule th{padding:8px 6px;border-bottom:1px solid #dce4de;font-size:10px;line-height:1.35;overflow-wrap:anywhere;vertical-align:top}.schedule th:nth-child(1),.schedule td:nth-child(1){width:6%}.schedule th:nth-child(2),.schedule td:nth-child(2){width:28%}.schedule th:nth-child(3),.schedule td:nth-child(3){width:18%}.schedule small{display:block;margin-top:16px;font-size:10px;color:#718477}.sheet:last-child{break-after:auto;page-break-after:auto}@media print{body{background:#fff}.toolbar{display:none}.sheet{margin:0;box-shadow:none}}@media screen and (max-width:1150px){.sheet{width:94vw;height:auto;aspect-ratio:297/210}.schedule{height:auto;min-height:70vw}}</style></head><body><div class="toolbar"><span>${escape(title)} · чертежи, фасады и детали · мм</span><button onclick="window.print()">Печать / сохранить PDF</button></div>${sheets}</body></html>`;
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escape(title)} — чертежи</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;background:#e8ece7;font:14px Arial,sans-serif;color:#263e35}.toolbar{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:#fff;position:sticky;top:0;box-shadow:0 1px 8px #0001}.toolbar button{background:#167e75;color:#fff;border:0;border-radius:6px;padding:10px 18px;cursor:pointer;font:inherit}.sheet{width:297mm;height:210mm;margin:16px auto;background:#fff;break-after:page;page-break-after:always}.sheet svg{display:block;width:100%;height:100%}.schedule{padding:12mm 16mm}.schedule h1{font-size:20px;line-height:1.2;margin:0 0 10px;overflow-wrap:anywhere}.schedule p{color:#607468;font-size:11px;line-height:1.5;margin:0 0 18px}.schedule table{width:100%;border-collapse:collapse;table-layout:fixed}.schedule th{text-align:left;color:#496156;font-size:10px}.schedule td,.schedule th{padding:8px 6px;border-bottom:1px solid #dce4de;font-size:14px;line-height:1.35;overflow-wrap:anywhere;vertical-align:top}.schedule th:nth-child(1),.schedule td:nth-child(1){width:6%}.schedule th:nth-child(2),.schedule td:nth-child(2){width:28%}.schedule th:nth-child(3),.schedule td:nth-child(3){width:18%}.schedule small{display:block;margin-top:16px;font-size:10px;color:#718477}.sheet:last-child{break-after:auto;page-break-after:auto}@media print{body{background:#fff}.toolbar{display:none}.sheet{margin:0;box-shadow:none}}@media screen and (max-width:1150px){.sheet{width:94vw;height:auto;aspect-ratio:297/210}.schedule{height:auto;min-height:70vw}}</style></head><body><div class="toolbar"><span>${escape(title)} · чертежи, фасады и детали · мм</span><button onclick="window.print()">Печать / сохранить PDF</button></div>${sheets}</body></html>`;
 }
 
 /** Production print defaults to Turkish; screen SVG callers select their own
  * language. Compact SVG text is drawn at the panel's actual size, not reduced
- * from a complete A4 sheet, so the smallest grid label prints above 6.5 pt. */
+ * from a complete A4 sheet, so the smallest grid label is about 3.5 mm in nominal font size at A4 size. */
 export function generateDrawingHTML(project, options = {}) {
   const language = printLanguage(options.language ?? project.settings?.printLanguage ?? 'tr','tr');
   const t = text => translatePrintText(text,language);
-  const edgeCSS='.sheet.parts-schedule td,.sheet.parts-schedule th{font-size:9px;padding:3.5px 6px}.sheet.parts-schedule th:nth-child(2),.sheet.parts-schedule td:nth-child(2){width:31%}.sheet.parts-schedule th:nth-child(5),.sheet.parts-schedule td:nth-child(5){width:27%}.sheet.parts-schedule th:nth-child(6),.sheet.parts-schedule td:nth-child(6){width:8%}.sheet.parts-schedule th:nth-child(7),.sheet.parts-schedule td:nth-child(7){width:7%}.edge-summary{margin-top:3mm}.edge-summary h1{font-size:12px;margin:0 0 4px}.edge-summary p{font-size:9px;margin:0 0 4px}.sheet.parts-schedule .edge-summary th:nth-child(1),.sheet.parts-schedule .edge-summary td:nth-child(1){width:50%}.sheet.parts-schedule .edge-summary th:nth-child(2),.sheet.parts-schedule .edge-summary td:nth-child(2){width:15%}.sheet.parts-schedule .edge-summary th:nth-child(3),.sheet.parts-schedule .edge-summary td:nth-child(3){width:15%}.sheet.parts-schedule .edge-summary th:nth-child(4),.sheet.parts-schedule .edge-summary td:nth-child(4){width:20%}';
-  const gridCSS = '.sheet.combined-schedule{padding:9mm 14mm}.sheet.combined-schedule article+article{margin-top:5mm}.sheet.combined-schedule h1{font-size:16px;margin:0 0 7px}.sheet.combined-schedule p{margin-bottom:10px}.sheet.combined-schedule td,.sheet.combined-schedule th{padding:5px 6px;font-size:10px;line-height:1.25}.sheet.parts-schedule{padding:8mm 12mm}.sheet.parts-schedule td,.sheet.parts-schedule th{padding:4px 6px;font-size:10px;line-height:1.2}.sheet.parts-schedule th:nth-child(1),.sheet.parts-schedule td:nth-child(1){width:6%}.sheet.parts-schedule th:nth-child(2),.sheet.parts-schedule td:nth-child(2){width:34%}.sheet.parts-schedule th:nth-child(3),.sheet.parts-schedule td:nth-child(3){width:15%}.sheet.parts-schedule th:nth-child(4),.sheet.parts-schedule td:nth-child(4){width:6%}.sheet.parts-schedule th:nth-child(5),.sheet.parts-schedule td:nth-child(5){width:30%}.sheet.parts-schedule th:nth-child(6),.sheet.parts-schedule td:nth-child(6){width:9%}.sheet.projection-sheet{padding:8mm}.projection-sheet header{height:16mm}.projection-sheet h1{margin:0 0 2mm;font-size:4mm;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.projection-sheet p{margin:0;font-size:2.5mm;color:#617268;line-height:1.3}.projection-grid{display:grid;gap:4mm;height:176mm}.projection-panel{min-width:0;min-height:0;border:1px solid #dce4de;overflow:hidden}.projection-panel svg{display:block;width:100%;height:100%}@media screen and (max-width:1150px){.projection-sheet header{height:auto;margin-bottom:3mm}.projection-grid{height:58vw;min-height:350px}}@media print{.projection-sheet header{height:16mm}.projection-grid{height:176mm;min-height:0}}';
+  const edgeCSS='.sheet.parts-schedule td,.sheet.parts-schedule th{font-size:14px;padding:3.5px 6px}.sheet.parts-schedule th:nth-child(2),.sheet.parts-schedule td:nth-child(2){width:31%}.sheet.parts-schedule th:nth-child(5),.sheet.parts-schedule td:nth-child(5){width:27%}.sheet.parts-schedule th:nth-child(6),.sheet.parts-schedule td:nth-child(6){width:8%}.sheet.parts-schedule th:nth-child(7),.sheet.parts-schedule td:nth-child(7){width:7%}.edge-summary{margin-top:3mm}.edge-summary h1{font-size:12px;margin:0 0 4px}.edge-summary p{font-size:10px;margin:0 0 4px}.sheet.parts-schedule .edge-summary th:nth-child(1),.sheet.parts-schedule .edge-summary td:nth-child(1){width:50%}.sheet.parts-schedule .edge-summary th:nth-child(2),.sheet.parts-schedule .edge-summary td:nth-child(2){width:15%}.sheet.parts-schedule .edge-summary th:nth-child(3),.sheet.parts-schedule .edge-summary td:nth-child(3){width:15%}.sheet.parts-schedule .edge-summary th:nth-child(4),.sheet.parts-schedule .edge-summary td:nth-child(4){width:20%}';
+  const gridCSS = '.sheet.combined-schedule{padding:9mm 14mm}.sheet.combined-schedule article+article{margin-top:5mm}.sheet.combined-schedule h1{font-size:16px;margin:0 0 7px}.sheet.combined-schedule p{margin-bottom:10px}.sheet.combined-schedule td,.sheet.combined-schedule th{padding:5px 6px;font-size:14px;line-height:1.25}.sheet.parts-schedule{padding:8mm 12mm}.sheet.parts-schedule td,.sheet.parts-schedule th{padding:4px 6px;font-size:10px;line-height:1.2}.sheet.parts-schedule th:nth-child(1),.sheet.parts-schedule td:nth-child(1){width:6%}.sheet.parts-schedule th:nth-child(2),.sheet.parts-schedule td:nth-child(2){width:34%}.sheet.parts-schedule th:nth-child(3),.sheet.parts-schedule td:nth-child(3){width:15%}.sheet.parts-schedule th:nth-child(4),.sheet.parts-schedule td:nth-child(4){width:6%}.sheet.parts-schedule th:nth-child(5),.sheet.parts-schedule td:nth-child(5){width:30%}.sheet.parts-schedule th:nth-child(6),.sheet.parts-schedule td:nth-child(6){width:9%}.sheet.projection-sheet{padding:8mm}.projection-sheet header{height:16mm}.projection-sheet h1{margin:0 0 2mm;font-size:4mm;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.projection-sheet p{margin:0;font-size:2.5mm;color:#617268;line-height:1.3}.projection-grid{display:grid;gap:4mm;height:176mm}.projection-panel{min-width:0;min-height:0;border:1px solid #dce4de;overflow:hidden}.projection-panel svg{display:block;width:100%;height:100%}@media screen and (max-width:1150px){.projection-sheet header{height:auto;margin-bottom:3mm}.projection-grid{height:58vw;min-height:350px}}@media print{.projection-sheet header{height:16mm}.projection-grid{height:176mm;min-height:0}}';
   const physicalEdgeCSS = '.sheet.parts-schedule>table th:nth-child(2),.sheet.parts-schedule>table td:nth-child(2){width:27%}.sheet.parts-schedule>table th:nth-child(5),.sheet.parts-schedule>table td:nth-child(5){width:20%}.sheet.parts-schedule>table th:nth-child(6),.sheet.parts-schedule>table td:nth-child(6){width:5%}.sheet.parts-schedule>table th:nth-child(7),.sheet.parts-schedule>table td:nth-child(7){width:14%}.sheet.parts-schedule>table th:nth-child(8),.sheet.parts-schedule>table td:nth-child(8){width:7%}';
-  return buildDrawingHTML(project,{...options,language})
+  return identifyDrawingSheets(buildDrawingHTML(project,{...options,language})
     .replace('<html lang="ru">',`<html lang="${language}">`)
     .replace(' — чертежи</title>',` — ${t('чертежи')}</title>`)
     .replace(' · чертежи, фасады и детали · мм</span>',` · ${t('чертежи, фасады и детали')} · ${language==='ru'?'мм':'mm'}</span>`)
     .replace('>Печать / сохранить PDF</button>',`>${t('Печать / сохранить PDF')}</button>`)
     .replace('<style>',`<style>${gridCSS}${edgeCSS}${physicalEdgeCSS}`)
-    .replace('</style>',`${HARDWARE_PRINT_CSS}${COST_PRINT_CSS}</style>`);
+    .replace('</style>',`${HARDWARE_PRINT_CSS}${COST_PRINT_CSS}</style>`), project, language);
 }
 
 /** One landscape A4 sheet of the selected cabinet's captured current 3D view.
@@ -1478,8 +1930,9 @@ export function generateCabinet3DHTML(project, {cabinetId,imageDataUrl,language=
   if (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(String(imageDataUrl ?? ''))) throw new Error(t('Не удалось создать изображение для печати.'));
   const name=translateBuiltInName(cabinet.name,language,'cabinet') || t('Корпус'), title=`${name} · ${t('3D-вид шкафа')}`;
   const state=t(doorsOpen?'Фасады открыты':'Фасады закрыты')+(engine.getInternalDrawerLayout(cabinet,project).length?` · ${t(doorsOpen&&internalDrawersOpen?'Внутренние ящики выдвинуты':'Внутренние ящики закрыты')}`:'');
+  const info=getDocumentInfo(project);
   const cameraAttributes=camera ? ` data-camera-yaw="${number(camera.yaw)}" data-camera-elevation="${number(camera.elevation)}" data-camera-zoom="${number(camera.zoom,1)}"` : '';
-  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escape(title)}</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0}body{background:#e8ece7;color:#263e35;font:12px Arial,sans-serif}.sheet{width:297mm;height:210mm;padding:10mm 12mm;margin:16px auto;background:white;display:flex;flex-direction:column;gap:4mm;overflow:hidden}.sheet header{flex:none}.sheet h1{font-size:18px;line-height:1.25;margin:0 0 2mm;overflow-wrap:anywhere}.sheet p{font-size:11px;color:#607468;margin:0;line-height:1.35}.sheet figure{margin:0;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}.sheet img{display:block;width:100%;height:100%;object-fit:contain}.sheet footer{flex:none;display:flex;justify-content:space-between;gap:5mm;border-top:1px solid #dce4de;padding-top:3mm;font-size:10px;color:#607468;line-height:1.35}@media print{body{background:white}.sheet{margin:0;break-after:auto;page-break-after:auto}}@media screen and (max-width:1150px){.sheet{width:94vw;height:66.46vw;padding:3vw;gap:1vw}.sheet h1{font-size:16px}}</style></head><body><section class="sheet cabinet-3d-sheet" data-cabinet-id="${escape(cabinet.id)}" data-doors-open="${Boolean(doorsOpen)}"${cameraAttributes}><header><h1>${escape(title)}</h1><p>${escape(t('Текущий ракурс'))} · ${escape(state)}</p></header><figure><img src="${escape(imageDataUrl)}" alt="${escape(title)}"/></figure><footer><span>${escape(t('Корпус без фасада:'))} ${escape(sizeText(cabinet,language))} ${unit}</span><span>${escape(t('Все размеры в миллиметрах'))} · A4</span></footer></section></body></html>`;
+  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escape(title)}</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0}body{background:#e8ece7;color:#263e35;font:12px Arial,sans-serif}.sheet{width:297mm;height:210mm;padding:10mm 12mm;margin:16px auto;background:white;display:flex;flex-direction:column;gap:4mm;overflow:hidden}.sheet header{flex:none}.sheet h1{font-size:18px;line-height:1.25;margin:0 0 2mm;overflow-wrap:anywhere}.sheet p{font-size:11px;color:#607468;margin:0;line-height:1.35}.sheet figure{margin:0;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}.sheet img{display:block;width:100%;height:100%;object-fit:contain}.sheet footer{flex:none;display:flex;justify-content:space-between;gap:5mm;border-top:1px solid #dce4de;padding-top:3mm;font-size:10px;color:#607468;line-height:1.35}@media print{body{background:white}.sheet{margin:0;break-after:auto;page-break-after:auto}}@media screen and (max-width:1150px){.sheet{width:94vw;height:66.46vw;padding:3vw;gap:1vw}.sheet h1{font-size:16px}}</style></head><body><section class="sheet cabinet-3d-sheet" data-cabinet-id="${escape(cabinet.id)}" data-doors-open="${Boolean(doorsOpen)}"${cameraAttributes}><header><h1>${escape(title)}</h1><p>${escape(t('Текущий ракурс'))} · ${escape(state)}</p><p data-reading-note="illustration">${escape(readingNotes(language, true))}</p><p data-document-id="${escape(info.id)}">${escape(documentMetadataLine(info,{language}))}</p></header><figure><img src="${escape(imageDataUrl)}" alt="${escape(title)}"/></figure><footer><span>${escape(t('Корпус без фасада:'))} ${escape(sizeText(cabinet,language))} ${unit}</span><span>${escape(t('Все размеры в миллиметрах'))} · A4</span></footer></section></body></html>`;
 }
 
 /** Self-contained landscape sheet of the whole room's captured current view. */
@@ -1493,6 +1946,7 @@ export function generateRoom3DHTML(project,{imageDataUrl,language=project.settin
   // of cabinets. A compact inventory is explicitly a preview of eight names.
   const shownCabinets=(project.cabinets||[]).slice(0,8),remaining=Math.max(0,(project.cabinets||[]).length-shownCabinets.length);
   const cabinets=shownCabinets.map((cabinet,index)=>`<li><span>${index+1} · ${escape(translateBuiltInName(cabinet.name,language,'cabinet')||t('Корпус'))}</span><small>${escape(sizeText(cabinet,language))} ${unit}</small></li>`).join('')+(remaining?`<li class="remaining-cabinets" data-remaining-cabinets="${remaining}">${escape(t('Ещё шкафов:'))} ${printNumber(remaining,language)}</li>`:'');
+  const info=getDocumentInfo(project);
   const cameraAttributes=camera?` data-camera-yaw="${number(camera.yaw)}" data-camera-elevation="${number(camera.elevation)}" data-camera-zoom="${number(camera.zoom,1)}"`:'';
-  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escape(title)}</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0}body{background:#e8ece7;color:#263e35;font:12px Arial,sans-serif}.sheet{width:297mm;height:210mm;padding:9mm 12mm;margin:16px auto;background:white;display:flex;flex-direction:column;gap:3mm;overflow:hidden}.sheet header{flex:none}.sheet h1{font-size:18px;line-height:1.25;margin:0 0 2mm;overflow-wrap:anywhere}.sheet p{font-size:11px;color:#607468;margin:0;line-height:1.35}.sheet figure{margin:0;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}.sheet img{display:block;width:100%;height:100%;object-fit:contain}.room-cabinet-list{flex:none;list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2mm 4mm;padding:0;margin:0;font-size:9px;line-height:1.25}.room-cabinet-list li{min-width:0}.room-cabinet-list span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.room-cabinet-list small{font:9px Arial,sans-serif;color:#607468}.sheet footer{flex:none;display:flex;justify-content:space-between;gap:5mm;border-top:1px solid #dce4de;padding-top:3mm;font-size:10px;color:#607468;line-height:1.35}@media print{body{background:white}.sheet{margin:0;break-after:auto;page-break-after:auto}}@media screen and (max-width:1150px){.sheet{width:94vw;height:66.46vw;padding:3vw;gap:1vw}.sheet h1{font-size:16px}}</style></head><body><section class="sheet room-3d-sheet" data-cabinet-count="${(project.cabinets||[]).length}" data-doors-open="${Boolean(doorsOpen)}" data-internal-drawers-open="${Boolean(doorsOpen&&internalDrawersOpen)}"${cameraAttributes}><header><h1>${escape(title)}</h1><p>${escape(t('Текущий ракурс'))} · ${escape(state)}</p></header><figure><img src="${escape(imageDataUrl)}" alt="${escape(title)}"/></figure>${cabinets?`<ul class="room-cabinet-list" aria-label="${escape(t('Ведомость корпусов'))}">${cabinets}</ul>`:''}<footer><span>${escape(t('Помещение:'))} ${escape(sizeText(room,language))} ${unit}</span><span>${escape(t('Все размеры в миллиметрах'))} · A4</span></footer></section></body></html>`;
+  return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${escape(title)}</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}html,body{margin:0}body{background:#e8ece7;color:#263e35;font:12px Arial,sans-serif}.sheet{width:297mm;height:210mm;padding:9mm 12mm;margin:16px auto;background:white;display:flex;flex-direction:column;gap:3mm;overflow:hidden}.sheet header{flex:none}.sheet h1{font-size:18px;line-height:1.25;margin:0 0 2mm;overflow-wrap:anywhere}.sheet p{font-size:11px;color:#607468;margin:0;line-height:1.35}.sheet figure{margin:0;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}.sheet img{display:block;width:100%;height:100%;object-fit:contain}.room-cabinet-list{flex:none;list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2mm 4mm;padding:0;margin:0;font-size:9px;line-height:1.25}.room-cabinet-list li{min-width:0}.room-cabinet-list span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.room-cabinet-list small{font:9px Arial,sans-serif;color:#607468}.sheet footer{flex:none;display:flex;justify-content:space-between;gap:5mm;border-top:1px solid #dce4de;padding-top:3mm;font-size:10px;color:#607468;line-height:1.35}@media print{body{background:white}.sheet{margin:0;break-after:auto;page-break-after:auto}}@media screen and (max-width:1150px){.sheet{width:94vw;height:66.46vw;padding:3vw;gap:1vw}.sheet h1{font-size:16px}}</style></head><body><section class="sheet room-3d-sheet" data-cabinet-count="${(project.cabinets||[]).length}" data-doors-open="${Boolean(doorsOpen)}" data-internal-drawers-open="${Boolean(doorsOpen&&internalDrawersOpen)}"${cameraAttributes}><header><h1>${escape(title)}</h1><p>${escape(t('Текущий ракурс'))} · ${escape(state)}</p><p data-reading-note="illustration">${escape(readingNotes(language, true))}</p><p data-document-id="${escape(info.id)}">${escape(documentMetadataLine(info,{language}))}</p></header><figure><img src="${escape(imageDataUrl)}" alt="${escape(title)}"/></figure>${cabinets?`<ul class="room-cabinet-list" aria-label="${escape(t('Ведомость корпусов'))}">${cabinets}</ul>`:''}<footer><span>${escape(t('Помещение:'))} ${escape(sizeText(room,language))} ${unit}</span><span>${escape(t('Все размеры в миллиметрах'))} · A4</span></footer></section></body></html>`;
 }

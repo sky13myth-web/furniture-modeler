@@ -70,6 +70,28 @@ export function translateBuiltInName(name, language = 'ru', kind = 'any') {
 }
 
 const phrases = [
+  ['Материал задника отсутствует или его толщина не соответствует детали.','Arkalık malzemesi eksik veya kalınlığı parçayla eşleşmiyor.','The back-panel material is missing or its thickness does not match the part.'],
+  ['Тонкий встроенный задник требует паза или дополнительных опор для гвоздей; автоматическое крепление не задано.','İnce gömme arkalık, çiviler için kanal veya ek destek gerektirir; otomatik bağlantı belirlenmemiştir.','A thin inset back needs a groove or additional nail supports; automatic fastening is not defined.'],
+  ['У задника нет поддерживаемого контакта с неподвижными плитами корпуса.','Arkalığın sabit gövde levhalarıyla desteklenen teması yok.','The back has no supported contact with fixed carcass panels.'],
+  ['Винт задника не входит в соединяемую плиту.','Arkalık vidası birleştirilen levhaya girmiyor.','The back-panel screw does not engage the receiving panel.'],
+  ['Отверстие задника выходит за контур соединяемой плиты или пересекает вырез.','Arkalık deliği birleştirilen levha konturunun dışına çıkıyor veya oyukla kesişiyor.','The back-panel bore exits the receiving panel outline or intersects a notch.'],
+  ['Доступ к головке крепежа задника закрыт другой плитой.','Arkalık bağlantı elemanının başına erişim başka bir levhayla kapanıyor.','Another panel blocks access to the back-panel fastener head.'],
+  ['Контакт задника слишком короткий для крепежа с заданными отступами.','Arkalık teması, verilen uç mesafeleriyle bağlantı elemanı için çok kısa.','The back contact is too short for fastening with the specified end offsets.'],
+  ['Слишком малый шаг крепежа задника.','Arkalık bağlantı elemanı aralığı çok küçük.','Back-panel fastener spacing is too small.'],
+  ['Не удалось разместить крепёж задника без выхода за материал или пересечения отверстий.','Arkalık bağlantı elemanı, malzeme dışına çıkmadan veya delikler çakışmadan yerleştirilemedi.','The back-panel fastener could not be placed without leaving the material or overlapping bores.'],
+  ['Из-за соседних отверстий превышен заданный шаг крепежа задника.','Komşu delikler nedeniyle verilen arkalık bağlantı aralığı aşıldı.','Adjacent bores cause the specified back-panel fastener spacing to be exceeded.'],
+  ['У задника менее двух доступных поддерживающих контактов; нужны дополнительные опоры или другой способ крепления.','Arkalıkta erişilebilir iki destek teması yok; ek destekler veya başka bir bağlantı yöntemi gerekir.','The back has fewer than two accessible supporting contacts; add supports or use another fastening method.'],
+  ['Недопустимый параметр крепления задника.','Geçersiz arkalık bağlantı ayarı.','Invalid back-panel fastening setting.'],
+  ['Недопустимый запас глубины отверстия задника.','Geçersiz arkalık pilot deliği ek derinliği.','Invalid back-panel pilot depth allowance.'],
+  ['Проверьте диаметры отверстий под винт задника.','Arkalık vidası delik çaplarını kontrol edin.','Check the bore diameters for the back-panel screw.'],
+  ['Неподвижные соединения корпуса и поддерживаемые задники. Петли, направляющие, свободные полки и ящики не сверлятся автоматически.','Sabit gövde birleşimleri ve desteklenen arkalıklar. Menteşeler, raylar, serbest raflar ve çekmeceler otomatik delinmez.','Fixed carcass joints and supported backs. Hinges, slides, loose shelves and drawers are not drilled automatically.'],
+  ['Винты задника','Arkalık vidaları','Back panel screws'],
+  ['Гвозди задника','Arkalık çivileri','Back panel nails'],
+  ['Крепление некоторых задников не рассчитано. Уточните опорные планки, паз или параметры крепежа; смета пока неполная.','Bazı arkalık bağlantıları hesaplanamadı. Destek çıtalarını, kanalı veya bağlantı ayarlarını belirleyin; maliyet hesabı eksiktir.','Some back-panel connections are unresolved. Check support cleats, grooves or fastener settings; the estimate is incomplete.'],
+  ['ДВП 3 мм: гвозди, без сверловки.','3 mm sert lif arkalık: çivi, delme yok.','3 mm hardboard: nails, no drilling.'],
+  ['МДФ-задник крепится винтами. ДВП 3 мм — гвоздями без сверловки.','MDF arkalık vidalanır. 3 mm sert lif arkalık, delmeden çiviyle sabitlenir.','MDF backs use screws. 3 mm hardboard backs use nails without drilling.'],
+  ['Шкаф не найден.','Dolap bulunamadı.','Cabinet not found.'],
+  ['Сохранить чертёж HTML','HTML çizimini kaydet','Save HTML drawing'],
   ['Для фабрики','Fabrika için','For the factory'],
   ['Заказ на раскрой','Kesim siparişi','Cutting order'],
   ['Скачать комплект ZIP','ZIP paketini indir','Download ZIP package'],
@@ -89,6 +111,7 @@ const phrases = [
   ['Некорректные размеры детали.','Geçersiz parça ölçüleri.','Invalid part dimensions.'],
   ['задняя перемычка пересекает панель корпуса или полку; измените её положение или высоту.','arka kayıt gövde paneli veya rafla kesişiyor; konumunu veya yüksekliğini değiştirin.','the rear brace intersects a carcass panel or shelf; change its position or height.'],
   ['задняя перемычка пересекает короб ящика; измените её положение, толщину или глубину секции.','arka kayıt çekmece kutusuyla kesişiyor; konumunu, kalınlığını veya bölme derinliğini değiştirin.','the rear brace intersects a drawer box; change its position, thickness or the section depth.'],
+  ['глубина выреза не может быть меньше зарезервированной толщины задника.','köşe kesimi derinliği, arkalık için ayrılan kalınlıktan küçük olamaz.','the cutout depth cannot be less than the reserved back-panel thickness.'],
   ['Перспектива','Perspektif','Perspective'],
   ['3D-вид шкафа','Dolabın 3B görünümü','Cabinet 3D view'],['Текущий ракурс','Mevcut görünüş','Current viewpoint'],
   ['Фасады открыты','Ön paneller açık','Fronts open'],['Фасады закрыты','Ön paneller kapalı','Fronts closed'],
@@ -229,7 +252,7 @@ export function translatePrintText(text, language = 'ru') {
   if (lang === 'ru') return translatePartName(value,lang);
   if (vocabulary.has(value)) return vocabulary.get(value)[lang];
   // Keep custom cabinet/part labels unchanged when localising known errors.
-  const factoryDiagnostic = value.match(/^([\s\S]*:\s*)(Толщина детали не совпадает с материалом\.|Некорректный контур детали\.|Некорректные размеры детали\.|задняя перемычка пересекает панель корпуса или полку; измените её положение или высоту\.|задняя перемычка пересекает короб ящика; измените её положение, толщину или глубину секции\.)(\s*)$/u);
+  const factoryDiagnostic = value.match(/^([\s\S]*:\s*)(Толщина детали не совпадает с материалом\.|Некорректный контур детали\.|Некорректные размеры детали\.|задняя перемычка пересекает панель корпуса или полку; измените её положение или высоту\.|задняя перемычка пересекает короб ящика; измените её положение, толщину или глубину секции\.|глубина выреза не может быть меньше зарезервированной толщины задника\.)(\s*)$/u);
   if (factoryDiagnostic) return `${factoryDiagnostic[1]}${vocabulary.get(factoryDiagnostic[2])[lang]}${factoryDiagnostic[3]}`;
   const part = translatePartName(value,lang);
   if (part !== value) return part;

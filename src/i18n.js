@@ -12,6 +12,35 @@ const add = rows => rows.trim().split('\n').forEach(row => {
 });
 
 add(`
+МДФ-задник крепится винтами. ДВП 3 мм — гвоздями без сверловки.|MDF arkalık vidalanır. 3 mm sert lif arkalık, delmeden çiviyle sabitlenir.|MDF backs use screws. 3 mm hardboard backs use nails without drilling.
+Корпус — конфирматы; МДФ-задник — отдельные винты. ДВП 3 мм — гвозди без сверловки.|Gövde: konfirmat; MDF arkalık: ayrı vidalar. 3 mm sert lif arkalık: delmeden çivi.|Carcass: confirmats; MDF back: separate screws. 3 mm hardboard: nails without drilling.
+Винты для задника|Arkalık vidaları|Back panel screws
+Начальные параметры — винт 4 × 30 мм с широкой головкой, без автоматической зенковки.|Başlangıç: geniş başlı 4 × 30 mm vida; otomatik havşa yok.|Initial preset: 4 × 30 mm wide-head screw, without automatic countersinking.
+Диаметр винта задника|Arkalık vida çapı|Back screw diameter
+Длина винта задника|Arkalık vida uzunluğu|Back screw length
+Сквозное отверстие задника|Arkalık geçiş deliği|Back clearance hole
+Пилотное отверстие задника|Arkalık pilot deliği|Back pilot hole
+Запас глубины винта задника|Arkalık ek delme derinliği|Back pilot depth allowance
+Отступ крепежа задника|Arkalık bağlantı uç mesafesi|Back fastener end offset
+Шаг крепежа задника|Arkalık bağlantı aralığı|Back fastener spacing
+Отверстия задника размещаются только в местах контакта с неподвижными плитами корпуса. Размер винта и диаметр сверла можно изменить.|Arkalık delikleri yalnızca sabit gövde levhalarına temas eden noktalara yerleştirilir. Vida ve matkap çapı değiştirilebilir.|Back holes are placed only at contacts with fixed carcass panels. Screw size and drill diameter are adjustable.
+Цена винта задника|Arkalık vida fiyatı|Back screw price
+Цена гвоздя задника|Arkalık çivi fiyatı|Back nail price
+Винты задника|Arkalık vidaları|Back panel screws
+Гвозди задника|Arkalık çivileri|Back panel nails
+Виды шкафа|Dolap görünümleri|Cabinet views
+Раздвинуть детали|Parçaları ayır|Explode parts
+Собрать детали|Parçaları birleştir|Assemble parts
+Нажмите на деталь — размеры и сверловка|Parçaya tıklayın: ölçüler ve delikler|Click a part for dimensions and drilling
+Клик — выбрать деталь · двойной клик — сверловка|Tıklama: parça seçimi · çift tıklama: delik şeması|Click to select a part · double-click for drilling
+В комплекте: листы с деталями DXF, отдельная схема резов с пропилом и Excel по материалам.|Takımda: parça yerleşimli levha DXF, testere payı dahil ayrı kesim planı ve malzemeye göre Excel.|Includes nested sheet DXF, a separate cut plan with kerf, and Excel grouped by material.
+DXF: раскладка на листах 1:1 в мм. Пропил задаётся в настройках раскроя, по умолчанию 3 мм.|DXF: levha yerleşimi mm biriminde 1:1. Testere payı kesim ayarlarından belirlenir, varsayılan 3 mm.|DXF: sheet nesting at 1:1 in mm. Saw kerf is set in cutting settings, default 3 mm.
+Листы с деталями DXF|Parça yerleşimli levhalar DXF|Nested sheets DXF
+Сборка|Montaj|Assembly
+Предыдущий лист|Önceki sayfa|Previous sheet
+Следующий лист|Sonraki sayfa|Next sheet
+Шкаф не найден.|Dolap bulunamadı.|Cabinet not found.
+Сохранить чертёж HTML|HTML çizimini kaydet|Save HTML drawing
 Доступ к головке винта закрыт противоположной перегородкой. Такое соединение требует другого крепежа.|Karşı ara panel vida başına erişimi engelliyor. Bu bağlantı için başka bir bağlantı elemanı gerekir.|The opposite divider blocks access to the screw head. This joint needs a different fastener.
 Глубина зенковки не задана: в ведомости она отмечена для настройки в мастерской.|Havşa derinliği belirtilmedi: listede atölyede ayarlanacak olarak işaretlenmiştir.|Countersink depth is unset: the schedule marks it for workshop setup.
 Недопустимый параметр сверловки.|Geçersiz delik ayarı.|Invalid drilling setting.
@@ -42,6 +71,8 @@ add(`
 Операций сверления|Delik işlemi|Drilling operations
 Отдельные файлы сверловки: CSV с координатами и ZIP со схемами деталей. Коды деталей совпадают с раскроем.|Ayrı delik dosyaları: koordinatlı CSV ve parça şemaları içeren ZIP. Parça kodları kesim listesiyle aynıdır.|Separate drilling files: a coordinate CSV and a ZIP with part maps. Part codes match the cutting list.
 Сверловка CSV|Delik listesi CSV|Drilling CSV
+Сверловка|Delikler|Drilling
+Заказ мастерской Excel|Atölye kesim listesi Excel|Workshop cutting order Excel
 Схемы сверловки ZIP|Delik şemaları ZIP|Drilling maps ZIP
 Для фабрики|Fabrika için|For the factory
 Заказ на раскрой|Kesim siparişi|Cutting order
@@ -153,6 +184,7 @@ CSV импортируется с сопоставлением колонок; D
 задняя перемычка не помещается по глубине корпуса или секции.|arka kayıt gövde veya bölme derinliğine sığmıyor.|the rear brace does not fit within the carcass or section depth.
 задняя перемычка пересекает панель корпуса или полку; измените её положение или высоту.|arka kayıt gövde paneli veya rafla kesişiyor; konumunu veya yüksekliğini değiştirin.|the rear brace intersects a carcass panel or shelf; change its position or height.
 задняя перемычка пересекает короб ящика; измените её положение, толщину или глубину секции.|arka kayıt çekmece kutusuyla kesişiyor; konumunu, kalınlığını veya bölme derinliğini değiştirin.|the rear brace intersects a drawer box; change its position, thickness or the section depth.
+глубина выреза не может быть меньше зарезервированной толщины задника.|köşe kesimi derinliği, arkalık için ayrılan kalınlıktan küçük olamaz.|the cutout depth cannot be less than the reserved back-panel thickness.
 глубина секции|bölme derinliği|section depth
 превышает корпус или внешний проём.|gövdeyi veya dış açıklığı aşıyor.|exceeds the carcass or outer opening.
 не касается основания корпуса; собственный цоколь применяется только к нижней секции.|gövde tabanına değmiyor; ayrı baza yalnızca alt bölmeye uygulanır.|does not touch the carcass base; a separate plinth applies only to a bottom section.

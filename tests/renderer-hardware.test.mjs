@@ -87,7 +87,7 @@ test('hardware pagination retains every cabinet and keeps typography scoped to p
 
 function manualPrices(project){
   for(const material of project.materials)material.pricePerSheet=100;
-  project.settings.pricing={handlePrice:10,guideSetPrice:40,hingePrice:5,edgeBandPricePerMeter:2};
+  project.settings.pricing={handlePrice:10,guideSetPrice:40,hingePrice:5,edgeBandPricePerMeter:2,rearScrewPrice:.7,rearNailPrice:.1};
 }
 
 test('drawing cost sheets use actual quantities and manual rates with one localized final total',()=>{
@@ -96,6 +96,7 @@ test('drawing cost sheets use actual quantities and manual rates with one locali
   assert.equal(estimate.complete,true);
   assert.deepEqual(estimate.hardware,{handles:3,guideSets:6,hinges:8,rods:0,rodHolders:0,rodLengthMeters:0});
   assert.equal(estimate.rows.find(row=>row.id==='guideSets').cost,240,'one pair is priced once, not as two separate rails');
+  assert.equal(estimate.rows.find(row=>row.id==='rearNails').cost,estimate.rearHardware.nails*.1,'the actual back-panel nail quantity is included in the manual quote');
   for(const language of ['ru','tr','en']){
     const html=generateCostPrintHTML(project,{cabinetId:cabinet.id,language});
     assert.equal((html.match(/data-schedule-kind="cost"/g)||[]).length,1);
@@ -111,12 +112,30 @@ test('drawing cost sheets use actual quantities and manual rates with one locali
   assert.deepEqual(project,before);
 });
 
+test('an omitted rear-fastener price keeps the printed manual estimate incomplete until that price is supplied',()=>{
+  const {project,cabinet}=fixture();manualPrices(project);delete project.settings.pricing.rearNailPrice;
+  const estimate=getProjectCostEstimate(project,{cabinetId:cabinet.id});
+  assert.equal(estimate.complete,false);
+  assert.deepEqual(estimate.missingPrices.map(row=>row.id),['rearNails']);
+  assert.ok(estimate.rearHardware.nails>0);
+  for(const language of ['ru','tr','en']){
+    const html=generateCostPrintHTML(project,{cabinetId:cabinet.id,language});
+    assert.ok(html.includes(translatePrintText('Смета неполная',language)));
+    assert.ok(html.includes(translatePrintText('Для строк с «—» задайте цену вручную.',language)));
+    assert.ok(html.includes(`<td>${translatePrintText('Гвозди задника',language)}</td><td>${estimate.rearHardware.nails.toLocaleString({ru:'ru-RU',tr:'tr-TR',en:'en-US'}[language],{minimumFractionDigits:0,maximumFractionDigits:0})}</td><td>${translatePrintText('шт.',language)}</td><td>—</td><td>—</td>`));
+    assert.equal((html.match(/<tfoot>/g)||[]).length,1);
+  }
+  project.settings.pricing.rearNailPrice=.1;
+  assert.equal(getProjectCostEstimate(project,{cabinetId:cabinet.id}).complete,true);
+});
+
 test('reference prices and editable hinge-planning notes stay visible and readable on the compact estimate',()=>{
   const project=createDefaultProject(),cabinet=project.cabinets[0];
   for(const language of ['ru','tr','en']){
     const html=generateCostPrintHTML(project,{cabinetId:cabinet.id,language});
     assert.equal((html.match(/data-schedule-kind="cost"/g)||[]).length,1);
-    assert.doesNotMatch(html,/<details>|data-schedule-kind="price-sources"/,'the twelve short references need no separate page or collapsed print disclosure');
+    assert.doesNotMatch(html,/<details>|data-schedule-kind="price-sources"/,'the short references need no separate page or collapsed print disclosure');
+    assert.equal(Number(html.match(/data-cost-row-count="(\d+)"/)[1]),getProjectCostEstimate(project,{cabinetId:cabinet.id}).rows.length,'the back-panel fastener row stays with the other rows and total on the readable compact sheet');
     assert.match(html,/<div class="cost-sources">/);
     assert.ok((html.match(/<a href="https:\/\//g)||[]).length>=10);
     assert.ok(html.includes(translatePrintText('Источники цен',language)));

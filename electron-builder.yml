@@ -12,6 +12,9 @@ files:
   - desktop/**/*.cjs
   - build/icon.ico
   - LICENSE
+  - LICENSE.ru.md
+  - LICENSE.tr.md
+  - docs/licenses/MIT-through-v2.2.0.txt
   - package.json
 win:
   icon: build/icon.ico

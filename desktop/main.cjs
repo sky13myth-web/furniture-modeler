@@ -1,8 +1,9 @@
 'use strict';
-const { app, BrowserWindow, Menu, protocol, session, shell, dialog } = require('electron');
-const { readFile, mkdir, writeFile } = require('node:fs/promises');
+const { app, BrowserWindow, Menu, protocol, session, shell, dialog, ipcMain } = require('electron');
+const { readFile, mkdir, writeFile, stat } = require('node:fs/promises');
 const path = require('node:path');
 const { APP_ORIGIN, CONTENT_SECURITY_POLICY, bundledFile, isAppUrl, isPrintUrl, externalLink } = require('./policy.cjs');
+const { isTrustedExportEvent, createExportService, errorResult } = require('./file-save.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'atolye', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 app.setName('ATÖLYE');
@@ -30,7 +31,27 @@ const downloads = [];
 const popups = [];
 const rendererErrors = [];
 
-const preferences = () => ({ sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, allowRunningInsecureContent: false, session: appSession });
+const preferences = () => ({ sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, allowRunningInsecureContent: false, session: appSession, preload: path.join(__dirname, 'preload.cjs') });
+
+const exportService = createExportService({
+  chooseDestination: file => smokeMode
+    ? Promise.resolve({ canceled: false, filePath: path.join(smokeOutput, file.name) })
+    : dialog.showSaveDialog(mainWindow, { title: 'ATÖLYE · Save / Сохранить / Kaydet', defaultPath: path.join(app.getPath('downloads'), file.name), filters: [{ name: file.extension.toUpperCase(), extensions: [file.extension] }], properties: ['showOverwriteConfirmation', 'createDirectory'] }),
+  writeFile: async (filePath, bytes) => {
+    await writeFile(filePath, bytes);
+    downloads.push({ filename: path.basename(filePath), path: filePath, state: 'completed', method: 'save-dialog', bytes: bytes.length });
+  },
+  reveal: async filePath => {
+    if (!(await stat(filePath)).isFile()) throw new Error('Saved export is no longer a file.');
+    if (!smokeMode) shell.showItemInFolder(filePath);
+  }
+});
+ipcMain.handle('atolye:save-file', (event, request) => isTrustedExportEvent(event, mainWindow)
+  ? exportService.saveFile(request, event.sender.id)
+  : errorResult('ACCESS_DENIED', 'This window cannot save application exports.'));
+ipcMain.handle('atolye:reveal-file', (event, token) => isTrustedExportEvent(event, mainWindow)
+  ? exportService.revealFile(token, event.sender.id)
+  : errorResult('ACCESS_DENIED', 'This window cannot show saved exports.'));
 function openExternal(url) {
   const target = externalLink(url);
   if (target && !smokeMode) shell.openExternal(target).catch(() => {});

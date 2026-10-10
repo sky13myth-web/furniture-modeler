@@ -33,7 +33,7 @@ test('manual lengths stay centred and axes follow local plinth, open floor and l
   Object.assign(cabinet, { includeBack: false, backThickness: 8, backMaterialId: 'hdf-back' });
   Object.assign(cabinet.layout, { plinthHeight: 180, back: 'solid', rods: [rail({ length: 500, y: 300, frontInset: 100, diameter: 30 })] });
   let [rod] = getRodLayout(cabinet, project);
-  assert.deepEqual([rod.x, rod.y, rod.z, rod.length, rod.autoLength, rod.opening.rearOffset], [200, 398, 520, 500, false, 8]);
+  assert.deepEqual([rod.x, rod.y, rod.z, rod.length, rod.autoLength, rod.opening.rearOffset], [200, 398, 520, 500, false, 0]);
   assert.equal(cabinet.plinth + rod.y, 498);
   cabinet.layout.floor = 'open';
   [rod] = getRodLayout(cabinet, project);
