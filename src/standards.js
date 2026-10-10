@@ -33,7 +33,9 @@ export const STANDARDS = [
   },
 ];
 
-export const MATERIAL_PRESETS = [
+import { YILDIZ_CATALOG_PRESETS } from './yildiz-catalog.js';
+
+export const DEFAULT_MATERIAL_PRESETS = [
   { id: 'yildiz-white-18', name: 'Yıldız MDFLAM · Beyaz VT_068 · 18 мм', type: 'MDFLAM', color: '#eeeee9', thickness: 18, sheetWidth: 2100, sheetHeight: 2800, grain: false, edgeBand: 1, manufacturer: 'Yıldız Entegre', decorCode: 'VT_068', sourceUrl: 'https://www.yildizentegre.com/urunler/mdflam-suntalam/beyaz-vt-068' },
   { id: 'yildiz-oak-18', name: 'Yıldız MDFLAM · Valley Oak YT_10E · 18 мм', type: 'MDFLAM', color: '#bb9268', thickness: 18, sheetWidth: 2100, sheetHeight: 2800, grain: true, edgeBand: 1, manufacturer: 'Yıldız Entegre', decorCode: 'YT_10E', sourceUrl: 'https://www.yildizentegre.com/en/products/melamine-faced-mdfpb/valley-oak-yt-10e' },
   { id: 'yildiz-black-18', name: 'Yıldız MDFLAM · Siyah VT_037 · 18 мм', type: 'MDFLAM', color: '#303433', thickness: 18, sheetWidth: 2100, sheetHeight: 2800, grain: false, edgeBand: 1, manufacturer: 'Yıldız Entegre', decorCode: 'VT_037', sourceUrl: 'https://www.yildizentegre.com/en/products/melamine-faced-mdfpb/black-vt-037' },
@@ -42,6 +44,8 @@ export const MATERIAL_PRESETS = [
   { id: 'yildiz-matt-white-18', name: 'Yıldız Kapak Panel · Matt White MAT_068 · 18 мм', type: 'MDF с матовым покрытием', color: '#ecebe6', thickness: 18, sheetWidth: 1220, sheetHeight: 2800, grain: false, edgeBand: 1, manufacturer: 'Yıldız Entegre', decorCode: 'MAT_068', sourceUrl: 'https://www.yildizentegre.com/en/products/front-panel/mat-white-mat-068' },
   { id: 'yildiz-gloss-white-18', name: 'Yıldız Kapak Panel · High Gloss White HG_068 · 18 мм', type: 'MDF с глянцевым покрытием', color: '#f1f1eb', thickness: 18, sheetWidth: 1220, sheetHeight: 2800, grain: false, edgeBand: 1, manufacturer: 'Yıldız Entegre', decorCode: 'HG_068', sourceUrl: 'https://www.yildizentegre.com/en/products/front-panel/hg-white-hg-068' },
 ];
+
+export const MATERIAL_PRESETS = [...DEFAULT_MATERIAL_PRESETS, ...YILDIZ_CATALOG_PRESETS];
 
 // Requested generic 3 mm hardboard back, separate from verified Yıldız articles.
 // No manufacturer/product availability or sheet format is certified by this preset.

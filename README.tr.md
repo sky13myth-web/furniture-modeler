@@ -4,6 +4,8 @@
 
 ATÖLYE, bilgisayarınızda çalışan ücretsiz bir mobilya tasarım uygulamasıdır. Dolabı bölmelere ayırabilir, kapak ve çekmeceleri düzenleyebilir, düzensiz biçimli bir odaya yerleştirebilirsiniz. Ölçüler mm cinsindendir. Arayüz Türkçe, Rusça ve İngilizceyi destekler; ilk açılışta Türkçe seçilidir.
 
+**Üretimden önce:** uygulama, referans amacıyla tasarım ve üretim planlama bilgileri sunar; uzman bir mobilya ustasının kontrolünün yerini tutmaz. Malzeme siparişinden, kesimden, delmeden ve montajdan önce ölçüleri, bağlantıları ve boşlukları gerçek levha, kenar bandı, aksesuar, makine ve montaj koşullarına göre doğrulayın. Üretici, tasarımın kurulacağı yere uygunluğunu ve güvenliğini teyit etmelidir.
+
 ## Windows kurulumu
 
 [Son sürümden](https://github.com/sky13myth-web/furniture-modeler/releases/latest) **ATOLYE-Setup-2.2.1-x64.exe** dosyasını indirin ve kurulum sihirbazını izleyin. ATÖLYE'yi masaüstü veya Başlat menüsü kısayolundan açın. Kurulu uygulamayı kullanmak için Node.js, terminal veya internet bağlantısı gerekmez. Kurulum geçerli kullanıcı içindir; projeler bilgisayarınızda saklanır. [Kurulum ve yedekleme bilgileri](docs/windows-install.md).

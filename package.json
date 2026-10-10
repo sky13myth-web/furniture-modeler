@@ -8,7 +8,7 @@
     "url": "https://github.com/sky13myth-web/furniture-modeler.git"
   },
   "type": "module",
-  "description": "Offline cabinet furniture design studio, millimetres, Turkish board presets",
+  "description": "Offline cabinet design studio; verify dimensions and production data before manufacturing",
   "main": "desktop/main.cjs",
   "author": "ATÖLYE contributors",
   "scripts": {

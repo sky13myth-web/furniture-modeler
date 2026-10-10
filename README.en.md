@@ -2,6 +2,8 @@
 
 A free, local furniture design application. Design the cabinet itself: divide its interior, arrange doors and drawers, and place it in a room with an irregular outline. All dimensions are in millimetres. The interface supports Turkish, Russian and English; production documents default to Turkish.
 
+**Before manufacturing:** the application provides design and production-planning information for reference and does not replace review by a furniture professional. Before ordering materials, cutting, drilling or assembly, verify dimensions, joints and clearances against the actual boards, edge banding, hardware, machinery and installation conditions. The fabricator must confirm the design's suitability and safety for its installation site.
+
 [Русский](README.md) · [Türkçe](README.tr.md) · [Free Use — No Sale license](LICENSE)
 
 ## Windows installer

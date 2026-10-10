@@ -219,6 +219,14 @@ CSV импортируется с сопоставлением колонок; D
 Короб ящика|Çekmece kutusu|Drawer box
 Дно ящика|Çekmece tabanı|Drawer bottom
 Изменить цвет или добавить материал|Renk değiştir veya malzeme ekle|Change color or add material
+Каталог Yıldız Entegre|Yıldız Entegre kataloğu|Yıldız Entegre catalogue
+Смотреть на сайте|Web sitesinde gör|View on website
+Основные пресеты|Temel hazır ayarlar|Core presets
+Yıldız MDFLAM (2100 × 2800 мм)|Yıldız MDFLAM (2100 × 2800 mm)|Yıldız MDFLAM (2100 × 2800 mm)
+Yıldız Kapak Panel · Матовые (1220 × 2800 мм)|Yıldız Kapak Panel · Mat (1220 × 2800 mm)|Yıldız Kapak Panel · Matt (1220 × 2800 mm)
+Yıldız Kapak Panel · Глянцевые (1220 × 2800 мм)|Yıldız Kapak Panel · Parlak (1220 × 2800 mm)|Yıldız Kapak Panel · Gloss (1220 × 2800 mm)
+Выбрать из каталога|Katalogdan seç|Select from catalogue
+Не изменять|Değiştirme|Do not change
 Задние поперечины|Arka kayıtlar|Rear braces
 Задние перемычки|Arka kayıtlar|Rear braces
 Удалить поперечину|Kaydı sil|Delete brace
@@ -314,6 +322,16 @@ CSV импортируется с сопоставлением колонок; D
 Лист Y, мм|Levha Y, mm|Sheet Y, mm
 Текстура вдоль высоты детали|Parça yüksekliği boyunca damar yönü|Grain along part height
 Сохранить материал|Malzemeyi kaydet|Save material
+Удалить материал|Malzemeyi sil|Delete material
+В проекте должен оставаться хотя бы один материал.|Projeden son malzeme silinemez. En az bir malzeme kalmalıdır.|The project must keep at least one sheet material.
+Материал используется в шкафах|Malzeme dolaplarda kullanılıyor|Material is used in cabinets
+Сначала замените его в параметрах шкафа.|Önce dolap ayarlarından değiştirin.|Replace it in cabinet settings first.
+Единственный материал нельзя удалить|Tek malzeme silinemez|The only material cannot be deleted
+Замена материала|Malzeme değişimi|Replace material
+Заменить на материал|Şununla değiştir|Replace with material
+Заменить и удалить|Değiştir ve sil|Replace and delete
+Материал для замены не найден.|Değiştirilecek malzeme bulunamadı.|Replacement material not found.
+Отмена|İptal|Cancel
 Сохранить чертёж детали SVG|Parça çizimini SVG olarak kaydet|Save part drawing as SVG
 Размер, мм|Ölçü, mm|Size, mm
 Три шага к своей конструкции|Tasarımınız için üç adım|Three steps to your design
@@ -995,14 +1013,28 @@ const factoryDecors = {
 export function localizeMaterialPreset(material, language = 'tr') {
   const result = { ...material };
   const selectedLanguage = LANGUAGES.includes(language) ? language : 'tr';
-  const decor = factoryDecors[material?.decorCode];
-  if (!decor || material.manufacturer !== 'Yıldız Entegre') return result;
-  const collection = ['MAT_068', 'HG_068'].includes(material.decorCode) ? 'Kapak Panel' : 'MDFLAM';
-  const knownNames = Object.values(decor).flatMap(name => ['мм', 'mm'].map(unit => `Yıldız ${collection} · ${name} ${material.decorCode} · ${material.thickness} ${unit}`));
-  if (!knownNames.includes(material.name)) return result;
+  if (material?.manufacturer !== 'Yıldız Entegre' || !material?.decorCode) return result;
+
+  const isKapak = ['MAT_068', 'HG_068'].includes(material.decorCode) || material.decorCode.startsWith('MAT_') || material.decorCode.startsWith('HG_') || material.decorCode.startsWith('L_') || material.decorCode.startsWith('U_') || (material.type && material.type.includes('покрытием'));
+  const collection = isKapak ? 'Kapak Panel' : 'MDFLAM';
   const unit = selectedLanguage === 'ru' ? 'мм' : 'mm';
-  result.name = `Yıldız ${collection} · ${decor[selectedLanguage]} ${material.decorCode} · ${material.thickness} ${unit}`;
-  const canonicalType = material.decorCode === 'MAT_068' ? 'MDF с матовым покрытием' : material.decorCode === 'HG_068' ? 'MDF с глянцевым покрытием' : 'MDFLAM';
+
+  const decor = factoryDecors[material.decorCode];
+  if (decor) {
+    const knownNames = Object.values(decor).flatMap(name => ['мм', 'mm'].map(u => `Yıldız ${collection} · ${name} ${material.decorCode} · ${material.thickness} ${u}`));
+    if (!knownNames.includes(material.name)) return result;
+    result.name = `Yıldız ${collection} · ${decor[selectedLanguage]} ${material.decorCode} · ${material.thickness} ${unit}`;
+  } else {
+    const match = material.name?.match(/^Yıldız (?:MDFLAM|Kapak Panel) · (.*) [A-Za-z0-9_]+ · \d+(?:\.\d+)? (?:мм|mm)$/);
+    if (!match) return result;
+    const baseName = match[1];
+    result.name = `Yıldız ${collection} · ${baseName} ${material.decorCode} · ${material.thickness} ${unit}`;
+  }
+
+  const isGloss = material.decorCode.startsWith('HG_') || (material.type && material.type.includes('глянцевым'));
+  const canonicalType = isGloss
+    ? 'MDF с глянцевым покрытием'
+    : (isKapak ? 'MDF с матовым покрытием' : 'MDFLAM');
   result.type = translateText(canonicalType, selectedLanguage);
   return result;
 }

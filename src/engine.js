@@ -5,7 +5,7 @@
 
 import { getRoomOutline, polygonIsSimple, pointInPolygon, polygonContained, polygonBoundaryDistance, polygonsOverlap, polygonArea, roomBounds, wallLength, cabinetFootprint, getCabinetFootprint as localFootprint } from './room-geometry.js';
 import { validateLayoutSchema, validateDoorOpenings } from './project-io.js';
-import { MATERIAL_PRESETS, THIN_BACK_PRESET } from './standards.js';
+import { MATERIAL_PRESETS, DEFAULT_MATERIAL_PRESETS, THIN_BACK_PRESET } from './standards.js';
 import { defaultName, localizeMaterialPreset } from './i18n.js';
 import { getInteriorLayout } from './cabinet-interior.js';
 import { buildRodLayout, getRodLimits, rodIntersectsPart, rodIntersectsBox, rodsIntersect } from './cabinet-rods.js';
@@ -556,6 +556,88 @@ export function getCabinetFootprint(cabinet) {
   return localFootprint(cabinet);
 }
 
+export function getMaterialUsage(project, materialId) {
+  const cabinets = project?.cabinets ?? [];
+  const matches = [];
+  for (const cabinet of cabinets) {
+    const roles = [];
+    if (cabinet.materialId === materialId) roles.push('materialId');
+    if (cabinet.frontMaterialId === materialId) roles.push('frontMaterialId');
+    if (cabinet.backMaterialId === materialId) roles.push('backMaterialId');
+    if (cabinet.drawerMaterialId === materialId) roles.push('drawerMaterialId');
+    if (cabinet.drawerBottomMaterialId === materialId) roles.push('drawerBottomMaterialId');
+    if (cabinet.rearBraces?.some(b => b.materialId === materialId)) roles.push('rearBraces');
+    if (cabinet.layout) {
+      const visit = node => {
+        if (!node) return;
+        if (node.rearBraces?.some(b => b.materialId === materialId)) roles.push('sectionRearBraces');
+        if (Array.isArray(node.children)) node.children.forEach(visit);
+        if (node.interiorLayout) visit(node.interiorLayout);
+      };
+      visit(cabinet.layout);
+    }
+    if (roles.length > 0) {
+      matches.push({ cabinetId: cabinet.id, cabinetName: cabinet.name || 'Шкаф', roles });
+    }
+  }
+  return matches;
+}
+
+export function deleteMaterial(project, materialId, replacementId = null) {
+  if (!project || !Array.isArray(project.materials)) return false;
+  if (project.materials.length <= 1) {
+    throw new Error('В проекте должен оставаться хотя бы один материал.');
+  }
+  const index = project.materials.findIndex(m => m.id === materialId);
+  if (index === -1) return false;
+
+  const usage = getMaterialUsage(project, materialId);
+  if (usage.length > 0) {
+    if (!replacementId) {
+      const names = usage.map(u => '«' + u.cabinetName + '»').join(', ');
+      throw new Error('Материал используется в шкафах (' + names + ').');
+    }
+    const replacement = project.materials.find(m => m.id === replacementId);
+    if (!replacement || replacement.id === materialId) {
+      throw new Error('Материал для замены не найден.');
+    }
+    for (const cabinet of project.cabinets || []) {
+      if (cabinet.materialId === materialId) cabinet.materialId = replacementId;
+      if (cabinet.frontMaterialId === materialId) cabinet.frontMaterialId = replacementId;
+      if (cabinet.backMaterialId === materialId) {
+        cabinet.backMaterialId = replacementId;
+        cabinet.backThickness = replacement.thickness;
+      }
+      if (cabinet.drawerMaterialId === materialId) cabinet.drawerMaterialId = replacementId;
+      if (cabinet.drawerBottomMaterialId === materialId) {
+        cabinet.drawerBottomMaterialId = replacementId;
+        cabinet.drawerBottomThickness = replacement.thickness;
+      }
+      if (Array.isArray(cabinet.rearBraces)) {
+        for (const brace of cabinet.rearBraces) {
+          if (brace.materialId === materialId) brace.materialId = replacementId;
+        }
+      }
+      if (cabinet.layout) {
+        const visit = node => {
+          if (!node) return;
+          if (Array.isArray(node.rearBraces)) {
+            for (const brace of node.rearBraces) {
+              if (brace.materialId === materialId) brace.materialId = replacementId;
+            }
+          }
+          if (Array.isArray(node.children)) node.children.forEach(visit);
+          if (node.interiorLayout) visit(node.interiorLayout);
+        };
+        visit(cabinet.layout);
+      }
+    }
+  }
+
+  project.materials.splice(index, 1);
+  return true;
+}
+
 export function createDefaultProject(language = 'tr') {
   const namingLanguage = ['ru', 'tr', 'en'].includes(language) ? language : 'tr';
   const project = {
@@ -571,7 +653,7 @@ export function createDefaultProject(language = 'tr') {
       // IDs are stable internal roles. Display names, thicknesses and sources
       // belong to the confirmed factory article, never to an assumed HDF/MDF.
       const aliases = { 'yildiz-white-18': 'mdf-white', 'yildiz-oak-18': 'mdf-oak', 'yildiz-black-18': 'mdf-sage', 'yildiz-white-8': 'hdf-back' };
-      return [...MATERIAL_PRESETS.map(material => ({ ...localizeMaterialPreset(material, namingLanguage), id: aliases[material.id] ?? material.id })), { ...THIN_BACK_PRESET, name: defaultName('thinBack', namingLanguage), type: defaultName('thinBackType', namingLanguage) }];
+      return [...DEFAULT_MATERIAL_PRESETS.map(material => ({ ...localizeMaterialPreset(material, namingLanguage), id: aliases[material.id] ?? material.id })), { ...THIN_BACK_PRESET, name: defaultName('thinBack', namingLanguage), type: defaultName('thinBackType', namingLanguage) }];
     })(),
     cabinets: [],
     settings: { kerf: 3, margin: 10, allowRotate: true, deductEdge: true, printLanguage: 'tr' }

@@ -1,4 +1,4 @@
-import {createDefaultProject,createCabinet,createSection,convertLegacyLayout,getCabinetLayout,getSectionMountingAxes,getFrontLayout,getInternalDrawerLayout,getApplianceFit,getRodLayout,findFreeRodPosition,findLayoutNode,splitSection,removeSection,extendCabinetSide,canPlaceCabinet,canEditCabinetPlacement,getPartEdgeBanding,getEdgeBandingSummary,generateParts,optimizeCutting,validateProject} from './engine.js';
+import {createDefaultProject,createCabinet,createSection,convertLegacyLayout,getCabinetLayout,getSectionMountingAxes,getFrontLayout,getInternalDrawerLayout,getApplianceFit,getRodLayout,findFreeRodPosition,findLayoutNode,splitSection,removeSection,deleteMaterial,getMaterialUsage,extendCabinetSide,canPlaceCabinet,canEditCabinetPlacement,getPartEdgeBanding,getEdgeBandingSummary,generateParts,optimizeCutting,validateProject} from './engine.js';
 import {constrainCabinetEdit,resizeApplianceSection,resizeApplianceDivider,setApplianceSectionDepth,resizeConstrainedInteriorSection,resizeConstrainedInteriorDivider} from './appliance-constraints.js';
 import {resizeCabinetOnPlan} from './cabinet-plan-resize.js';
 import {getInteriorLayout,createInteriorFromSection,findInteriorNode,splitInteriorSection,removeInteriorSection} from './cabinet-interior.js';
@@ -9,7 +9,7 @@ import {generateRoomPlanHTML} from './room-print.js';
 import {RoomEditor} from './room-editor.js';
 import {getRoomOutline,roomBounds,wallLength,remapWindows,polygonIsSimple} from './room-geometry.js';
 import {CabinetEditor} from './cabinet-editor.js';
-import {STANDARDS,MATERIAL_PRESETS} from './standards.js';
+import {STANDARDS,MATERIAL_PRESETS,DEFAULT_MATERIAL_PRESETS} from './standards.js';
 import {createLaundryExample,createInteriorExample,createRodsExample} from './examples.js';
 import {applyTranslations,translateText,localizeMaterialPreset} from './i18n.js';
 import {translatePrintText,translateMaterialName,translateBuiltInName} from './print-i18n.js';
@@ -60,16 +60,15 @@ let inspectionMarkerId=null;
 let inspectionCache=null;
 let refreshPartModal=null;
 
-$('#app').innerHTML=`<header class="studio-header"><a class="brand" href="#" aria-label="ATÖLYE"><span class="brand-mark">A</span><strong>ATÖLYE</strong></a><button class="project-name" data-action="rename"></button><span class="local-state">На вашем компьютере</span><div class="header-right"><button class="icon-button" data-action="undo" aria-label="Отменить" title="Ctrl+Z">${icon('undo')}</button><button class="icon-button" data-action="redo" aria-label="Повторить" title="Ctrl+Y">${icon('redo')}</button><button class="button" data-action="file">${icon('menu')}Проект</button></div></header>
-<nav class="studio-nav"><div class="mode-tabs"><button data-mode="cabinet">${icon('cube')}Шкаф</button><button data-mode="room">${icon('room')}Помещение</button><button data-mode="cutting">${icon('cut')}Раскрой</button></div><button class="text-button" data-action="help">Как работать</button><span class="units">мм</span></nav>
+$('#app').innerHTML=`<header class="studio-header"><a class="brand" href="#" aria-label="ATÖLYE"><span class="brand-mark">A</span><strong>ATÖLYE</strong></a><button class="project-name" data-action="rename"></button><div class="mode-tabs" role="tablist"><button data-mode="cabinet">${icon('cube')}Шкаф</button><button data-mode="room">${icon('room')}Помещение</button><button data-mode="cutting">${icon('cut')}Раскрой</button></div><span class="local-state">На вашем компьютере</span><div class="header-right"><button class="text-button" data-action="help">Как работать</button><span class="units">мм</span><button class="icon-button" data-action="undo" aria-label="Отменить" title="Ctrl+Z">${icon('undo')}</button><button class="icon-button" data-action="redo" aria-label="Повторить" title="Ctrl+Y">${icon('redo')}</button><button class="button" data-action="file">${icon('menu')}Проект</button></div></header>
 <main class="studio-workspace"><aside class="project-sidebar"><div class="sidebar-heading">ШКАФЫ ПРОЕКТА <span id="cabinet-count"></span></div><div id="cabinet-list"></div><button class="add-cabinet" data-action="add-cabinet">${icon('plus')}Добавить шкаф</button><div class="sidebar-bottom"><button class="text-button" data-action="materials">${icon('settings')}Материалы</button></div></aside>
-<section class="studio-stage"><div class="stage-title"><div><span class="eyebrow" id="stage-eyebrow"></span><h1 id="stage-title"></h1></div><div id="stage-actions"></div></div>
-<div class="cabinet-view-row" id="cabinet-view-switch"><div class="view-switch" role="toolbar" aria-label="Виды шкафа"><button data-cabinet-view="scheme">Схема</button><button data-cabinet-view="3d">3D</button><button data-cabinet-view="drawings">Чертежи</button></div></div><div class="cabinet-3d-toolbar" id="cabinet-3d-tools" hidden><button class="button" data-action="explode-parts">Раздвинуть детали</button><button class="button quiet" data-action="open-fronts">Открыть фасады</button><button class="button quiet" data-action="open-internal" hidden>Открыть внутренние ящики</button><button class="button quiet" data-action="cabinet-3d-print">Печать 3D-вида</button></div><div class="design-canvas" id="design-shell"><div class="canvas-top"><div class="canvas-edit-tools" id="cabinet-tools" role="toolbar" aria-label="Инструменты секции"><button class="button" data-split="horizontal" title="Разделить выбранную секцию по высоте">${icon('splitH')}По высоте</button><button class="button" data-split="vertical" title="Разделить выбранную секцию по ширине">${icon('splitV')}По ширине</button><button class="icon-button" data-action="extend-left" title="Добавить секцию слева" aria-label="Добавить секцию слева">←${icon('plus')}</button><button class="icon-button" data-action="extend-right" title="Добавить секцию справа" aria-label="Добавить секцию справа">${icon('plus')}→</button><button class="icon-button" data-action="delete-section" title="Удалить выбранную секцию, расширив соседнюю" aria-label="Удалить секцию">${icon('trash')}</button></div><button class="icon-button" data-action="reset-view" title="Уместить на экране" aria-label="Уместить на экране">${icon('reset')}</button></div><div id="cabinet-editor"></div><canvas id="cabinet-viewport" hidden></canvas></div>
+<section class="studio-stage"><div class="stage-header"><div class="stage-title-wrap"><span class="eyebrow" id="stage-eyebrow"></span><h1 id="stage-title"></h1></div><div class="stage-center-tools"><div class="view-switch" id="cabinet-view-switch" role="toolbar" aria-label="Виды шкафа"><button data-cabinet-view="scheme">Схема</button><button data-cabinet-view="3d">3D</button><button data-cabinet-view="drawings">Чертежи</button></div><div class="cabinet-3d-toolbar" id="cabinet-3d-tools" hidden><button class="button" data-action="explode-parts">Раздвинуть детали</button><button class="button quiet" data-action="open-fronts">Открыть фасады</button><button class="button quiet" data-action="open-internal" hidden>Открыть внутренние ящики</button><button class="button quiet" data-action="cabinet-3d-print">Печать 3D-вида</button></div></div><div id="stage-actions"></div></div>
+<div class="design-canvas" id="design-shell"><div class="canvas-top"><div class="canvas-edit-tools" id="cabinet-tools" role="toolbar" aria-label="Инструменты секции"><button class="button" data-split="horizontal" title="Разделить выбранную секцию по высоте">${icon('splitH')}По высоте</button><button class="button" data-split="vertical" title="Разделить выбранную секцию по ширине">${icon('splitV')}По ширине</button><button class="icon-button" data-action="extend-left" title="Добавить секцию слева" aria-label="Добавить секцию слева">←${icon('plus')}</button><button class="icon-button" data-action="extend-right" title="Добавить секцию справа" aria-label="Добавить секцию справа">${icon('plus')}→</button><button class="icon-button" data-action="delete-section" title="Удалить выбранную секцию, расширив соседнюю" aria-label="Удалить секцию">${icon('trash')}</button></div><button class="icon-button" data-action="reset-view" title="Уместить на экране" aria-label="Уместить на экране">${icon('reset')}</button></div><div id="cabinet-editor"></div><canvas id="cabinet-viewport" hidden></canvas></div>
 <div class="room-canvas" id="room-shell" hidden><div class="room-tools" id="room-tools" role="toolbar" aria-label="Инструменты помещения"><button class="button" data-action="add-window">${icon('plus')}Окно</button><button class="button" data-action="add-door">${icon('door')}Дверь</button><button class="button" data-action="room-niche">Ниша</button><button class="button" data-action="room-protrusion">Выступ</button><button class="icon-button" data-action="add-corner" title="Добавить угол на выбранной стене" aria-label="Добавить угол">${icon('plus')}</button><button class="icon-button" data-action="remove-corner" title="Удалить выбранный угол" aria-label="Удалить угол">${icon('trash')}</button></div><div id="room-editor"></div><canvas id="room-viewport" hidden></canvas></div>
 <div class="drawing-stage" id="drawings-shell" hidden></div><div class="cutting-stage" id="cutting-shell" hidden></div><div class="stage-status" id="stage-status"></div></section>
 <aside class="properties"><div id="properties-content"></div></aside></main><footer class="studio-footer"><span id="footer-info"></span><button class="text-button" data-action="validation" id="validation-button"></button></footer>`;
 
-$('.header-right').insertAdjacentHTML('afterbegin',`<select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="tr">Türkçe</option><option value="en">English</option></select>`);
+$('[data-action="undo"]').insertAdjacentHTML('beforebegin',`<select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="tr">Türkçe</option><option value="en">English</option></select>`);
 $('#interface-language').value=interfaceLanguage;
 const cabinetEditor=new CabinetEditor($('#cabinet-editor'),{onSelect:id=>{sectionId=id;render();},onResize:(id,axis,mm)=>change(()=>{const c=selectedCabinet();return applyCabinetResult(c,interiorParentId?resizeConstrainedInteriorDivider(c,interiorParentId,id,axis,mm,project):resizeApplianceDivider(c,id,axis,mm,project));})});
 const viewport=new FurnitureViewport($('#cabinet-viewport'),{onSelect:id=>{if(id){if(id!==cabinetId)interiorParentId=null;cabinetId=id;sectionId=null;render();}},onPartSelect:id=>{if(inspectionPartId!==id)inspectionMarkerId=null;inspectionPartId=id;viewport.setOptions({selectedPartId:id});renderProperties();},onPartOpen:id=>{if(id)showPart(id);}});
@@ -272,7 +271,7 @@ document.addEventListener('click',e=>{
  if(b.dataset.selectWindow){selectedWindowId=b.dataset.selectWindow;roomFocus='window';const w=selectedOpening();if(w)selectedWall=w.wallIndex??legacyWall(w.wall);render();}
  if(b.dataset.deleteBrace)change(()=>{const c=selectedCabinet(),owner=b.dataset.braceSection?findLayoutNode(c.layout,b.dataset.braceSection):c;if(!owner||b.dataset.braceSection&&c.includeBack!==false)return false;owner.rearBraces=(owner.rearBraces||[]).filter(a=>a.id!==b.dataset.deleteBrace);});
  if(b.dataset.deleteRod||b.dataset.autoRod)change(()=>{const s=editableSection();if(s?.id!==b.dataset.rodSection)return false;const id=b.dataset.deleteRod||b.dataset.autoRod;if(b.dataset.deleteRod)s.node.rods=(s.node.rods||[]).filter(r=>r.id!==id);else{const rod=s.node.rods?.find(r=>r.id===id);if(rod)delete rod.length;}});
- if(b.dataset.material)editMaterial(b.dataset.material);
+ if(b.dataset.deleteMaterial){deleteMaterialAction(b.dataset.deleteMaterial);return;}if(b.dataset.material)editMaterial(b.dataset.material);
  if(b.dataset.part)showPart(b.dataset.part);
  if(b.dataset.inspectPart){inspectionMarkerId=null;inspectionPartId=b.dataset.inspectPart;viewport.setOptions({selectedPartId:inspectionPartId});renderProperties();showPart(inspectionPartId);}
  if(b.dataset.sheet)showSheet(Number(b.dataset.sheet));
@@ -429,12 +428,100 @@ function addCabinetDialog(){
   project.cabinets.push(next);cabinetId=next.id;interiorParentId=null;sectionId=next.layout.id;mode='cabinet';
  });if(saved)closeModal();};
 }
-function materialsDialog(){modal('Материалы',`<div class="materials-list">${project.materials.map(m=>`<button data-material="${esc(m.id)}"><i style="background:${esc(m.color)}"></i><span><strong>${esc(m.name)}</strong><small>${m.thickness} мм · лист ${m.sheetWidth} × ${m.sheetHeight}${m.grain?' · текстура':''}</small></span></button>`).join('')}</div><button class="button full" data-action="add-material">${icon('plus')}Добавить материал</button>`);}
+function replaceMaterialDialog(id){
+ const m=project.materials.find(material=>material.id===id);
+ if(!m)return;
+ const usage=getMaterialUsage(project,id);
+ const names=[...new Set(usage.map(u=>u.cabinetName))].map(name=>`«${name}»`).join(', ');
+ const remaining=project.materials.filter(material=>material.id!==id);
+ modal(translateText('Замена материала',interfaceLanguage),`
+  <form id="replace-material-form">
+   <p class="hint">${translateText('Материал используется в шкафах',interfaceLanguage)}: <strong>${esc(names)}</strong>.</p>
+   <label class="field">
+    <span>${translateText('Заменить на материал',interfaceLanguage)}</span>
+    <select name="replacementId" required>
+     ${remaining.map(mat=>`<option value="${esc(mat.id)}">${esc(translateMaterialName(mat.name,interfaceLanguage))} (${mat.thickness} мм)</option>`).join('')}
+    </select>
+   </label>
+   <button class="button primary full" style="margin-top:14px">${icon('trash')}${translateText('Заменить и удалить',interfaceLanguage)}</button>
+   <button type="button" class="button full quiet" data-action="materials" style="margin-top:7px">${translateText('Отмена',interfaceLanguage)}</button>
+  </form>
+ `);
+ const form=$('#replace-material-form');
+ if(form){
+  form.onsubmit=e=>{
+   e.preventDefault();
+   const data=new FormData(form);
+   const replacementId=data.get('replacementId');
+   if(!replacementId)return;
+   const saved=change(()=>{
+    return deleteMaterial(project,id,replacementId);
+   });
+   if(saved)materialsDialog();
+  };
+ }
+}
+function deleteMaterialAction(id){
+ const m=project.materials.find(material=>material.id===id);
+ if(!m)return;
+ if(project.materials.length<=1){
+  toast(translateText('В проекте должен оставаться хотя бы один материал.',interfaceLanguage));
+  return;
+ }
+ const usage=getMaterialUsage(project,id);
+ if(usage.length>0){
+  replaceMaterialDialog(id);
+  return;
+ }
+ const saved=change(()=>{
+  return deleteMaterial(project,id);
+ });
+ if(saved)materialsDialog();
+}
+function materialsDialog(){
+ const canDelete=project.materials.length>1;
+ modal('Материалы',`<div class="materials-list">${project.materials.map(m=>`<div class="materials-list-row"><button class="materials-list-item" data-material="${esc(m.id)}"><i style="background:${esc(m.color)}"></i><span><strong>${esc(m.name)}</strong><small>${m.thickness} мм · лист ${m.sheetWidth} × ${m.sheetHeight}${m.grain?' · текстура':''}</small></span></button><button type="button" class="icon-button danger" data-delete-material="${esc(m.id)}" ${canDelete?'':'disabled'} title="${esc(translateText(canDelete?'Удалить материал':'В проекте должен оставаться хотя бы один материал',interfaceLanguage))}">${icon('trash')}</button></div>`).join('')}</div><button class="button full" data-action="add-material">${icon('plus')}Добавить материал</button><a href="https://www.yildizentegre.com/tr/kartela" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;margin-top:10px;color:var(--accent,#2563eb);text-decoration:none">${icon('cube')}${translateText('Каталог Yıldız Entegre',interfaceLanguage)} ↗</a>`);
+}
+function materialPresetOptionsMarkup(){
+ const groups=[
+  {label:translateText('Основные пресеты',interfaceLanguage),items:[]},
+  {label:translateText('Yıldız MDFLAM (2100 × 2800 мм)',interfaceLanguage),items:[]},
+  {label:translateText('Yıldız Kapak Panel · Матовые (1220 × 2800 мм)',interfaceLanguage),items:[]},
+  {label:translateText('Yıldız Kapak Panel · Глянцевые (1220 × 2800 мм)',interfaceLanguage),items:[]},
+ ];
+ MATERIAL_PRESETS.forEach((mat,i)=>{
+  if(i<DEFAULT_MATERIAL_PRESETS.length)groups[0].items.push({mat,i});
+  else if(mat.type.includes('глянцевым')||mat.decorCode.startsWith('HG_'))groups[3].items.push({mat,i});
+  else if(mat.type.includes('матовым')||mat.decorCode.startsWith('MAT_')||mat.decorCode.startsWith('L_'))groups[2].items.push({mat,i});
+  else groups[1].items.push({mat,i});
+ });
+ return groups.map(g=>`<optgroup label="${esc(g.label)}">${g.items.map(({mat,i})=>`<option value="${i}">${esc(translateMaterialName(mat.name,interfaceLanguage))}</option>`).join('')}</optgroup>`).join('');
+}
 function editMaterial(id){
  const old=project.materials.find(material=>material.id===id),m=old?clone(old):{id:uid('material'),name:translateText('Новый МДФ',interfaceLanguage),type:'MDF',color:'#c5b38e',thickness:18,sheetWidth:2100,sheetHeight:2800,grain:false,edgeBand:1};
- modal('Материал и цвет',`<form id="material-form">${!old?`<label class="field"><span>Начать с пресета</span><select name="preset"><option value="">Свой материал</option>${MATERIAL_PRESETS.map((material,i)=>`<option value="${i}">${esc(translateMaterialName(material.name,interfaceLanguage))}</option>`).join('')}</select></label>`:''}<label class="field"><span>Название</span><input name="name" value="${esc(m.name)}" maxlength="120" required></label><div class="fields"><label class="field"><span>Цвет</span><input name="color" type="color" value="${esc(m.color)}"></label><label class="field"><span>Толщина, мм</span><input name="thickness" type="number" value="${m.thickness}" min="1" max="60" step=".1" required></label></div><div class="fields"><label class="field"><span>Лист X, мм</span><input name="sheetWidth" type="number" value="${m.sheetWidth}" min="100" max="10000" required></label><label class="field"><span>Лист Y, мм</span><input name="sheetHeight" type="number" value="${m.sheetHeight}" min="100" max="10000" required></label></div><label class="check-row"><input name="grain" type="checkbox" ${m.grain?'checked':''}>Текстура вдоль высоты детали</label><button class="button primary full">Сохранить материал</button></form>`);
+ const canDelete=project.materials.length>1;
+ const linkHref=m.sourceUrl||'https://www.yildizentegre.com/tr/kartela';
+ const linkLabel=m.sourceUrl?'Смотреть на сайте':'Каталог Yıldız Entegre';
+ modal('Материал и цвет',`<form id="material-form"><div class="field"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><span>${translateText(old?'Выбрать из каталога':'Начать с пресета',interfaceLanguage)}</span><a href="${esc(linkHref)}" id="material-source-link" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent,#2563eb);text-decoration:none;display:inline-flex;align-items:center;gap:4px">${translateText(linkLabel,interfaceLanguage)} ↗</a></div><select name="preset"><option value="">${translateText(old?'Не изменять':'Свой материал',interfaceLanguage)}</option>${materialPresetOptionsMarkup()}</select></div><label class="field"><span>Название</span><input name="name" value="${esc(m.name)}" maxlength="120" required></label><div class="fields"><label class="field"><span>Цвет</span><input name="color" type="color" value="${esc(m.color)}"></label><label class="field"><span>Толщина, мм</span><input name="thickness" type="number" value="${m.thickness}" min="1" max="60" step=".1" required></label></div><div class="fields"><label class="field"><span>Лист X, мм</span><input name="sheetWidth" type="number" value="${m.sheetWidth}" min="100" max="10000" required></label><label class="field"><span>Лист Y, мм</span><input name="sheetHeight" type="number" value="${m.sheetHeight}" min="100" max="10000" required></label></div><label class="check-row"><input name="grain" type="checkbox" ${m.grain?'checked':''}>Текстура вдоль высоты детали</label><button class="button primary full">Сохранить материал</button>${old?`<button type="button" class="button full danger" data-delete-material="${esc(id)}" ${canDelete?'':'disabled'} style="margin-top:8px" title="${esc(translateText(canDelete?'Удалить материал':'В проекте должен оставаться хотя бы один материал',interfaceLanguage))}">${icon('trash')}${translateText('Удалить материал',interfaceLanguage)}</button>`:''}</form>`);
  const form=$('#material-form');
- form.elements.preset?.addEventListener('change',e=>{if(e.target.value==='')return;const preset=localizeMaterialPreset(MATERIAL_PRESETS[Number(e.target.value)],interfaceLanguage);Object.assign(m,{type:translateText(preset.type,interfaceLanguage),edgeBand:preset.edgeBand,manufacturer:preset.manufacturer,decorCode:preset.decorCode,sourceUrl:preset.sourceUrl});for(const field of ['name','color','thickness','sheetWidth','sheetHeight'])form.elements[field].value=field==='name'?translateMaterialName(preset[field],interfaceLanguage):preset[field];form.elements.grain.checked=preset.grain;});
+ form.elements.preset?.addEventListener('change',e=>{
+  const link=$('#material-source-link');
+  if(e.target.value===''){
+   if(link){
+    link.href=m.sourceUrl||'https://www.yildizentegre.com/tr/kartela';
+    link.textContent=`${translateText(m.sourceUrl?'Смотреть на сайте':'Каталог Yıldız Entegre',interfaceLanguage)} ↗`;
+   }
+   return;
+  }
+  const preset=localizeMaterialPreset(MATERIAL_PRESETS[Number(e.target.value)],interfaceLanguage);
+  Object.assign(m,{type:translateText(preset.type,interfaceLanguage),edgeBand:preset.edgeBand,manufacturer:preset.manufacturer,decorCode:preset.decorCode,sourceUrl:preset.sourceUrl});
+  for(const field of ['name','color','thickness','sheetWidth','sheetHeight'])form.elements[field].value=field==='name'?translateMaterialName(preset[field],interfaceLanguage):preset[field];
+  form.elements.grain.checked=preset.grain;
+  if(link&&preset.sourceUrl){
+   link.href=preset.sourceUrl;
+   link.textContent=`${translateText('Смотреть на сайте',interfaceLanguage)} ↗`;
+  }
+ });
  form.onsubmit=e=>{
   e.preventDefault();if(!form.reportValidity())return;const data=new FormData(form);
   const saved=change(()=>{
