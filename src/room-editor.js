@@ -324,7 +324,7 @@ export class RoomEditor {
       this.drag={type:'pan',pointerId:event.pointerId,startScreen:{x:event.clientX,y:event.clientY},original:{...box},scale:this.planMetrics(box).scale,moved:false};
     } else if(target?.dataset.roomResize){
       const axis=target.dataset.roomResize,id=target.dataset.roomCabinet,cabinet=this.project.cabinets.find(c=>c.id===id);
-      if(!cabinet||!['width','depth'].includes(axis))return;
+      if(!cabinet||!['width','depth'].includes(axis)||cabinet.parentId)return;
       const angle=number(cabinet.rotation)*Math.PI/180;
       this.selectedCabinetId=id;this.selectedCorner=null;this.selectedCorners=new Set();this.selectedWindowId=null;
       this.drag={type:'cabinet-resize',id,axis,pointerId:event.pointerId,start:point,originalCabinet:structuredClone(cabinet),draft:structuredClone(cabinet),direction:axis==='width'?{x:Math.cos(angle),z:Math.sin(angle)}:{x:-Math.sin(angle),z:Math.cos(angle)},moved:false};
@@ -363,9 +363,14 @@ export class RoomEditor {
       this.selectedCorner = null;
       this.selectedCorners=new Set();
       this.selectedWindowId = null;
+      this.callbacks.onSelectCabinet?.(id);
+      if (cabinet.parentId) {
+        this.hint = 'Антресоль привязана к основному шкафу. Перемещайте основной шкаф.';
+        this.render();
+        return;
+      }
       this.hint = '';
       this.drag = { type: 'cabinet', id, pointerId: event.pointerId, start: point, lastPoint:point, original: { x: number(cabinet.x), z: number(cabinet.z) }, draft: { x: number(cabinet.x), z: number(cabinet.z) }, initialFits:canPlaceCabinet(cabinet,{...this.project,room:{...this.project.room,outline:this.outline}}), viewBox: { ...this.viewBox }, moved: false };
-      this.callbacks.onSelectCabinet?.(id);
     } else {
       this.selectedWall = Number(target.dataset.roomWall);
       this.selectedCabinetId = null;
@@ -500,7 +505,12 @@ export class RoomEditor {
 
   render() {
     const outline = this.drag?.type === 'corner' || this.drag?.type === 'wall' ? this.drag.draft : this.outline;
-    const cabinetData = (this.project.cabinets || []).map(c => ['cabinet','cabinet-resize'].includes(this.drag?.type) && c.id === this.drag.id ? { ...c, ...this.drag.draft } : c);
+    const cabinetData = (this.project.cabinets || []).map(c => {
+      if (['cabinet','cabinet-resize'].includes(this.drag?.type) && c.id === this.drag.id) return { ...c, ...this.drag.draft };
+      if (this.drag?.type === 'cabinet' && c.parentId === this.drag.id) return { ...c, x: this.drag.draft.x, z: this.drag.draft.z };
+      if (this.drag?.type === 'cabinet-resize' && c.parentId === this.drag.id) return { ...c, width: this.drag.draft.width, depth: this.drag.draft.depth };
+      return c;
+    });
     const ordered = [...cabinetData.filter(c => c.id !== this.selectedCabinetId), ...cabinetData.filter(c => c.id === this.selectedCabinetId)];
     const all = [...outline, ...cabinetData.flatMap(cabinetFootprint)];
     const minX = Math.min(0, ...all.map(p => p.x)), minZ = Math.min(0, ...all.map(p => p.z)), maxX = Math.max(500, ...all.map(p => p.x)), maxZ = Math.max(500, ...all.map(p => p.z));
@@ -544,7 +554,7 @@ export class RoomEditor {
       const points = cabinetFootprint(c); if (!points.length) return '';
       const selected = c.id === this.selectedCabinetId, material = (this.project.materials || []).find(m => m.id === c.materialId);
       const cx = points.reduce((sum, p) => sum + p.x, 0) / points.length, cz = points.reduce((sum, p) => sum + p.z, 0) / points.length;
-      if(selected){
+      if(selected && !c.parentId){
         const angle=number(c.rotation)*Math.PI/180,co=Math.cos(angle),si=Math.sin(angle);
         for(const axis of ['width','depth']){
           const lx=axis==='width'?c.width:c.width/2,lz=axis==='depth'?c.depth:c.depth/2,px=number(c.x)+lx*co-lz*si,pz=number(c.z)+lx*si+lz*co;
@@ -552,7 +562,7 @@ export class RoomEditor {
           resizeHandles+=`<g class="room-resize-handle ${axis}" data-room-resize="${axis}" data-room-cabinet="${escape(c.id)}" role="button" tabindex="0" aria-label="${label}" style="cursor:crosshair"><title>${label}</title><rect x="${px-handle}" y="${pz-handle}" width="${handle*2}" height="${handle*2}" rx="${handle*.25}" fill="#fff" stroke="#148b7c" stroke-width="2" vector-effect="non-scaling-stroke"/><text data-room-size-label="${axis}" x="${px+handle*2}" y="${pz-handle*1.5}" fill="#148b7c" font-size="${font}" pointer-events="none">${fmt(c[axis])} мм</text></g>`;
         }
       }
-      return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}" role="button" aria-label="${escape(c.name)}"><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="${selected ? 3 : 1}" vector-effect="non-scaling-stroke"/><text x="${cx}" y="${cz}" class="room-cabinet-label" fill="#314f42" text-anchor="middle" dominant-baseline="middle" font-size="${cabinetFont}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text></g>`;
+      return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}" role="button" aria-label="${escape(c.name)}" style="${c.parentId ? 'cursor:pointer' : 'cursor:move'}"><title>${escape(c.name)}${c.parentId ? ' · привязана к основному шкафу' : ''}</title><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="${selected ? 3 : 1}" vector-effect="non-scaling-stroke"/><text x="${cx}" y="${cz}" class="room-cabinet-label" fill="#314f42" text-anchor="middle" dominant-baseline="middle" font-size="${cabinetFont}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text></g>`;
     }).join('');
     const selectedCorners=new Set(this.drag?.type==='selection'?this.drag.draftIndices:this.getSelectedCorners());
     const corners = outline.map((p, i) => `<circle class="room-corner${selectedCorners.has(i) ? ' is-selected' : ''}" data-room-corner="${i}" cx="${p.x}" cy="${p.z}" r="${handle}" fill="${selectedCorners.has(i) ? '#15897d' : '#ffffff'}" stroke="#15897d" stroke-width="2" vector-effect="non-scaling-stroke" tabindex="0" role="button" aria-label="Угол ${i + 1}, перетяните для изменения плана"/>`).join('');

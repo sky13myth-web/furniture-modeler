@@ -686,7 +686,7 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   const preset = { ...basePreset };
   // Library presets can affect dimensions before automatic placement. IDs and
   // coordinates are generated here, so a preset cannot discard a safe position.
-  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor']) {
+  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation']) {
     if (overrides[key] !== undefined) preset[key] = overrides[key];
   }
   const roomAllowance = getRoomInstallationClearance(project.room);
@@ -705,15 +705,25 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
     id: uid('cabinet'), type: supportedType, doors: 2, drawers: 0, gap: 2, ...preset,
     materialId: material?.id ?? '', frontMaterialId: material?.id ?? '', backMaterialId: backMaterialId ?? '',
     drawerMaterialId: drawerMaterialId ?? '', drawerBottomMaterialId: drawerBottomMaterialId ?? '',
-    backThickness: number(stockById(project, backMaterialId)?.thickness, 8), drawerSlideGap: 13, drawerBottomThickness: number(stockById(project, drawerBottomMaterialId)?.thickness, 8), edgeBand: 1, rotation: 0, includeBack: preset.includeBack ?? true, includeBottom: preset.includeBottom ?? true, sidesToFloor: preset.sidesToFloor ?? true, rearBraces: []
+    backThickness: number(stockById(project, backMaterialId)?.thickness, 8), drawerSlideGap: 13, drawerBottomThickness: number(stockById(project, drawerBottomMaterialId)?.thickness, 8), edgeBand: 1, rotation: preset.rotation ?? 0, includeBack: preset.includeBack ?? true, includeBottom: preset.includeBottom ?? true, sidesToFloor: preset.sidesToFloor ?? true, rearBraces: []
   };
   const bounds = roomBounds(project.room);
   const insetX = Math.max(100, roomAllowance.walls);
   const candidatesX = [...new Set([bounds.minX + insetX, ...getRoomOutline(project.room).map(point => point.x + insetX), ...existing.map(item => number(item.x) + number(item.width) + 100)])].sort((a, b) => a - b);
   const candidatesZ = [...new Set([bounds.minZ + roomAllowance.walls, ...getRoomOutline(project.room).map(point => point.z + roomAllowance.walls), ...existing.map(item => number(item.z) + number(item.depth) + 150)])].sort((a, b) => a - b);
+  const parent = preset.parentId ? existing.find(item => item.id === preset.parentId) : null;
   let position = { x: bounds.minX + insetX, z: bounds.minZ + roomAllowance.walls };
   let found = false;
-  for (const z of candidatesZ) {
+  if (parent) {
+    position = { x: parent.x, z: parent.z };
+    cabinet.rotation = parent.rotation || 0;
+    cabinet.width = parent.width;
+    cabinet.depth = parent.depth;
+    cabinet.y = parent.y + parent.height;
+    if (parent.cutout) cabinet.cutout = { ...parent.cutout };
+    found = true;
+  }
+  if (!found) for (const z of candidatesZ) {
     for (const x of candidatesX) {
       const candidate = physicalCabinet({ ...cabinet, x, z }, project);
       if (!canPlaceCabinet({ ...cabinet, x, z }, project)) continue;
@@ -1600,4 +1610,21 @@ export function getProjectStats(project) {
     edgeLength: edgeBanding.lengthMeters, edgeBanding, sheetCount: cutting.totalSheets, totalSheets: cutting.totalSheets,
     utilization: cutting.utilization, wasteArea: cutting.wasteArea, parts, cutting, warnings: validateProject(project)
   };
+}
+
+export function syncMezzanines(project) {
+  if (!project?.cabinets) return;
+  for (const child of project.cabinets) {
+    if (!child.parentId) continue;
+    const parent = project.cabinets.find(c => c.id === child.parentId);
+    if (!parent) continue;
+    child.x = parent.x;
+    child.z = parent.z;
+    child.y = Number(parent.y || 0) + Number(parent.height || 0);
+    child.rotation = parent.rotation || 0;
+    child.width = parent.width;
+    child.depth = parent.depth;
+    if (parent.cutout) child.cutout = structuredClone(parent.cutout);
+    else delete child.cutout;
+  }
 }

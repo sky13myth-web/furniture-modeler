@@ -227,6 +227,13 @@ export function checkImport(project) {
       finite(cabinet.cutout.depth, 'Вырез: глубина', 3000, true);
       if (cabinet.cutout.width >= cabinet.width || cabinet.cutout.depth >= cabinet.depth) fail('Вырез должен быть меньше габаритов корпуса.');
     }
+    if (cabinet.parentId !== undefined && cabinet.parentId !== null) text(cabinet.parentId, 'Модуль: родительский шкаф');
+  }
+  for (const cabinet of project.cabinets) {
+    if (cabinet.parentId !== undefined && cabinet.parentId !== null) {
+      if (!cabinetIds.has(cabinet.parentId)) fail('Модуль: родительский шкаф не найден.');
+      if (cabinet.parentId === cabinet.id) fail('Модуль: шкаф не может быть привязан к самому себе.');
+    }
   }
 
   const windowIds = new Set();

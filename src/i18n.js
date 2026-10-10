@@ -816,6 +816,10 @@ add(`
 Добавить секцию справа|Sağa bölme ekle|Add section on the right
 Подвесной шкаф|Duvar dolabı|Wall cabinet
 Антресоль|Üst dolap|Top cabinet
+антресоль|üst dolap|top cabinet
+Антресоль привязана к основному шкафу. Перемещайте основной шкаф.|Üst dolap ana dolaba bağlıdır. Ana dolabı taşıyın.|The top cabinet is attached to the main cabinet. Move the main cabinet.
+Ширина и глубина антресоли привязаны к основному шкафу.|Üst dolabın genişlik ve derinliği ana dolaba bağlıdır.|The top cabinet width and depth are attached to the main cabinet.
+Антресоль привязана к основному шкафу: ширина, глубина и положение зависят от него.|Üst dolap ana dolaba bağlıdır: genişlik, derinlik ve konumu ana dolaba göre ayarlanır.|The top cabinet is attached to the main cabinet: width, depth, and position depend on it.
 Внутренние ящики|İç çekmeceler|Internal drawers
 Внутренние ящики за дверками|Kapakların arkasındaki iç çekmeceler|Internal drawers behind doors
 Внутренний ящик|İç çekmece|Internal drawer
