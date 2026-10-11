@@ -1422,7 +1422,7 @@ export function validateProject(project) {
     try { validatePartEdgeBandingOverrides(cabinet.partEdgeBanding); } catch (problem) { error(problem.message); continue; }
     if (!cabinet.id || cabinetIds.has(cabinet.id)) error('идентификатор должен быть уникальным.');
     cabinetIds.add(cabinet.id);
-    if (!['base', 'wall', 'tall'].includes(cabinet.type)) error('выбран неизвестный тип шкафа.');
+    if (!['base', 'wall', 'tall', 'corner-base', 'corner-wall', 'corner-tall'].includes(cabinet.type)) error('выбран неизвестный тип шкафа.');
     if (cabinet.rotation !== undefined && (!Number.isFinite(cabinet.rotation) || Math.abs(cabinet.rotation) > 180)) error('поворот должен быть от −180 до 180 градусов.');
     if (cabinet.includeBack !== undefined && typeof cabinet.includeBack !== 'boolean') error('состояние задней стенки должно быть логическим.');
     if (cabinet.includeBottom !== undefined && typeof cabinet.includeBottom !== 'boolean') error('состояние нижней панели должно быть логическим.');

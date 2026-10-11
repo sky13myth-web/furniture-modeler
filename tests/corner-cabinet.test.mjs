@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDefaultProject, createCabinet, getFrontLayout, generateParts } from '../src/engine.js';
+import { createDefaultProject, createCabinet, getFrontLayout, generateParts, validateProject } from '../src/engine.js';
 import { snapCabinetToNeighbour } from '../src/room-geometry.js';
 import { makeScene } from '../src/renderer.js';
 
@@ -92,3 +92,16 @@ test('makeScene renders blind panel without handle and handles doorsOpen mode', 
   const openScene = makeScene(project, { room: false, doorsOpen: true });
   assert.ok(openScene.faces.length > 0);
 });
+
+test('validateProject successfully validates corner-base, corner-wall, and corner-tall cabinets without errors', () => {
+  const project = createDefaultProject();
+  const c1 = createCabinet('corner-base', project, { id: 'cb', x: 200, z: 200 });
+  const c2 = createCabinet('corner-wall', project, { id: 'cw', x: 200, z: 200 });
+  const c3 = createCabinet('corner-tall', project, { id: 'ct', x: 1400, z: 200 });
+  project.cabinets = [c1, c2, c3];
+
+  const issues = validateProject(project);
+  const errors = issues.filter(i => i.level === 'error');
+  assert.equal(errors.length, 0, 'There should be zero validation errors for corner cabinet types');
+});
+
