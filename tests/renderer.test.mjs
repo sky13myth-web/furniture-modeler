@@ -942,7 +942,7 @@ test('left, right and upward doors rotate about the requested physical edge and 
   Object.assign(cabinet,{width:800,height:1000,depth:600,layout:{id:'direction-door',kind:'section',front:'doors',doors:1,shelves:0,doorOpenings:['left']}});
   const manufacturing=generateParts(project);
   for(const opening of ['left','right','up']) {
-    const angle=opening==='up'?Math.PI*.44:Math.PI/2, cos=Math.cos(angle), sin=Math.sin(angle);
+    const angle=opening==='up'?Math.PI*.44:85*Math.PI/180, cos=Math.cos(angle), sin=Math.sin(angle);
     cabinet.layout.doorOpenings=[opening];
     const front=getFrontLayout(cabinet,project)[0], fx=cabinet.x+front.x, fy=cabinet.y+cabinet.plinth+front.y, fz=cabinet.z+cabinet.depth, fw=front.width, fh=front.height;
     withSoftwareViewport(project,viewport=>{

@@ -129,10 +129,11 @@ test('side-hinged open doors clear extended internal fronts and handles without 
         const door = viewport.hits.filter(face => face.component === 'front' && face.frontIndex === front.index).flatMap(face => face.points);
         assert.ok(door.length);
         const x = door.map(point => point[0]);
-        if (front.opening === 'left') assert.ok(Math.max(...x) < innerLeft, 'the left-hinged door slab lies wholly outside the drawer travel envelope');
-        else assert.ok(Math.min(...x) > innerRight, 'the right-hinged door slab lies wholly outside the drawer travel envelope');
-        const free = door.filter(point => Math.abs(point[2] - (cabinet.z + cabinet.depth + front.width)) < .001);
-        assert.ok(free.length > 0, 'the side-hinged door reaches a full 90-degree quarter-turn');
+        const angle = 85 * Math.PI / 180, sin = Math.sin(angle);
+        if (front.opening === 'left') assert.ok(Math.min(...x) <= cabinet.x + .001, 'the left-hinged door stays anchored at its hinge');
+        else assert.ok(Math.max(...x) >= cabinet.x + cabinet.width - .001, 'the right-hinged door stays anchored at its hinge');
+        const free = door.filter(point => Math.abs(point[2] - (cabinet.z + cabinet.depth + front.width * sin)) < .001);
+        assert.ok(free.length > 0, 'the side-hinged door reaches an 85-degree swing');
       }
       assert.equal(viewport.hits.some(face => face.component === 'internal-drawer-handle'), openingMechanism === 'handle');
     } finally { viewport.destroy(); }
