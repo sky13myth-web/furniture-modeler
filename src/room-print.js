@@ -54,7 +54,7 @@ export function getRoomPlanGeometry(project = {}) {
     const start = wall ? { x: wall.start.x + wall.direction.x * offset, z: wall.start.z + wall.direction.z * offset } : null;
     const end = wall ? { x: wall.start.x + wall.direction.x * (offset + width), z: wall.start.z + wall.direction.z * (offset + width) } : null;
     const height = positive(opening.height), sill = finite(opening.sill), right = wall ? wall.length - offset - width : null;
-    return { id: String(opening.id ?? ''), number: door ? `D${++doorIndex}` : `W${++windowIndex}`, kind: door ? 'door' : 'window', wallIndex: wall?.index ?? -1, width, height, sill, offset, right, start, end,
+    return { id: String(opening.id ?? ''), number: door ? `D${++doorIndex}` : `W${++windowIndex}`, kind: door ? 'door' : 'window', wallIndex: wall?.index ?? -1, width, height, sill, offset, right, start, end, swing: opening.swing, hinge: opening.hinge,
       invalid: !wall || width <= 0 || height <= 0 || offset < 0 || right < -1e-6 || sill < 0 || sill + height > positive(room.height) + 1e-6 };
   });
   const points = [...outline, ...cabinets.flatMap(cabinet => cabinet.footprint), ...openings.flatMap(opening => opening.start ? [opening.start, opening.end] : []), ...obstacles.flatMap(obstacle => obstacle.footprint)];
@@ -141,7 +141,20 @@ function planFigure(geometry, language, { documentInfo = null, projectName = '' 
     const a = screen(opening.start), b = screen(opening.end), wall = geometry.walls[opening.wallIndex], nx = wall.outward.x, ny = wall.outward.z;
     const type = word(opening.kind === 'door' ? 'Дверной проём' : 'Окно', language);
     const title = `${opening.number} · ${type} · ${wall.number} · ${number(opening.width)} × ${number(opening.height)} ${mm}`;
-    const lines = opening.kind === 'door' ? `<line class="door-gap" x1="${coordinate(a.x)}" y1="${coordinate(a.y)}" x2="${coordinate(b.x)}" y2="${coordinate(b.y)}"/>` : [-2, 2].map(delta => `<line class="window-glass" x1="${coordinate(a.x + nx * delta)}" y1="${coordinate(a.y + ny * delta)}" x2="${coordinate(b.x + nx * delta)}" y2="${coordinate(b.y + ny * delta)}"/>`).join('');
+    const lines = opening.kind === 'door' ? (() => {
+      const hingeAtRight = opening.hinge === 'right';
+      const swingOutward = opening.swing === 'outward';
+      const h = hingeAtRight ? b : a;
+      const tip = hingeAtRight ? a : b;
+      const sign = swingOutward ? 1 : -1;
+      const leafNx = nx * sign, leafNy = ny * sign;
+      const w = Math.hypot(b.x - a.x, b.y - a.y);
+      const openX = h.x + leafNx * w, openY = h.y + leafNy * w;
+      const v0x = (tip.x - h.x) / w, v0y = (tip.y - h.y) / w;
+      const cross = v0x * leafNy - v0y * leafNx;
+      const sweepFlag = cross > 0 ? 1 : 0;
+      return `<line class="door-gap" x1="${coordinate(a.x)}" y1="${coordinate(a.y)}" x2="${coordinate(b.x)}" y2="${coordinate(b.y)}"/><path class="door-swing" d="M${coordinate(h.x)} ${coordinate(h.y)}L${coordinate(openX)} ${coordinate(openY)}M${coordinate(tip.x)} ${coordinate(tip.y)}A${coordinate(w)} ${coordinate(w)} 0 0 ${sweepFlag} ${coordinate(openX)} ${coordinate(openY)}" fill="none" stroke="#788a7b" stroke-width="1.2" stroke-dasharray="3 3"/>`;
+    })() : [-2, 2].map(delta => `<line class="window-glass" x1="${coordinate(a.x + nx * delta)}" y1="${coordinate(a.y + ny * delta)}" x2="${coordinate(b.x + nx * delta)}" y2="${coordinate(b.y + ny * delta)}"/>`).join('');
     geometryLayers.push(`<g class="opening ${opening.kind}${opening.invalid ? ' invalid' : ''}" data-opening-id="${escape(opening.id)}" data-offset-mm="${coordinate(opening.offset)}" data-width-mm="${coordinate(opening.width)}"><title>${escape(title)}</title><line class="opening-erase" x1="${coordinate(a.x)}" y1="${coordinate(a.y)}" x2="${coordinate(b.x)}" y2="${coordinate(b.y)}"/>${lines}<path class="opening-jamb" d="M${coordinate(a.x - nx * 5)} ${coordinate(a.y - ny * 5)}L${coordinate(a.x + nx * 5)} ${coordinate(a.y + ny * 5)}M${coordinate(b.x - nx * 5)} ${coordinate(b.y - ny * 5)}L${coordinate(b.x + nx * 5)} ${coordinate(b.y + ny * 5)}"/></g>`);
     const anchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     annotationLayers.push(label(`${opening.number} · ${number(opening.width)}`, anchor, { x: anchor.x + nx * 20, y: anchor.y + ny * 20 }, { className: opening.invalid ? 'invalid-label' : 'opening-label', full: title }));

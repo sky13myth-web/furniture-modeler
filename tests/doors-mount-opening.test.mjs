@@ -119,4 +119,64 @@ test('project-io: validates frontMount and doorOpening schemas', () => {
   const invalidOpening = structuredClone(project);
   invalidOpening.cabinets[0].layout.doorOpening = 'diagonal';
   assert.throws(() => checkImport(invalidOpening), /left, right или up/);
+
+  // Room door swing and hinge validation
+  project.room.windows = [{ id: 'd1', kind: 'door', wallIndex: 0, offset: 100, width: 800, height: 2000, sill: 0, swing: 'inward', hinge: 'left' }];
+  assert.doesNotThrow(() => checkImport(project));
+
+  project.room.windows[0].swing = 'outward';
+  project.room.windows[0].hinge = 'right';
+  assert.doesNotThrow(() => checkImport(project));
+
+  project.room.windows[0].swing = 'diagonal';
+  assert.throws(() => checkImport(project), /inward или outward/);
+
+  project.room.windows[0].swing = 'inward';
+  project.room.windows[0].hinge = 'center';
+  assert.throws(() => checkImport(project), /left или right/);
 });
+
+test('room door: renders swing arc taking inward/outward and left/right into account', async () => {
+  const { RoomEditor } = await import('../src/room-editor.js');
+  const { getRoomOutline } = await import('../src/room-geometry.js');
+
+  const editorFixture = (doorProps = {}) => {
+    const editor = Object.create(RoomEditor.prototype);
+    editor.project = {
+      room: { width: 4000, depth: 3000, windows: [{ id: 'door-1', kind: 'door', wallIndex: 0, offset: 200, width: 800, height: 2000, sill: 0, ...doorProps }] },
+      cabinets: [],
+      materials: []
+    };
+    editor.outline = getRoomOutline(editor.project.room);
+    editor.selectedWall = 0;
+    editor.selectedWindowId = 'door-1';
+    editor.selectedCorner = null;
+    editor.root = { clientWidth: 500, clientHeight: 450, querySelector: () => null, innerHTML: '' };
+    return editor;
+  };
+
+  // 1. Inward + Left (default)
+  const edInLeft = editorFixture({ swing: 'inward', hinge: 'left' });
+  RoomEditor.prototype.render.call(edInLeft);
+  // sx=200, sz=0, ex=1000, ez=0; inward normal into room is +z; hinge at (200,0), open tip at (200, 800)
+  assert.match(edInLeft.root.innerHTML, /M200 0L200 800M1000 0A800 800 0 0 1 200 800/);
+
+  // 2. Outward + Left
+  const edOutLeft = editorFixture({ swing: 'outward', hinge: 'left' });
+  RoomEditor.prototype.render.call(edOutLeft);
+  // outward normal is -z; hinge at (200,0), open tip at (200, -800)
+  assert.match(edOutLeft.root.innerHTML, /M200 0L200 -800M1000 0A800 800 0 0 0 200 -800/);
+
+  // 3. Inward + Right
+  const edInRight = editorFixture({ swing: 'inward', hinge: 'right' });
+  RoomEditor.prototype.render.call(edInRight);
+  // hinge at (1000,0), open tip at (1000, 800)
+  assert.match(edInRight.root.innerHTML, /M1000 0L1000 800M200 0A800 800 0 0 0 1000 800/);
+
+  // 4. Outward + Right
+  const edOutRight = editorFixture({ swing: 'outward', hinge: 'right' });
+  RoomEditor.prototype.render.call(edOutRight);
+  // hinge at (1000,0), open tip at (1000, -800)
+  assert.match(edOutRight.root.innerHTML, /M1000 0L1000 -800M200 0A800 800 0 0 1 1000 -800/);
+});
+

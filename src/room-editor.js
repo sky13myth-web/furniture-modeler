@@ -650,7 +650,20 @@ export class RoomEditor {
       let swing = '';
       if (door) {
         const nx = -dz * outside, nz = dx * outside, width = end - start;
-        swing = `<path d="M${sx} ${sz}L${sx + nx * width} ${sz + nz * width}M${ex} ${ez}A${width} ${width} 0 0 ${outside > 0 ? 1 : 0} ${sx + nx * width} ${sz + nz * width}" stroke="${openingColor}" fill="none" stroke-dasharray="5 4" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+        const hingeAtRight = window.hinge === 'right';
+        const swingOutward = window.swing === 'outward';
+        const hx = hingeAtRight ? ex : sx;
+        const hz = hingeAtRight ? ez : sz;
+        const tipX = hingeAtRight ? sx : ex;
+        const tipZ = hingeAtRight ? sz : ez;
+        const sign = swingOutward ? -1 : 1;
+        const leafNx = nx * sign, leafNz = nz * sign;
+        const openX = hx + leafNx * width;
+        const openZ = hz + leafNz * width;
+        const v0x = (tipX - hx) / width, v0z = (tipZ - hz) / width;
+        const cross = v0x * leafNz - v0z * leafNx;
+        const sweepFlag = cross > 0 ? 1 : 0;
+        swing = `<path d="M${hx} ${hz}L${openX} ${openZ}M${tipX} ${tipZ}A${width} ${width} 0 0 ${sweepFlag} ${openX} ${openZ}" stroke="${openingColor}" fill="none" stroke-dasharray="5 4" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
       }
       if (selected) {
         openingDistances = { left: number(window.offset), right: length - number(window.offset) - number(window.width) };

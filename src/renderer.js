@@ -456,7 +456,7 @@ export function makeScene(project, options = {}, direction = null) {
       const wallLookup = { back: 0, right: 1, front: 2, left: 3 };
       const windows = r.windows.filter(w => (w.wallIndex !== undefined ? number(w.wallIndex) : wallLookup[w.wall]) === wallIndex).map(w => {
         const bottom = w.kind === 'door' ? 0 : Math.max(0, number(w.sill));
-        return { kind: w.kind === 'door' ? 'door' : 'window', start: Math.max(0, number(w.offset)), end: Math.min(length, number(w.offset) + number(w.width)), bottom, top: Math.min(r.height, bottom + number(w.height)) };
+        return { kind: w.kind === 'door' ? 'door' : 'window', start: Math.max(0, number(w.offset)), end: Math.min(length, number(w.offset) + number(w.width)), bottom, top: Math.min(r.height, bottom + number(w.height)), swing: w.swing, hinge: w.hinge };
       }).filter(w => w.end > w.start && w.top > w.bottom);
       const xs = [...new Set([0, length, ...windows.flatMap(w => [w.start, w.end])])].sort((a, b) => a - b);
       const ys = [...new Set([0, r.height, ...windows.flatMap(w => [w.bottom, w.top])])].sort((a, b) => a - b);
@@ -477,8 +477,17 @@ export function makeScene(project, options = {}, direction = null) {
           [[0, 3], [3, 2], [2, 1]].forEach(([a, b]) => line(frame[a], frame[b], '#aaae9d', 2.5));
           // A light angled leaf distinguishes a doorway; the wall aperture
           // itself reaches the floor and has no glazed mullion or sill board.
-          const openAngle = Math.PI / 3, doorWidth = w.end - w.start, hinge = fixedPoint(w.start, 0);
-          const free = [hinge[0] + ux * doorWidth * Math.cos(openAngle) + inward[0] * doorWidth * Math.sin(openAngle), 0, hinge[2] + uz * doorWidth * Math.cos(openAngle) + inward[2] * doorWidth * Math.sin(openAngle)];
+          const openAngle = Math.PI / 3, doorWidth = w.end - w.start;
+          const hingeAtRight = w.hinge === 'right';
+          const swingOutward = w.swing === 'outward';
+          const hinge = fixedPoint(hingeAtRight ? w.end : w.start, 0);
+          const hingeSign = hingeAtRight ? -1 : 1;
+          const swingSign = swingOutward ? -1 : 1;
+          const free = [
+            hinge[0] + hingeSign * ux * doorWidth * Math.cos(openAngle) + swingSign * inward[0] * doorWidth * Math.sin(openAngle),
+            0,
+            hinge[2] + hingeSign * uz * doorWidth * Math.cos(openAngle) + swingSign * inward[2] * doorWidth * Math.sin(openAngle)
+          ];
           face([hinge, free, [free[0], w.top, free[2]], [hinge[0], w.top, hinge[2]]], '#cdbf9f', null, null, { room: true, doorLeaf: true, opacity: nearWall ? .15 : .25, stroke: '#b7ad91' });
           labels.push({ point: fixedPoint((w.start + w.end) / 2, w.top + 35), text: `Дверной проём · ${mm(doorWidth)} × ${mm(w.top)} мм`, room: true });
         } else {

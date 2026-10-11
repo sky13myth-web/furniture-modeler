@@ -301,6 +301,10 @@ export function checkImport(project) {
     for (const [key, label] of [['width', 'ширина'], ['height', 'высота']]) finite(window[key], `Окно: ${label}`, 20000, true);
     if (typeof window.offset !== 'number' || !Number.isFinite(window.offset) || Math.abs(window.offset) > 20000) fail('Окно: отступ от угла вне допустимого диапазона.');
     finite(window.sill, 'Окно: высота подоконника', 20000);
+    if (window.kind === 'door') {
+      if (window.swing !== undefined && !['inward', 'outward'].includes(window.swing)) fail('Дверь: направление открывания должно быть inward или outward.');
+      if (window.hinge !== undefined && !['left', 'right'].includes(window.hinge)) fail('Дверь: расположение петель должно быть left или right.');
+    }
     if (window.kind === 'pipe') {
       finite(window.diameter, 'Труба: диаметр', 1000, true);
       finite(window.standoff, 'Труба: отступ от стены', 2000);
