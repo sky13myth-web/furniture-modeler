@@ -141,6 +141,17 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
         if (node.cooktop.height !== undefined) finite(node.cooktop.height, 'Варочная панель: высота', 500, true);
         if (node.cooktop.label !== undefined) text(node.cooktop.label, 'Варочная панель: название');
       }
+      if (node.sink !== undefined && node.sink !== null) {
+        record(node.sink, 'раковина');
+        for (const key of ['width', 'depth']) finite(node.sink[key], `Раковина: ${key}`, 3000, true);
+        if (node.sink.height !== undefined) finite(node.sink.height, 'Раковина: высота', 500, true);
+        if (node.sink.label !== undefined) text(node.sink.label, 'Раковина: название');
+        if (node.sink.sinkShape !== undefined && !['round', 'rectangular'].includes(node.sink.sinkShape)) fail('Раковина: неизвестная форма чаши.');
+        if (node.sink.bowlWidth !== undefined) finite(node.sink.bowlWidth, 'Раковина: ширина чаши', 3000, true);
+        if (node.sink.bowlDepth !== undefined) finite(node.sink.bowlDepth, 'Раковина: глубина чаши', 3000, true);
+        if (node.sink.hasDrainer !== undefined) boolean(node.sink.hasDrainer, 'Раковина: крыло для сушки');
+        if (node.sink.drainerSide !== undefined && !['left', 'right'].includes(node.sink.drainerSide)) fail('Раковина: неизвестная сторона крыла.');
+      }
       if (!interior && node.interiorLayout !== undefined) {
         if (!['doors', 'open'].includes(node.front)) fail('Внутреннее наполнение возможно только у открытой секции или секции с дверями.');
         visit(node.interiorLayout, depth + 1, true);

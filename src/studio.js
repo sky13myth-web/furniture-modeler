@@ -238,14 +238,18 @@ function renderProperties(){
    if(inside)html+=input('Глубина секции','depth',s.depth,{min:1,max:3000,scope:'section'});
     else {
       const hasCooktop = Boolean(node.cooktop);
+      const hasSink = Boolean(node.sink);
       const hasAppliance = Boolean(node.appliance);
       const isCombined = hasCooktop && node.appliance?.type === 'oven';
       const cooktopMarkup = hasCooktop
         ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border,#e2e8f0)"><span class="eyebrow">ВАРОЧНАЯ ПАНЕЛЬ НА СТОЛЕШНИЦЕ</span><p class="hint">${esc(node.cooktop.label||'Варочная панель')} · ${node.cooktop.width||590} × ${node.cooktop.depth||520} мм</p><button class="button danger full" data-action="remove-section-cooktop">${icon('trash')}Убрать варочную панель</button></div>`
         : `<button class="button full" data-action="add-section-cooktop">${icon('plus')}Варочная панель на столешнице</button>`;
+      const sinkMarkup = hasSink
+        ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border,#e2e8f0)"><span class="eyebrow">РАКОВИНА НА СТОЛЕШНИЦЕ</span><p class="hint">${esc(node.sink.label||'Раковина')} · ${node.sink.width||780} × ${node.sink.depth||500} мм</p><button class="button danger full" data-action="remove-section-sink">${icon('trash')}Убрать раковину</button></div>`
+        : `<button class="button full" data-action="add-section-sink">${icon('plus')}Раковина на столешнице</button>`;
       const applianceMarkup = `<button class="button full" data-action="appliance">${hasAppliance?'Изменить технику в нише':'Ниша для встроенной техники'}</button>${hasAppliance?`<p class="hint">${esc(node.appliance.label)} · ${node.appliance.width} × ${node.appliance.height} × ${node.appliance.depth} мм</p><button class="button danger full" data-action="remove-appliance">${icon('trash')}Убрать технику из секции</button>`:''}`;
       const combinedMarkup = isCombined ? `<p class="hint" style="color:#059669;font-weight:600">⚡ Совмещение: варочная панель + духовой шкаф (учтён зазор 30 мм для вентиляции).</p>` : '';
-      html+=disclosure('section-options','Глубина, задник и техника',`${input('Глубина секции','depth',s.depth,{min:1,max:3000,scope:'section'})}<label class="field"><span>Сзади секции</span><select data-scope="section" data-field="back" ${c.includeBack!==false?'disabled':''}>${c.includeBack!==false?'<option value="inherit">Общий задник на весь шкаф</option>':[['none','Без задней стенки'],['solid','Отдельная панель'],['braces','Поперечины секции']].map(([value,label])=>`<option value="${value}" ${backValue===value?'selected':''}>${label}</option>`).join('')}</select></label>${c.includeBack!==false?'<p class="hint">Выключите общий задник, чтобы настроить заднюю стенку или поперечины секции.</p>':backValue==='braces'?sectionBracesMarkup(c,s):''}${cooktopMarkup}${applianceMarkup}${combinedMarkup}`);
+      html+=disclosure('section-options','Глубина, задник и техника',`${input('Глубина секции','depth',s.depth,{min:1,max:3000,scope:'section'})}<label class="field"><span>Сзади секции</span><select data-scope="section" data-field="back" ${c.includeBack!==false?'disabled':''}>${c.includeBack!==false?'<option value="inherit">Общий задник на весь шкаф</option>':[['none','Без задней стенки'],['solid','Отдельная панель'],['braces','Поперечины секции']].map(([value,label])=>`<option value="${value}" ${backValue===value?'selected':''}>${label}</option>`).join('')}</select></label>${c.includeBack!==false?'<p class="hint">Выключите общий задник, чтобы настроить заднюю стенку или поперечины секции.</p>':backValue==='braces'?sectionBracesMarkup(c,s):''}${cooktopMarkup}${sinkMarkup}${applianceMarkup}${combinedMarkup}`);
     }
    if(!inside&&node.front==='drawers'&&fronts.length>1)html+=disclosure('drawer-heights','Высоты отдельных фасадов',fronts.map((f,i)=>input(`Фасад ${i+1}`,'drawer-height-'+i,f.height,{min:60,max:s.frontHeight,scope:'section'})).join(''));
    html+='</div>';
@@ -492,6 +496,8 @@ function action(name){const c=selectedCabinet();
  if(name==='remove-appliance')change(()=>{const s=editableSection();if(s?.node)delete s.node.appliance;});
  if(name==='remove-section-cooktop')change(()=>{const s=editableSection();if(s?.node)delete s.node.cooktop;});
  if(name==='add-section-cooktop')change(()=>{const s=editableSection();if(s?.node){s.node.cooktop={width:590,depth:520,height:45,label:translateText('Варочная панель',interfaceLanguage)};expanded.add('section-options');}});
+ if(name==='remove-section-sink')change(()=>{const s=editableSection();if(s?.node)delete s.node.sink;});
+ if(name==='add-section-sink')change(()=>{const s=editableSection();if(s?.node){s.node.sink={width:780,depth:500,height:190,label:translateText('Раковина прямоугольная',interfaceLanguage),hasDrainer:true,drainerSide:'right',sinkShape:'rectangular',bowlWidth:400,bowlDepth:400};expanded.add('section-options');}});
  if(name==='rename')textDialog('Название проекта',project.name,value=>change(()=>project.name=value));
  if(name==='cabinet-options'&&c)modal('Шкаф',`<div class="menu-actions"><button data-action="rename-cabinet">Переименовать</button><button data-action="duplicate">${icon('copy')}Дублировать</button><button data-action="delete-cabinet" class="danger">${icon('trash')}Удалить шкаф</button></div>`);
  if(name==='rename-cabinet'&&c)textDialog('Название шкафа',c.name,value=>change(()=>c.name=value));
@@ -846,10 +852,26 @@ const APPLIANCE_CHOICES = [
 function applianceDialog(){
  const section=selectedSection();if(!section)return;
  const c=selectedCabinet(),g=getCabinetLayout(c,project),atFloor=section.floorEligible;
- const a=section.node.appliance||{type:'washer',label:translateText('Стиральная машина',interfaceLanguage),width:600,height:850,depth:600};
+ const a=section.node.appliance || (section.node.sink ? {
+  type: section.node.sink.shape==='round' ? 'sink-round' : 'sink-rectangular',
+  label: section.node.sink.label || 'Раковина',
+  width: section.node.sink.width || 600,
+  height: 850,
+  depth: section.node.sink.depth || 500,
+  bowlWidth: section.node.sink.bowlWidth || 400,
+  bowlDepth: section.node.sink.bowlDepth || 400,
+  hasDrainer: section.node.sink.hasDrainer !== false,
+  drainerSide: section.node.sink.drainerSide || 'right'
+ } : (section.node.cooktop ? {
+  type: 'cooktop',
+  label: section.node.cooktop.label || 'Варочная панель',
+  width: section.node.cooktop.width || 600,
+  height: 50,
+  depth: section.node.cooktop.depth || 520
+ } : {type:'washer',label:translateText('Стиральная машина',interfaceLanguage),width:600,height:850,depth:600}));
  const gaps={...getApplianceGapDefaults(a.type),...a.clearances};
  const enabled=a.useClearances??(!section.node.appliance&&['washer','dryer','fridge-builtin','fridge-freestanding'].includes(a.type));
- modal('Открытая ниша для техники',`<form id="appliance-form"><label class="field"><span>Что размещаем</span><select name="type">${APPLIANCE_CHOICES.map(([v,t])=>`<option value="${v}" ${a.type===v?'selected':''}>${t}</option>`).join('')}</select></label><label class="field"><span>Название</span><input name="label" value="${esc(a.label)}" maxlength="100" required></label><div class="fields three">${['width','height','depth'].map((k,i)=>`<label class="field"><span>${['Ширина','Высота','Глубина'][i]} техники, мм</span><input name="${k}" type="number" value="${a[k]}" min="10" max="6000" required></label>`).join('')}</div><div id="sink-rect-fields" class="fields" ${a.type==='sink-rectangular'?'':'hidden'}><label class="field"><span>Ширина чаши, мм</span><input name="bowlWidth" type="number" min="100" max="2000" value="${a.bowlWidth||400}"></label><label class="field"><span>Глубина чаши, мм</span><input name="bowlDepth" type="number" min="100" max="1000" value="${a.bowlDepth||400}"></label><label class="check-row"><input name="hasDrainer" type="checkbox" ${a.hasDrainer!==false?'checked':''}>Крыло для сушки</label><label class="field"><span>Сторона крыла</span><select name="drainerSide"><option value="right" ${a.drainerSide!=='left'?'selected':''}>Крыло справа</option><option value="left" ${a.drainerSide==='left'?'selected':''}>Крыло слева</option></select></label></div><div id="cooktop-banner" class="hint" style="background:#f0fdf4;border:1px solid #bbf7d0;padding:10px 12px;border-radius:6px;margin:8px 0;color:#166534" ${a.type==='cooktop'?'':'hidden'}><strong>Врезка в столешницу над секцией</strong><p style="margin:4px 0">Варочная панель устанавливается сверху в столешницу на всю ширину секции, а не внутрь корпуса. Ниша секции свободна для духового шкафа или ящиков.</p><label class="check-row" style="margin-top:6px;font-weight:600"><input name="combineWithOven" type="checkbox" checked> Совместить с духовым шкафом в этой секции</label><p class="hint" style="margin-top:2px">Автоматически учитывает зазор 30 мм под варочной панелью для вентиляции и охлаждения духового шкафа.</p></div>${atFloor?`<label class="check-row"><input name="onFloor" type="checkbox" ${!section.node.appliance||section.node.floor==='open'?'checked':''}>Стоит на полу — убрать дно и цоколь этой секции</label>`:''}<label class="check-row"><input name="useClearances" type="checkbox" ${enabled?'checked':''}>Учитывать монтажные зазоры и отступ от стены</label><div id="appliance-gap-fields" class="fields three">${[['side','С каждой стороны'],['top','Сверху'],['rear','Сзади: трубы и кабели']].map(([key,label])=>`<label class="field"><span>${label}, мм</span><input name="gap-${key}" type="number" min="0" max="1000" value="${gaps[key]}" required></label>`).join('')}</div><p class="hint">Начальные значения для планирования. Требования конкретной модели из её инструкции имеют приоритет. Глубину техники указывайте полностью, включая выступающие части.</p><div id="appliance-fit" class="appliance-fit" role="status" aria-live="polite"></div><details><summary>Откуда взяты зазоры</summary><p class="hint"><a href="https://www.samsung.com/ca/home-appliances/buying-guide/what-size-washing-machine-do-i-need/" target="_blank" rel="noopener">Samsung: размещение стиральных и сушильных машин</a>; <a href="https://download.beko.com/Download.UsageManualsBeko/AE/en_US_2960310556_EN.pdf" target="_blank" rel="noopener">Beko: пример инструкции сушильной машины</a>. Для сушилки начальный боковой запас увеличен до 30 мм. Эти параметры не являются универсальной нормой для любой техники. Для колонны нужен совместимый монтажный комплект, вентиляция и доступ спереди проверяются по инструкции.</p></details><div class="row" style="gap:8px;margin-top:12px"><button type="submit" class="button primary" style="flex:1">Поместить в секцию</button>${Boolean(section.node.appliance||section.node.cooktop)?`<button type="button" class="button danger" id="dialog-remove-appliance-btn" style="flex:1">Убрать технику</button>`:''}</div></form>`);
+ modal('Открытая ниша для техники',`<form id="appliance-form"><label class="field"><span>Что размещаем</span><select name="type">${APPLIANCE_CHOICES.map(([v,t])=>`<option value="${v}" ${a.type===v?'selected':''}>${t}</option>`).join('')}</select></label><label class="field"><span>Название</span><input name="label" value="${esc(a.label)}" maxlength="100" required></label><div class="fields three">${['width','height','depth'].map((k,i)=>`<label class="field"><span>${['Ширина','Высота','Глубина'][i]} техники, мм</span><input name="${k}" type="number" value="${a[k]}" min="10" max="6000" required></label>`).join('')}</div><div id="sink-rect-fields" class="fields" ${a.type==='sink-rectangular'?'':'hidden'}><label class="field"><span>Ширина чаши, мм</span><input name="bowlWidth" type="number" min="100" max="2000" value="${a.bowlWidth||400}"></label><label class="field"><span>Глубина чаши, мм</span><input name="bowlDepth" type="number" min="100" max="1000" value="${a.bowlDepth||400}"></label><label class="check-row"><input name="hasDrainer" type="checkbox" ${a.hasDrainer!==false?'checked':''}>Крыло для сушки</label><label class="field"><span>Сторона крыла</span><select name="drainerSide"><option value="right" ${a.drainerSide!=='left'?'selected':''}>Крыло справа</option><option value="left" ${a.drainerSide==='left'?'selected':''}>Крыло слева</option></select></label></div><div id="cooktop-banner" class="hint" style="background:#f0fdf4;border:1px solid #bbf7d0;padding:10px 12px;border-radius:6px;margin:8px 0;color:#166534" ${a.type==='cooktop'?'':'hidden'}><strong>Врезка в столешницу над секцией</strong><p style="margin:4px 0">Варочная панель устанавливается сверху в столешницу на всю ширину секции, а не внутрь корпуса. Ниша секции свободна для духового шкафа или ящиков.</p><label class="check-row" style="margin-top:6px;font-weight:600"><input name="combineWithOven" type="checkbox" checked> Совместить с духовым шкафом в этой секции</label><p class="hint" style="margin-top:2px">Автоматически учитывает зазор 30 мм под варочной панелью для вентиляции и охлаждения духового шкафа.</p></div><div id="sink-banner" class="hint" style="background:#f0f9ff;border:1px solid #bae6fd;padding:10px 12px;border-radius:6px;margin:8px 0;color:#0369a1" ${a.type==='sink-round'||a.type==='sink-rectangular'?'':'hidden'}><strong>Врезка в столешницу над секцией</strong><p style="margin:4px 0">Раковина со смесителем монтируется сверху в столешницу на всю ширину секции, а чаша опускается в корпус шкафа. Под чашей остаётся свободное место для сифона, фильтров и моющих средств.</p></div><div id="hood-banner" class="hint" style="background:#fefce8;border:1px solid #fef08a;padding:10px 12px;border-radius:6px;margin:8px 0;color:#854d0e" ${a.type==='hood-builtin'?'':'hidden'}><strong>Встраивание снизу в дно навесного шкафа</strong><p style="margin:4px 0">Вытяжка встраивается снизу в нижний горизонт подвесного шкафа: жироулавливающие фильтры и LED-подсветка обращены вниз над рабочей зоной, а корпус мотора уходит вверх внутрь шкафа.</p></div>${atFloor?`<label class="check-row"><input name="onFloor" type="checkbox" ${!section.node.appliance||section.node.floor==='open'?'checked':''}>Стоит на полу — убрать дно и цоколь этой секции</label>`:''}<label class="check-row"><input name="useClearances" type="checkbox" ${enabled?'checked':''}>Учитывать монтажные зазоры и отступ от стены</label><div id="appliance-gap-fields" class="fields three">${[['side','С каждой стороны'],['top','Сверху'],['rear','Сзади: трубы и кабели']].map(([key,label])=>`<label class="field"><span>${label}, мм</span><input name="gap-${key}" type="number" min="0" max="1000" value="${gaps[key]}" required></label>`).join('')}</div><p class="hint">Начальные значения для планирования. Требования конкретной модели из её инструкции имеют приоритет. Глубину техники указывайте полностью, включая выступающие части.</p><div id="appliance-fit" class="appliance-fit" role="status" aria-live="polite"></div><details><summary>Откуда взяты зазоры</summary><p class="hint"><a href="https://www.samsung.com/ca/home-appliances/buying-guide/what-size-washing-machine-do-i-need/" target="_blank" rel="noopener">Samsung: размещение стиральных и сушильных машин</a>; <a href="https://download.beko.com/Download.UsageManualsBeko/AE/en_US_2960310556_EN.pdf" target="_blank" rel="noopener">Beko: пример инструкции сушильной машины</a>. Для сушилки начальный боковой запас увеличен до 30 мм. Эти параметры не являются универсальной нормой для любой техники. Для колонны нужен совместимый монтажный комплект, вентиляция и доступ спереди проверяются по инструкции.</p></details><div class="row" style="gap:8px;margin-top:12px"><button type="submit" class="button primary" style="flex:1">Поместить в секцию</button>${Boolean(section.node.appliance||section.node.cooktop||section.node.sink)?`<button type="button" class="button danger" id="dialog-remove-appliance-btn" style="flex:1">Убрать технику</button>`:''}</div></form>`);
  const form=$('#appliance-form');
  const read=()=>({
   type:form.elements.type.value,
@@ -894,6 +916,8 @@ function applianceDialog(){
   form.elements.useClearances.checked=['washer','dryer','fridge-builtin','fridge-freestanding'].includes(t);
   const sinkFields=$('#sink-rect-fields');if(sinkFields)sinkFields.hidden=t!=='sink-rectangular';
   const ctBanner=$('#cooktop-banner');if(ctBanner)ctBanner.hidden=t!=='cooktop';
+  const sBanner=$('#sink-banner');if(sBanner)sBanner.hidden=!(t==='sink-round'||t==='sink-rectangular');
+  const hBanner=$('#hood-banner');if(hBanner)hBanner.hidden=t!=='hood-builtin';
   if(t==='oven'&&(section.node.cooktop||c.cooktop)){form.elements['gap-top'].value=30;form.elements.useClearances.checked=true;}
   preview();
  };
@@ -917,6 +941,27 @@ function applianceDialog(){
    if(saved)closeModal();
    return;
   }
+  if(t==='sink-round'||t==='sink-rectangular'){
+   const app=read();
+   const saved=change(()=>{
+    const s=editableSection();
+    s.node.sink={
+     shape:t==='sink-round'?'round':'rectangular',
+     width:app.width,
+     depth:app.depth,
+     bowlWidth:app.bowlWidth||(t==='sink-round'?app.bowlDiameter:400),
+     bowlDepth:app.bowlDepth||(t==='sink-round'?app.bowlDiameter:400),
+     hasDrainer:app.hasDrainer??true,
+     drainerSide:app.drainerSide||'right',
+     label:app.label||(t==='sink-round'?'Раковина (круглая)':'Раковина (прямоугольная)')
+    };
+    delete s.node.appliance;
+    s.node.shelves=0;
+    delete s.node.pullOutShelf;delete s.node.internalDrawerCount;delete s.node.interiorLayout;delete s.node.rods;
+   });
+   if(saved)closeModal();
+   return;
+  }
   const appliance=read();
   const saved=change(()=>{
    const s=editableSection();s.node.appliance=appliance;s.node.front='open';s.node.shelves=0;s.node.back='none';
@@ -931,7 +976,7 @@ function applianceDialog(){
   removeBtn.onclick=()=>{
    change(()=>{
     const s=editableSection();
-    if(s?.node){delete s.node.appliance;delete s.node.cooktop;}
+    if(s?.node){delete s.node.appliance;delete s.node.cooktop;delete s.node.sink;}
    });
    closeModal();
    toast(translateText('Техника убрана',interfaceLanguage));

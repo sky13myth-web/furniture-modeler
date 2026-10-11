@@ -716,7 +716,9 @@ export function makeScene(project, options = {}, direction = null) {
     for (const s of layout.sections) {
       const appliance = s.node.appliance;
       const sectionCooktop = s.node.cooktop;
-      // Cooktop on top of the section (in the countertop / over carcass)
+      const sectionSink = s.node.sink;
+
+      // 1. Cooktop on top of the section (in the countertop / over carcass)
       if (sectionCooktop || appliance?.type === 'cooktop') {
         const ct = sectionCooktop || appliance;
         const cw = Math.max(1, number(ct.width, 590)), ch = 45, cd = Math.max(1, number(ct.depth, 520));
@@ -731,7 +733,27 @@ export function makeScene(project, options = {}, direction = null) {
           renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
         });
       }
-      if (!appliance || appliance.type === 'cooktop') continue;
+
+      // 2. Sink on top of the section (drops into countertop / over carcass)
+      const isSinkAppliance = appliance && (appliance.type === 'sink-round' || appliance.type === 'sink-rectangular');
+      if (sectionSink || isSinkAppliance) {
+        const sk = sectionSink || appliance;
+        const sw = Math.max(1, number(sk.width, 780)), sh = 190, sd = Math.max(1, number(sk.depth, 500));
+        const sx = x + s.x + Math.max(0, (s.width - sw) / 2);
+        const topY = bodyY + bodyH + (c.countertop ? 38 : 0);
+        const sy = topY - sh;
+        const sz = bodyZ + Math.max(0, (bodyD - sd) / 2);
+        renderKitchenAppliance({
+          appliance: { type: sk.sinkShape === 'round' || sk.type === 'sink-round' ? 'sink-round' : 'sink-rectangular', ...sk },
+          bounds: { x: sx, y: sy, z: sz, width: sw, height: sh, depth: sd },
+          cabinetId: id,
+          sectionId: s.id,
+          renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+        });
+      }
+
+      if (!appliance || appliance.type === 'cooktop' || appliance.type === 'sink-round' || appliance.type === 'sink-rectangular') continue;
+
       const aw = Math.max(1, number(appliance.width, 600)), ah = Math.max(1, number(appliance.height, 850)), ad = Math.max(1, number(appliance.depth, 550));
       const hasCooktopAbove = Boolean(sectionCooktop || c.cooktop);
       // When combining cooktop + oven:
@@ -740,8 +762,16 @@ export function makeScene(project, options = {}, direction = null) {
       // Required ventilation clearance under cooktop bottom is at least 20mm. Total = 27mm.
       const cooktopVentClearance = hasCooktopAbove && appliance.type === 'oven' ? Math.max(25, 45 - (c.countertop ? 38 : 0) + 20) : 0;
       const ax = x + s.x + (s.width - aw) / 2;
-      const maxTopY = bodyY + s.y + Math.max(0, s.height - cooktopVentClearance - ah);
-      const ay = Math.min(bodyY + s.y, maxTopY);
+
+      // 3. Built-in Range Hood: mounts from the bottom of wall cabinet!
+      let ay;
+      if (appliance.type === 'hood-builtin') {
+        ay = bodyY; // Sits at the bottom panel of the wall cabinet carcass
+      } else {
+        const maxTopY = bodyY + s.y + Math.max(0, s.height - cooktopVentClearance - ah);
+        ay = Math.min(bodyY + s.y, maxTopY);
+      }
+
       const az = bodyZ + number(s.rearOffset) + Math.max(0, number(s.usableDepth, s.depth) - ad);
       renderKitchenAppliance({
         appliance,

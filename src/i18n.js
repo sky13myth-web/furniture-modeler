@@ -1083,6 +1083,9 @@ X / Z, мм|X / Z, mm|X / Z, mm
 Совместить с духовым шкафом в этой секции|Bu bölmede fırın ile birleştir|Combine with oven in this section
 Автоматически учитывает зазор 30 мм под варочной панелью для вентиляции и охлаждения духового шкафа.|Fırının havalandırması ve soğutulması için ocak altında 30 mm boşluk otomatik olarak bırakılır.|Automatically reserves a 30 mm gap below cooktop for oven ventilation and cooling.
 Техника убрана|Cihaz kaldırıldı|Appliance removed
+Убрать раковину|Evyeyi kaldır|Remove sink
+Раковина на столешнице|Tezgah üstü evye|Sink on countertop
+Встраивание снизу в дно навесного шкафа|Üst dolap tabanına alttan montaj|Built-in from the bottom of wall cabinet
 `);
 
 let phrasePattern;

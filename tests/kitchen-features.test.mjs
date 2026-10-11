@@ -220,3 +220,119 @@ test('cooktop is rendered on countertop above section and oven respects ventilat
   assert.ok(ovenMaxY <= 830, `Oven must have ventilation clearance below cooktop (got max Y ${ovenMaxY})`);
 });
 
+test('sink is mounted on countertop above section with bowl dipping into carcass', async () => {
+  const { makeScene } = await import('../src/renderer.js');
+  const project = {
+    settings: { unifiedPlinth: false, wallFinishPanels: false, ledLighting: false },
+    materials: [{ id: 'm1', name: 'Белый', type: 'ЛДСП', thickness: 18, sheetWidth: 2800, sheetHeight: 2070, color: '#ffffff' }],
+    room: { width: 3000, depth: 3000, height: 2500, windows: [] },
+    cabinets: [
+      {
+        id: 'kitchen-sink-base',
+        type: 'base',
+        x: 0,
+        y: 0,
+        z: 0,
+        width: 800,
+        height: 850,
+        depth: 600,
+        plinth: 100,
+        countertop: true,
+        materialId: 'm1',
+        layout: {
+          id: 'sec-sink',
+          kind: 'section',
+          front: 'doors',
+          doors: 2,
+          shelves: 0,
+          sink: {
+            shape: 'rectangular',
+            width: 780,
+            depth: 500,
+            bowlWidth: 450,
+            bowlDepth: 400,
+            hasDrainer: true,
+            drainerSide: 'right',
+            label: 'Раковина со сушкой'
+          }
+        }
+      }
+    ]
+  };
+
+  const scene = makeScene(project, project.cabinets[0], '3d', { plinth: true, exploded: false });
+  const sinkFaces = scene.faces.filter(f => f.applianceType === 'sink-rectangular');
+  assert.ok(sinkFaces.length > 0, 'Sink faces must be rendered');
+
+  const sinkMaxY = Math.max(...sinkFaces.flatMap(f => f.points.map(p => p[1])));
+  const sinkMinY = Math.min(...sinkFaces.flatMap(f => f.points.map(p => p[1])));
+
+  // Countertop top is at 850 + 38 = 888mm. Faucet/rim extends above 888mm.
+  assert.ok(sinkMaxY > 888, `Faucet/rim must extend above countertop (got max Y ${sinkMaxY})`);
+  // Bowl must dip into carcass under countertop (< 888mm, down to around 888 - 190 = 698mm)
+  assert.ok(sinkMinY < 800, `Bowl must dip into cabinet carcass below countertop (got min Y ${sinkMinY})`);
+});
+
+test('built-in hood is mounted into wall cabinet from the bottom', async () => {
+  const { makeScene } = await import('../src/renderer.js');
+  const project = {
+    settings: { unifiedPlinth: false, wallFinishPanels: false, ledLighting: false },
+    materials: [{ id: 'm1', name: 'Белый', type: 'ЛДСП', thickness: 18, sheetWidth: 2800, sheetHeight: 2070, color: '#ffffff' }],
+    room: { width: 3000, depth: 3000, height: 2500, windows: [] },
+    cabinets: [
+      {
+        id: 'kitchen-wall-hood',
+        type: 'wall',
+        x: 0,
+        y: 1400,
+        z: 0,
+        width: 600,
+        height: 720,
+        depth: 350,
+        plinth: 0,
+        materialId: 'm1',
+        layout: {
+          id: 'sec-hood',
+          kind: 'section',
+          front: 'doors',
+          doors: 2,
+          shelves: 0,
+          appliance: {
+            type: 'hood-builtin',
+            width: 600,
+            height: 380,
+            depth: 300,
+            label: 'Вытяжка встраиваемая'
+          }
+        }
+      }
+    ]
+  };
+
+  const scene = makeScene(project, project.cabinets[0], '3d', { plinth: false, exploded: false });
+  const hoodFaces = scene.faces.filter(f => f.applianceType === 'hood-builtin');
+  assert.ok(hoodFaces.length > 0, 'Built-in hood faces must be rendered');
+
+  const hoodMinY = Math.min(...hoodFaces.flatMap(f => f.points.map(p => p[1])));
+  // Built-in hood bottom face with pull-out visor / LED spotlight discs extends ~3.5mm below cabinet bottom (1400mm)
+  assert.ok(Math.abs(hoodMinY - 1400) <= 5, `Hood must start at cabinet bottom Y=1400 (got ${hoodMinY})`);
+});
+
+test('checkImport validates cooktop, sink, and all kitchen appliance configurations', async () => {
+  const { checkImport } = await import('../src/project-io.js');
+  const { createDefaultProject } = await import('../src/engine.js');
+  const validProject = createDefaultProject('ru');
+  validProject.cabinets[0].layout = {
+    id: 's1',
+    kind: 'section',
+    front: 'open',
+    cooktop: { width: 590, depth: 520, height: 45, label: 'Cooktop' },
+    sink: { shape: 'round', width: 510, depth: 510, bowlWidth: 420, bowlDepth: 420, label: 'Round sink' },
+    appliance: { type: 'hood-builtin', width: 600, height: 350, depth: 300, label: 'Hood' }
+  };
+
+  // Must not throw for valid kitchen equipment schema
+  assert.doesNotThrow(() => checkImport(validProject));
+});
+
+
