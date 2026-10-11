@@ -195,3 +195,24 @@ test('WebGL fragment shader and RoomWebGLRenderer support texture mapping and un
   assert.equal(typeof tex.loaded, 'boolean');
 });
 
+test('local downloaded texture samples exist in assets/textures and are linked in presets', async () => {
+  const fs = await import('node:fs');
+  const cacheDirPath = path.resolve('assets', 'textures');
+  assert.ok(fs.existsSync(cacheDirPath), 'assets/textures directory must exist');
+
+  const files = fs.readdirSync(cacheDirPath);
+  assert.ok(files.length >= 230, `Expected at least 230 texture files, found ${files.length}`);
+
+  // Check key decors exist
+  assert.ok(fs.existsSync(path.join(cacheDirPath, 'VT_068.jpg')), 'VT_068.jpg exists');
+  assert.ok(fs.existsSync(path.join(cacheDirPath, 'YT_10E.jpg')), 'YT_10E.jpg exists');
+  assert.ok(fs.existsSync(path.join(cacheDirPath, 'VT_037.jpg')), 'VT_037.jpg exists');
+  assert.ok(fs.existsSync(path.join(cacheDirPath, 'MAT_068.jpg')), 'MAT_068.jpg exists');
+
+  for (const p of DEFAULT_MATERIAL_PRESETS) {
+    assert.ok(p.localTextureUrl, `Default preset ${p.id} must have localTextureUrl`);
+    assert.ok(p.localTextureUrl.startsWith('./assets/textures/'));
+  }
+});
+
+

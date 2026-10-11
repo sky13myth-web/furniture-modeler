@@ -186,7 +186,7 @@ function render(){
 function input(label,field,value,{min=0,max=20000,step=1,unit='мм',scope='cabinet',disabled=false}={}){return `<label class="field"><span>${label}</span><div class="input-with-unit"><input type="number" data-scope="${scope}" data-field="${field}" value="${rounded(value)}" min="${min}" max="${max}" step="${step}" ${disabled?'disabled':''}><small>${unit}</small></div></label>`;}
 function materialSwatchStyle(m){
  if(!m)return 'background-color:#ccc;';
- const url=m.textureUrl||m.previewUrl;
+ const url=m.localTextureUrl||(m.decorCode?`./assets/textures/${m.decorCode}.jpg`:null)||m.textureUrl||m.previewUrl;
  const col=m.color||'#deddd9';
  if(url){
   return `background-color:${esc(col)};background-image:url('${esc(url)}');background-size:cover;background-position:center;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);`;
@@ -824,8 +824,10 @@ function openYildizGalleryModal(onSelectMaterial){
    const name=translateMaterialName(p.name,interfaceLanguage);
    const badgeCls=p.collection==='front-panel'?'badge-kapak':'badge-mdflam';
    const badgeText=p.collection==='front-panel'?'Kapak Panel':'MDFLAM';
-   const imgSrc=p.textureUrl||p.previewUrl;
-   return `<button type="button" class="yildiz-card" data-preset-idx="${originalIdx}" title="${esc(name)}"><div class="yildiz-card-img-wrap" style="background-color:${esc(p.color||'#cbd5e1')}">${imgSrc?`<img src="${esc(imgSrc)}" loading="lazy" alt="${esc(name)}" onerror="if(!this._cdn&&'${esc(p.previewUrl||'')}'&&this.src!=='${esc(p.previewUrl||'')}'){this._cdn=true;this.src='${esc(p.previewUrl||'')}';}else{this.style.display='none';}">`:''}${p.decorCode?`<span class="yildiz-card-code">${esc(p.decorCode)}</span>`:''}</div><div class="yildiz-card-info"><div class="yildiz-card-name">${esc(name)}</div><div class="yildiz-card-format">${p.sheetWidth} × ${p.sheetHeight} ${unit}, ${p.thickness} ${unit}</div><span class="yildiz-card-collection-badge ${badgeCls}">${badgeText}</span></div></button>`;
+   const localSrc=p.decorCode?`./assets/textures/${esc(p.decorCode)}.jpg`:p.textureUrl;
+   const cdnSrc=p.previewUrl||(p.decorCode?`https://app.yildiz.com/Bundles/onizleme/${esc(p.decorCode)}.jpg`:null);
+   const fallbackColor=p.color||'#cbd5e1';
+   return `<div role="button" tabindex="0" class="yildiz-card" data-preset-idx="${originalIdx}" title="${esc(name)}"><div class="yildiz-card-img-wrap" style="background-color:${esc(fallbackColor)};background-image:url('${esc(localSrc)}');"><img src="${esc(localSrc)}" loading="lazy" alt="${esc(name)}" onerror="if(!this._triedCdn&&'${esc(cdnSrc||'')}'&&this.src!=='${esc(cdnSrc||'')}'){this._triedCdn=true;this.src='${esc(cdnSrc||'')}';}else{this.style.opacity='0';}">${p.decorCode?`<span class="yildiz-card-code">${esc(p.decorCode)}</span>`:''}</div><div class="yildiz-card-info"><div class="yildiz-card-name">${esc(name)}</div><div class="yildiz-card-format">${p.sheetWidth} × ${p.sheetHeight} ${unit}, ${p.thickness} ${unit}</div><span class="yildiz-card-collection-badge ${badgeCls}">${badgeText}</span></div></div>`;
   }).join('');
  }
 
@@ -876,6 +878,15 @@ function openYildizGalleryModal(onSelectMaterial){
    const localized=localizeMaterialPreset(preset,interfaceLanguage);
    closeModal();
    if(typeof onSelectMaterial==='function')onSelectMaterial(localized);
+  });
+  gridEl.addEventListener('keydown',e=>{
+   if(e.key==='Enter'||e.key===' '){
+    const card=e.target.closest('.yildiz-card');
+    if(card){
+     e.preventDefault();
+     card.click();
+    }
+   }
   });
  }
 }

@@ -23,13 +23,22 @@ function hexToRgb(hex) {
 
 export function resolveFaceTexture(f, project) {
   if (!project || !f || f.room || f.floor || f.window || f.obstacle) return null;
+  if (f.localTextureUrl) return f.localTextureUrl;
   if (f.textureUrl) return f.textureUrl;
   if (f.previewUrl) return f.previewUrl;
 
   const materials = project.materials || [];
+  const getTexture = (mat) => {
+    if (!mat) return null;
+    if (mat.localTextureUrl) return mat.localTextureUrl;
+    if (mat.decorCode) return `./assets/textures/${mat.decorCode}.jpg`;
+    return mat.textureUrl || mat.previewUrl || null;
+  };
+
   if (f.materialId) {
     const mat = materials.find(m => m.id === f.materialId);
-    if (mat?.textureUrl || mat?.previewUrl) return mat.textureUrl || mat.previewUrl;
+    const tex = getTexture(mat);
+    if (tex) return tex;
   }
 
   if (f.id && project.cabinets) {
@@ -38,10 +47,12 @@ export function resolveFaceTexture(f, project) {
       if (f.component === 'front') {
         const frontMatId = cab.frontMaterialId || cab.materialId;
         const mat = materials.find(m => m.id === frontMatId);
-        if (mat?.textureUrl || mat?.previewUrl) return mat.textureUrl || mat.previewUrl;
+        const tex = getTexture(mat);
+        if (tex) return tex;
       } else {
         const mat = materials.find(m => m.id === cab.materialId);
-        if (mat?.textureUrl || mat?.previewUrl) return mat.textureUrl || mat.previewUrl;
+        const tex = getTexture(mat);
+        if (tex) return tex;
       }
     }
   }

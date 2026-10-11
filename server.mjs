@@ -28,7 +28,7 @@ export const FALLBACK_JPEG = Buffer.from(
 );
 
 export async function handleTextureRequest(pathname, res, localCacheDir = cacheDir) {
-  const match = pathname.match(/^\/(?:textures\/yildiz|api\/texture)\/([^/]+?)(?:\.jpg)?$/i);
+  const match = pathname.match(/^\/(?:textures\/yildiz|api\/texture|assets\/textures)\/([^/]+?)(?:\.jpg)?$/i);
   if (!match) return false;
   const rawCode = match[1];
   const safeCode = rawCode.replace(/[^a-zA-Z0-9_-]/g, '');

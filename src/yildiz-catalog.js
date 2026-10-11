@@ -3284,6 +3284,7 @@ export const YILDIZ_CATALOG_PRESETS = RAW_YILDIZ_CATALOG_PRESETS.map(preset => (
   ...preset,
   previewUrl: `https://app.yildiz.com/Bundles/onizleme/${preset.decorCode}.jpg`,
   textureUrl: `/textures/yildiz/${preset.decorCode}.jpg`,
+  localTextureUrl: `./assets/textures/${preset.decorCode}.jpg`,
   collection: preset.sheetWidth === 1220 ? 'front-panel' : 'mdflam',
   category: classifyDecorCategory(preset)
 }));
