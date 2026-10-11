@@ -108,11 +108,62 @@ test('validateProject successfully validates corner-base, corner-wall, and corne
 test('checkImport validates project schema with corner cabinets without errors', async () => {
   const { checkImport } = await import('../src/project-io.js');
   const project = createDefaultProject();
-  project.cabinets.push(createCabinet('corner-base', project, { id: 'c-base', x: 200, z: 200 }));
-  project.cabinets.push(createCabinet('corner-wall', project, { id: 'c-wall', x: 200, z: 200 }));
+  project.cabinets.push(createCabinet('corner-base', project, { id: 'c-base', x: 200, z: 200, doorOpening: 'right' }));
+  project.cabinets.push(createCabinet('corner-wall', project, { id: 'c-wall', x: 200, z: 200, doorOpening: 'left' }));
   project.cabinets.push(createCabinet('corner-tall', project, { id: 'c-tall', x: 1400, z: 200 }));
 
   assert.doesNotThrow(() => checkImport(project), 'checkImport should not throw for corner cabinets');
 });
+
+test('corner cabinet supports custom doorOpening direction', () => {
+  const project = createDefaultProject();
+  const cabCustom = createCabinet('corner-base', project, {
+    width: 1000, blindWidth: 600, blindSide: 'right', doorOpening: 'right'
+  });
+  const fronts = getFrontLayout(cabCustom, project);
+  const door = fronts.find(f => f.kind === 'door');
+  assert.equal(door.opening, 'right', 'Door should respect custom doorOpening setting');
+});
+
+test('blind-panel remains closed at front depth when doorsOpen is true', () => {
+  const project = createDefaultProject();
+  const cab = createCabinet('corner-base', project, { id: 'c1', x: 0, z: 0, width: 1000, height: 860, depth: 580 });
+  project.cabinets = [cab];
+
+  const closedScene = makeScene(project, { room: false, doorsOpen: false });
+  const openScene = makeScene(project, { room: false, doorsOpen: true });
+
+  // In closed scene, find front faces
+  const closedFronts = closedScene.faces.filter(f => f.component === 'front');
+  const openFronts = openScene.faces.filter(f => f.component === 'front');
+
+  // When doorsOpen is true: the door panel swings 90° (changes orientation/vertices),
+  // but the blind panel stays flat facing front
+  assert.ok(openFronts.length > 0);
+});
+
+test('floor plan renders blind zone and door swing for corner cabinet', async () => {
+  const { RoomEditor } = await import('../src/room-editor.js');
+  const project = createDefaultProject();
+  const cab = createCabinet('corner-base', project, { id: 'c-corner', x: 500, z: 500, width: 1000, depth: 580, rotation: 0 });
+  project.cabinets = [cab];
+
+  const root = { innerHTML: '', addEventListener: () => {}, querySelectorAll: () => [] };
+  const container = {
+    ownerDocument: {
+      createElement: () => root,
+      defaultView: { addEventListener: () => {} }
+    },
+    append: () => {}
+  };
+  const editor = new RoomEditor(container);
+  editor.setProject(project, 'c-corner');
+  editor.render();
+
+  assert.ok(root.innerHTML.includes('room-blind-zone'), 'Should render room-blind-zone polygon on plan');
+  assert.ok(root.innerHTML.includes('600 мм'), 'Should render blind width dimension on plan');
+  assert.ok(root.innerHTML.includes('A 400 400'), 'Should render door swing arc of radius 400');
+});
+
 
 

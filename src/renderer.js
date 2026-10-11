@@ -744,7 +744,7 @@ export function makeScene(project, options = {}, direction = null) {
         if(f.openingMechanism!=='push')box(fx + (fw - handleW) / 2, fy + fh * .65, fz + slide + frontT + 7, handleW, 7, 9, '#6a655b', id, { handle: true,component:'drawer-handle',sectionId:f.sectionId,frontIndex:f.index });
       } else if (options.interior) {
         continue;
-      } else if (options.doorsOpen) {
+      } else if (options.doorsOpen && f.kind !== 'blind-panel') {
         const rightHinge = opening === 'right', topHinge = opening === 'up';
         const handleExtras = { component: 'door-handle', handle: true, sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening };
         if (topHinge) {

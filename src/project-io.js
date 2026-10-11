@@ -222,6 +222,7 @@ export function checkImport(project) {
       if (!['left', 'right'].includes(cabinet.blindSide)) fail('Модуль: неизвестная сторона глухого угла.');
     }
     if (cabinet.blindWidth !== undefined) finite(cabinet.blindWidth, 'Модуль: ширина глухой планки', 6000, true);
+    if (cabinet.doorOpening !== undefined && !['left', 'right', 'up'].includes(cabinet.doorOpening)) fail('Модуль: неизвестное открывание двери.');
     if (cabinet.openingMechanism !== undefined && !['handle', 'push'].includes(cabinet.openingMechanism)) fail('Механизм открывания должен быть handle или push.');
     if (cabinet.rearBraces !== undefined) {
       validateRearBraces(cabinet.rearBraces, { label: 'Задние перемычки', itemLabel: 'Задняя перемычка', positionLabel: 'Перемычка: от низа шкафа', materialIds, limit: 20 });

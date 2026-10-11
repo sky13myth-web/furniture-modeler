@@ -985,6 +985,14 @@ X / Z, мм|X / Z, mm|X / Z, mm
 Единая столешница (кухня)|Birleşik tezgah (mutfak)|Unified countertop (kitchen)
 Сторона глухого угла|Kör köşe yönü|Blind corner side
 Ширина глухой планки|Kör panel genişliği|Blind panel width
+Угловой модуль|Köşe modülü|Corner module
+Настройки углового модуля|Köşe modülü ayarları|Corner module settings
+Зеркально сменить сторону угла|Köşe yönünü aynala|Mirror corner side
+Чистый проём двери|Net kapak açıklığı|Clear door opening
+Фасад угловой секции|Köşe bölüm kapağı|Corner section front
+1 глухая планка + 1 распашная дверь|1 kör panel + 1 menteşeli kapak|1 blind panel + 1 hinged door
+Фурнитура двери|Kapak aksesuarları|Door hardware
+К глухой стороне под прямым углом примыкает соседний модуль.|Kör tarafa dik açıyla bitişik bir modül bağlanır.|An adjoining module attaches at a right angle to the blind side.
 `);
 
 let phrasePattern;

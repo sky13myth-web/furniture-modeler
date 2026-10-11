@@ -651,7 +651,49 @@ export class RoomEditor {
       const hWidth = Math.min(42, Math.max(18, number(c.width) * 0.16));
       const h1 = { x: mx - co * hWidth, z: mz - si * hWidth };
       const h2 = { x: mx + co * hWidth, z: mz + si * hWidth };
-      const frontMark = `<g class="room-cabinet-facade" pointer-events="none"><line x1="${fl.x}" y1="${fl.z}" x2="${fr.x}" y2="${fr.z}" stroke="${selected ? '#148b7c' : '#2d4739'}" stroke-width="${selected ? 4 : 2.5}" stroke-linecap="round" vector-effect="non-scaling-stroke"/><line x1="${ifl.x}" y1="${ifl.z}" x2="${ifr.x}" y2="${ifr.z}" stroke="${selected ? '#169b8b' : '#617a6c'}" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/><line x1="${h1.x}" y1="${h1.z}" x2="${h2.x}" y2="${h2.z}" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" vector-effect="non-scaling-stroke"/></g>`;
+      const isBlindCorner = c.cornerType === 'blind' || String(c.type).startsWith('corner');
+      let blindOverlay = '';
+      let frontMark = '';
+      if (isBlindCorner) {
+        const cw = number(c.width), cd = number(c.depth);
+        const blindSide = c.blindSide === 'left' ? 'left' : 'right';
+        const defaultBlindW = c.type === 'corner-wall' ? 340 : 600;
+        const rawBlindW = Math.max(100, Math.min(cw - 200, (Number.isFinite(c.blindWidth) && c.blindWidth > 0) ? c.blindWidth : defaultBlindW));
+        const doorW = cw - rawBlindW;
+        const toWorld = (lx, lz) => ({ x: number(c.x) + lx * co - lz * si, z: number(c.z) + lx * si + lz * co });
+
+        const p1 = blindSide === 'right' ? toWorld(cw - rawBlindW, 0) : toWorld(0, 0);
+        const p2 = blindSide === 'right' ? toWorld(cw, 0) : toWorld(rawBlindW, 0);
+        const p3 = blindSide === 'right' ? toWorld(cw, cd) : toWorld(rawBlindW, cd);
+        const p4 = blindSide === 'right' ? toWorld(cw - rawBlindW, cd) : toWorld(0, cd);
+        const blindPoly = [p1, p2, p3, p4];
+
+        const bcx = (p1.x + p3.x) / 2, bcz = (p1.z + p3.z) / 2;
+        blindOverlay = `<g class="room-blind-zone" pointer-events="none"><polygon points="${pointsText(blindPoly)}" fill="${selected ? 'rgba(20,139,124,0.18)' : 'rgba(120,138,123,0.15)'}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/><line x1="${p1.x}" y1="${p1.z}" x2="${p3.x}" y2="${p3.z}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="0.8" stroke-dasharray="3 3" opacity="0.6" vector-effect="non-scaling-stroke"/><line x1="${p2.x}" y1="${p2.z}" x2="${p4.x}" y2="${p4.z}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="0.8" stroke-dasharray="3 3" opacity="0.6" vector-effect="non-scaling-stroke"/><text x="${bcx}" y="${bcz}" font-size="${cabinetFont * 0.72}" fill="${selected ? '#148b7c' : '#546e61'}" text-anchor="middle" dominant-baseline="middle" font-weight="500">${rawBlindW} мм</text></g>`;
+
+        const dLeft = blindSide === 'right' ? toWorld(0, cd) : toWorld(rawBlindW, cd);
+        const dRight = blindSide === 'right' ? toWorld(cw - rawBlindW, cd) : toWorld(cw, cd);
+        const bLeft = blindSide === 'right' ? toWorld(cw - rawBlindW, cd) : toWorld(0, cd);
+        const bRight = blindSide === 'right' ? toWorld(cw, cd) : toWorld(rawBlindW, cd);
+
+        const doorOp = c.doorOpening || (blindSide === 'right' ? 'left' : 'right');
+        const hingeAtLeft = doorOp === 'left';
+        const hingePt = hingeAtLeft ? dLeft : dRight;
+        const doorTip = hingeAtLeft ? dRight : dLeft;
+        const openTip = { x: hingePt.x - doorW * inward.x, z: hingePt.z - doorW * inward.z };
+        const sweepFlag = hingeAtLeft ? 1 : 0;
+        const arc = `<path d="M ${doorTip.x} ${doorTip.z} A ${doorW} ${doorW} 0 0 ${sweepFlag} ${openTip.x} ${openTip.z}" fill="none" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.75" vector-effect="non-scaling-stroke"/><line x1="${hingePt.x}" y1="${hingePt.z}" x2="${openTip.x}" y2="${openTip.z}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="1" stroke-dasharray="3 3" opacity="0.6" vector-effect="non-scaling-stroke"/>`;
+
+        const handleXLoc = blindSide === 'right' ? (hingeAtLeft ? cw - rawBlindW - 24 : 24) : (hingeAtLeft ? cw - 24 : rawBlindW + 24);
+        const hPt = toWorld(handleXLoc, cd);
+        const hw = Math.min(22, Math.max(12, doorW * 0.12));
+        const h1Pt = { x: hPt.x - co * hw, z: hPt.z - si * hw };
+        const h2Pt = { x: hPt.x + co * hw, z: hPt.z + si * hw };
+
+        frontMark = `<g class="room-cabinet-facade" pointer-events="none">${arc}<line x1="${dLeft.x}" y1="${dLeft.z}" x2="${dRight.x}" y2="${dRight.z}" stroke="${selected ? '#148b7c' : '#2d4739'}" stroke-width="${selected ? 4 : 2.5}" stroke-linecap="round" vector-effect="non-scaling-stroke"/><line x1="${bLeft.x}" y1="${bLeft.z}" x2="${bRight.x}" y2="${bRight.z}" stroke="${selected ? '#169b8b' : '#617a6c'}" stroke-width="2.2" stroke-dasharray="5 3" vector-effect="non-scaling-stroke"/><line x1="${h1Pt.x}" y1="${h1Pt.z}" x2="${h2Pt.x}" y2="${h2Pt.z}" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" vector-effect="non-scaling-stroke"/></g>`;
+      } else {
+        frontMark = `<g class="room-cabinet-facade" pointer-events="none"><line x1="${fl.x}" y1="${fl.z}" x2="${fr.x}" y2="${fr.z}" stroke="${selected ? '#148b7c' : '#2d4739'}" stroke-width="${selected ? 4 : 2.5}" stroke-linecap="round" vector-effect="non-scaling-stroke"/><line x1="${ifl.x}" y1="${ifl.z}" x2="${ifr.x}" y2="${ifr.z}" stroke="${selected ? '#169b8b' : '#617a6c'}" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/><line x1="${h1.x}" y1="${h1.z}" x2="${h2.x}" y2="${h2.z}" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" vector-effect="non-scaling-stroke"/></g>`;
+      }
       if(selected && !c.parentId){
         for(const axis of ['width','depth']){
           const lx=axis==='width'?c.width:c.width/2,lz=axis==='depth'?c.depth:c.depth/2,px=number(c.x)+lx*co-lz*si,pz=number(c.z)+lx*si+lz*co;
@@ -664,7 +706,7 @@ export class RoomEditor {
       const textY = hasMezzanine ? cz - cabinetFont * 0.65 : isMezzanine ? cz + cabinetFont * 0.75 : cz;
       const labelSize = isMezzanine ? cabinetFont * 0.84 : cabinetFont;
       const labelColor = isMezzanine ? '#546e61' : '#27473a';
-      return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}" role="button" aria-label="${escape(c.name)}" style="${c.parentId ? 'cursor:pointer' : 'cursor:move'}"><title>${escape(c.name)}${c.parentId ? ' · привязана к основному шкафу' : ''} · лицевая сторона спереди</title><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="${selected ? 3 : 1}" vector-effect="non-scaling-stroke"/>${frontMark}<text x="${cx}" y="${textY}" class="room-cabinet-label" fill="${labelColor}" text-anchor="middle" dominant-baseline="middle" font-size="${labelSize}" font-weight="${isMezzanine ? 'normal' : '500'}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text></g>`;
+      return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}" role="button" aria-label="${escape(c.name)}" style="${c.parentId ? 'cursor:pointer' : 'cursor:move'}"><title>${escape(c.name)}${c.parentId ? ' · привязана к основному шкафу' : ''} · лицевая сторона спереди</title><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="${selected ? 3 : 1}" vector-effect="non-scaling-stroke"/>${blindOverlay}${frontMark}<text x="${cx}" y="${textY}" class="room-cabinet-label" fill="${labelColor}" text-anchor="middle" dominant-baseline="middle" font-size="${labelSize}" font-weight="${isMezzanine ? 'normal' : '500'}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text></g>`;
     }).join('');
     let dimensionLines = '';
     const activeCabinetId = this.drag?.type === 'cabinet' ? this.drag.id : this.selectedCabinetId;

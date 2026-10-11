@@ -690,7 +690,7 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   const preset = { ...basePreset };
   // Library presets can affect dimensions before automatic placement. IDs and
   // coordinates are generated here, so a preset cannot discard a safe position.
-  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation', 'countertop', 'cornerType', 'blindSide', 'blindWidth', 'worktopThickness']) {
+  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation', 'countertop', 'cornerType', 'blindSide', 'blindWidth', 'worktopThickness', 'doorOpening']) {
     if (overrides[key] !== undefined) preset[key] = overrides[key];
   }
   const roomAllowance = getRoomInstallationClearance(project.room);
@@ -707,7 +707,7 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   const existing = project.cabinets ?? [];
   const cabinet = {
     id: uid('cabinet'), type: supportedType, doors: preset.cornerType === 'blind' ? 1 : 2, drawers: 0, gap: 2, ...preset,
-    countertop: preset.countertop, cornerType: preset.cornerType, blindSide: preset.blindSide, blindWidth: preset.blindWidth,
+    countertop: preset.countertop, cornerType: preset.cornerType, blindSide: preset.blindSide, blindWidth: preset.blindWidth, doorOpening: preset.doorOpening,
     materialId: material?.id ?? '', frontMaterialId: material?.id ?? '', backMaterialId: backMaterialId ?? '',
     drawerMaterialId: drawerMaterialId ?? '', drawerBottomMaterialId: drawerBottomMaterialId ?? '',
     backThickness: number(stockById(project, backMaterialId)?.thickness, 8), drawerSlideGap: 13, drawerBottomThickness: number(stockById(project, drawerBottomMaterialId)?.thickness, 8), edgeBand: 1, rotation: preset.rotation ?? 0, includeBack: preset.includeBack ?? true, includeBottom: preset.includeBottom ?? true, sidesToFloor: preset.sidesToFloor ?? true, rearBraces: []
@@ -760,10 +760,12 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
     const result = [];
     const secId = cabinet.layout?.id ?? 'section-1';
     const node = cabinet.layout?.sections?.[0]?.node ?? cabinet;
+    const defaultDoorOpening = blindSide === 'right' ? 'left' : 'right';
+    const doorOpening = cabinet.doorOpening || node.doorOpenings?.[0] || defaultDoorOpening;
     if (blindSide === 'right') {
       result.push({
         kind: 'door', index: 0, sectionId: secId,
-        opening: 'left', openingMechanism: openingMechanism(node),
+        opening: doorOpening, openingMechanism: openingMechanism(node),
         x: gap, y: gap, width: round(doorW - gap * 1.5), height: round(doorH), depth
       });
       result.push({
@@ -779,7 +781,7 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
       });
       result.push({
         kind: 'door', index: 1, sectionId: secId,
-        opening: 'right', openingMechanism: openingMechanism(node),
+        opening: doorOpening, openingMechanism: openingMechanism(node),
         x: round(rawBlindW + gap * 0.5), y: gap, width: round(doorW - gap * 1.5), height: round(doorH), depth
       });
     }
