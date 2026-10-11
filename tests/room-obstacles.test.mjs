@@ -147,6 +147,18 @@ test('3D scene renders obstacles without cutting holes in walls', () => {
   const scene = makeScene(project, { room: true });
   const obstacleFaces = scene.faces.filter(f => f.obstacle);
   assert.ok(obstacleFaces.length > 0, 'scene contains obstacle faces');
+  const pipeLines = scene.lines.filter(l => l.obstacle && l.obstacleKind === 'pipe');
+  assert.ok(pipeLines.length >= 2, 'pipe generates silhouette lines and highlight');
+
+  // Also test box obstacle
+  const box = createObstacle('box', { id: 'test-box', wallIndex: 0, wallLength: 3000, roomHeight: 2700 });
+  project.room.windows = [pipe, box];
+  const sceneWithBox = makeScene(project, { room: true });
+  const boxFaces = sceneWithBox.faces.filter(f => f.obstacle && f.obstacleKind === 'box');
+  assert.ok(boxFaces.length >= 5, 'box has at least 5 faces (4 walls + top cap)');
+  assert.ok(boxFaces.every(f => f.stroke && f.stroke !== 'transparent'), 'box faces have visible stroke');
+  const boxLines = sceneWithBox.lines.filter(l => l.obstacle && l.obstacleKind === 'box');
+  assert.ok(boxLines.length >= 8, 'box has corner seam lines and perimeter edges');
 
   const viewport = new FurnitureViewport(mockCanvas());
   try {

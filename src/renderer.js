@@ -294,7 +294,7 @@ export function makeScene(project, options = {}, direction = null) {
     const e1 = crossV(k, ref), l1 = Math.hypot(...e1), u = e1.map(v => v / l1), v = crossV(k, u);
     const dir = i => { const a = i * Math.PI * 2 / count; return add(mul(u, Math.cos(a)), mul(v, Math.sin(a))); };
     const ring0 = Array.from({ length: count }, (_, i) => add(p0, mul(dir(i), radius))), ring1 = ring0.map(q => add(q, axis));
-    const metadata = { ...extras, stroke: 'transparent' };
+    const metadata = { stroke: extras.stroke ?? 'transparent', ...extras };
     face([...ring0].reverse(), color, mul(k, -1), id, metadata); face(ring1, color, k, id, metadata);
     for (let i = 0; i < count; i++) { const j = (i + 1) % count; face([ring0[i], ring0[j], ring1[j], ring1[i]], color, dir(i + .5), id, metadata); }
   };
@@ -516,30 +516,53 @@ export function makeScene(project, options = {}, direction = null) {
       if (nearWall) continue;
       const extras = { room: true, component: 'obstacle', obstacle: true, obstacleKind: g.kind, obstacleId: element.id };
       if (g.kind === 'pipe') {
-        const pipeColor = '#dfe2df', clampColor = '#9aa3a6', p = g.pipe;
+        const pipeColor = '#73848c', clampColor = '#2f393d', p = g.pipe;
         const axisPoint = s => p.axis === 'y' ? [p.center.x, p.center.y + s, p.center.z] : [p.from.x + g.frame.u.x * s, p.from.y, p.from.z + g.frame.u.z * s];
         cylinderAxis(axisPoint(0), axisPoint(p.length), p.radius, pipeColor, extras, element.id);
+        if (p.axis === 'y') {
+          const ux = g.frame.u.x, uz = g.frame.u.z, r = p.radius;
+          line([p.center.x - ux * r, g.bottom, p.center.z - uz * r], [p.center.x - ux * r, g.top, p.center.z - uz * r], '#424f54', 1.4, element.id, extras);
+          line([p.center.x + ux * r, g.bottom, p.center.z + uz * r], [p.center.x + ux * r, g.top, p.center.z + uz * r], '#424f54', 1.4, element.id, extras);
+          const hx = inward[0] * 0.707 + ux * 0.707, hz = inward[2] * 0.707 + uz * 0.707;
+          line([p.center.x + hx * (r - 0.2), g.bottom, p.center.z + hz * (r - 0.2)], [p.center.x + hx * (r - 0.2), g.top, p.center.z + hz * (r - 0.2)], '#cad6dc', 1.2, element.id, extras);
+          line([p.center.x + inward[0] * r, g.bottom, p.center.z + inward[2] * r], [p.center.x + inward[0] * r, g.top, p.center.z + inward[2] * r], '#526269', 1.0, element.id, extras);
+        } else {
+          const r = p.radius;
+          line([p.from.x, p.from.y + r, p.from.z], [p.to.x, p.to.y + r, p.to.z], '#424f54', 1.4, element.id, extras);
+          line([p.from.x, p.from.y - r, p.from.z], [p.to.x, p.to.y - r, p.to.z], '#424f54', 1.4, element.id, extras);
+          line([p.from.x + inward[0] * r, p.from.y, p.from.z + inward[2] * r], [p.to.x + inward[0] * r, p.to.y, p.to.z + inward[2] * r], '#526269', 1.0, element.id, extras);
+          line([p.from.x + inward[0] * r * 0.707, p.from.y + r * 0.707, p.from.z + inward[2] * r * 0.707], [p.to.x + inward[0] * r * 0.707, p.to.y + r * 0.707, p.to.z + inward[2] * r * 0.707], '#cad6dc', 1.2, element.id, extras);
+        }
         for (const s of g.clamps) {
           const c = axisPoint(s), span = Math.max(8, p.radius * .5);
           const along = p.axis === 'y' ? [0, 1, 0] : [g.frame.u.x, 0, g.frame.u.z];
-          cylinderAxis(add(c, mul(along, -span / 2)), add(c, mul(along, span / 2)), p.radius + 2.5, clampColor, { ...extras, obstacleKind: 'pipe-clamp' }, element.id);
+          cylinderAxis(add(c, mul(along, -span / 2)), add(c, mul(along, span / 2)), p.radius + 2.5, clampColor, { ...extras, stroke: '#1c2427', obstacleKind: 'pipe-clamp' }, element.id);
           // Threaded rod from the clamp back to the wall surface.
           const standoff = g.element.standoff, back = [c[0] - inward[0] * (p.radius + standoff), c[1], c[2] - inward[2] * (p.radius + standoff)];
-          if (standoff > 1) cylinderAxis(back, [c[0] - inward[0] * p.radius, c[1], c[2] - inward[2] * p.radius], 4, clampColor, { ...extras, obstacleKind: 'pipe-clamp' }, element.id);
+          if (standoff > 1) cylinderAxis(back, [c[0] - inward[0] * p.radius, c[1], c[2] - inward[2] * p.radius], 4, '#414f54', { ...extras, stroke: '#222b2e', obstacleKind: 'pipe-clamp' }, element.id);
         }
         const label = p.axis === 'y' ? [p.center.x, g.top + 40, p.center.z] : [(p.from.x + p.to.x) / 2, p.from.y + p.radius + 40, (p.from.z + p.to.z) / 2];
         labels.push({ point: label, text: `Труба Ø${mm(g.element.diameter)} мм`, room: true });
       } else {
         const fp = g.footprint, cx = fp.reduce((s, q) => s + q.x, 0) / 4, cz = fp.reduce((s, q) => s + q.z, 0) / 4;
-        const color = '#ebe8df';
+        const color = '#d2cab8', boxStroke = '#635b4d';
         fp.forEach((q, i) => {
           const r2 = fp[(i + 1) % 4], ex = r2.x - q.x, ez = r2.z - q.z, len = Math.hypot(ex, ez) || 1;
           let n = [ez / len, 0, -ex / len];
           if (n[0] * ((q.x + r2.x) / 2 - cx) + n[2] * ((q.z + r2.z) / 2 - cz) < 0) n = [-n[0], 0, -n[2]];
-          face([[q.x, g.bottom, q.z], [r2.x, g.bottom, r2.z], [r2.x, g.top, r2.z], [q.x, g.top, q.z]], color, n, element.id, { ...extras, stroke: '#cfcabd' });
+          const isFront = Math.abs(n[0] * inward[0] + n[2] * inward[2] - 1) < 0.1;
+          const faceColor = isFront ? '#ded7c8' : color;
+          face([[q.x, g.bottom, q.z], [r2.x, g.bottom, r2.z], [r2.x, g.top, r2.z], [q.x, g.top, q.z]], faceColor, n, element.id, { ...extras, stroke: boxStroke, lineWidth: 1.3 });
+          line([q.x, g.bottom, q.z], [q.x, g.top, q.z], boxStroke, 1.3, element.id, extras);
+          line([q.x, g.top, q.z], [r2.x, g.top, r2.z], boxStroke, 1.3, element.id, extras);
+          if (g.bottom > 1) {
+            line([q.x, g.bottom, q.z], [r2.x, g.bottom, r2.z], boxStroke, 1.3, element.id, extras);
+          }
         });
-        face(fp.map(q => [q.x, g.top, q.z]), colorShade(color, 1.02), [0, 1, 0], element.id, { ...extras, stroke: '#cfcabd' });
-        if (g.bottom > 1) face(fp.map(q => [q.x, g.bottom, q.z]), colorShade(color, .92), [0, -1, 0], element.id, { ...extras, stroke: '#cfcabd' });
+        face(fp.map(q => [q.x, g.top, q.z]), '#e8e2d4', [0, 1, 0], element.id, { ...extras, stroke: boxStroke, lineWidth: 1.3 });
+        line([fp[0].x, g.top, fp[0].z], [fp[2].x, g.top, fp[2].z], '#8c8474', 0.8, element.id, extras);
+        line([fp[1].x, g.top, fp[1].z], [fp[3].x, g.top, fp[3].z], '#8c8474', 0.8, element.id, extras);
+        if (g.bottom > 1) face(fp.map(q => [q.x, g.bottom, q.z]), '#a89e8c', [0, -1, 0], element.id, { ...extras, stroke: boxStroke, lineWidth: 1.3 });
         labels.push({ point: [cx, g.top + 40, cz], text: `Короб · ${mm(g.width)} × ${mm(g.depth)} мм`, room: true });
       }
     }
@@ -984,7 +1007,7 @@ export function makeScene(project, options = {}, direction = null) {
 function screenItems(scene, project) {
   // Room planes are backgrounds; sorting a floor by its centre would wrongly
   // cover cabinets at the back of a large room. Furniture is depth-sorted next.
-  const layer = item => item.ceiling ? 6 : item.shadow ? 4 : item.floor ? 0 : item.line && !item.id ? (item.points.every(p => p[1] < 0) ? 1 : 3) : item.room ? 2 : 5;
+  const layer = item => item.ceiling ? 6 : item.shadow ? 4 : item.floor ? 0 : item.obstacle ? 5 : item.line && !item.id ? (item.points.every(p => p[1] < 0) ? 1 : 3) : item.room ? 2 : 5;
   return [...scene.shadows.map(s => ({ ...s, shadow: true })), ...scene.faces, ...scene.lines.map(l => ({ ...l, line: true }))].map(item => ({ ...item, layer: layer(item), screen: item.points.map(project), depth: dot(average(item.points), project.axes.direction) + (item.line ? .7 : 0) })).sort((a, b) => a.layer - b.layer || a.depth - b.depth);
 }
 
@@ -1439,8 +1462,8 @@ export class FurnitureViewport {
     for (const item of items) {
       if(!item.line&&item.stroke==='transparent'&&!this.options.wireframe)continue;
       const selectedPart=this.options.exploded&&this.options.selection!==false&&item.partId===this.options.selectedPartId;
-      const color = item.line ? item.color : selectedPart?'#009d8e':!this.options.exploded&&this.options.selection!==false&&item.id===this.selectedId?'#537f77':'#686458';
-      const width = item.line ? item.width : selectedPart?2:.8;
+      const color = item.line ? item.color : selectedPart?'#009d8e':!this.options.exploded&&this.options.selection!==false&&item.id===this.selectedId?'#537f77':item.stroke||'#686458';
+      const width = item.line ? item.width : selectedPart?2:item.lineWidth||.8;
       this.drawVisibleEdges(item.screen, !item.line, color, width, tolerance);
     }
     return true;

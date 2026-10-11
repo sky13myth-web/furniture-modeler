@@ -890,10 +890,10 @@ export class RoomWebGLRenderer {
       const isTransparent = f.doorLeaf || (f.opacity !== undefined && f.opacity < 0.9);
       const alpha = isTransparent ? (f.opacity ?? 0.85) : 1.0;
       const rgba = [rgb[0], rgb[1], rgb[2], alpha];
-      const materialId = f.room ? (f.floor ? MATERIAL.floor : MATERIAL.wall) : MATERIAL.furniture;
+      const materialId = f.room && !f.obstacle ? (f.floor ? MATERIAL.floor : MATERIAL.wall) : MATERIAL.furniture;
 
-      // Only furniture casts into the overhead shadow / occlusion map.
-      const isFurnitureCaster = !f.room && !isTransparent;
+      // Only furniture and obstacles cast into the overhead shadow / occlusion map.
+      const isFurnitureCaster = (!f.room || f.obstacle) && !isTransparent;
       if (isFurnitureCaster) {
         pushPoly(casterFloats, f.points, norm, rgba, materialId);
         if (f.stroke !== 'transparent') pushEdges(f.points, rgb);
