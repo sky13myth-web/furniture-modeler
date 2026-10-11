@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDefaultProject, createCabinet, generateParts, getFrontLayout, getInternalDrawerLayout, getCabinetLayout, getSectionMountingAxes, getCabinetFootprint, createSection, convertLegacyLayout, findLayoutNode, splitSection, mergeSection, resizeSection, resizeDivider, resizeSectionAdjacent, removeSection, extendCabinetSide, getPartEdgeBanding, getEdgeBandingSummary, getApplianceClearances, getApplianceFit, getRoomInstallationClearance, validateCabinetPlacement, canPlaceCabinet, canEditCabinetPlacement, validateProject, optimizeCutting, getProjectStats } from '../src/engine.js';
+import { createDefaultProject, createCabinet, duplicateCabinet, generateParts, getFrontLayout, getInternalDrawerLayout, getCabinetLayout, getSectionMountingAxes, getCabinetFootprint, createSection, convertLegacyLayout, findLayoutNode, splitSection, mergeSection, resizeSection, resizeDivider, resizeSectionAdjacent, removeSection, extendCabinetSide, getPartEdgeBanding, getEdgeBandingSummary, getApplianceClearances, getApplianceFit, getRoomInstallationClearance, validateCabinetPlacement, canPlaceCabinet, canEditCabinetPlacement, validateProject, optimizeCutting, getProjectStats } from '../src/engine.js';
 
 const cabinetProject = overrides => {
   const project = createDefaultProject();
@@ -1204,4 +1204,52 @@ test('corner cabinet front layout accurately resolves single door opening direct
   assert.equal(doorRight.x, 601);
   assert.equal(doorRight.width, 397);
   assert.equal(doorRight.opening, 'left');
+});
+
+test('duplicateCabinet produces valid clones with unique IDs, intelligent side-by-side placement and mezzanine support', () => {
+  const project = createDefaultProject('ru');
+  const original = project.cabinets[0];
+  original.x = 500;
+  original.z = 200;
+
+  // 1. Basic duplication: places flush to the right
+  const result = duplicateCabinet(original, project);
+  assert.ok(result?.copy);
+  const copy = result.copy;
+  assert.notEqual(copy.id, original.id);
+  assert.ok(copy.name.includes('копия'));
+  // Section IDs are regenerated
+  assert.notEqual(copy.layout.children[0].id, original.layout.children[0].id);
+  // Placed flush right: original.x + original.width = 500 + 1200 = 1700
+  assert.equal(copy.x, 1700);
+  assert.equal(copy.z, 200);
+  project.cabinets.push(copy);
+  assert.deepEqual(validateProject(project), []);
+
+  // 2. Duplicating again when right side has a cabinet:
+  // If we duplicate original, right is now occupied (at 1700), left is available (500 - 1200 = -700, but wait room bounds!)
+  // Let's check: canPlaceCabinet will find available spot
+  const secondResult = duplicateCabinet(original, project);
+  assert.ok(secondResult?.copy);
+  assert.notEqual(secondResult.copy.id, original.id);
+  assert.notEqual(secondResult.copy.id, copy.id);
+
+  // 3. Mezzanine attached to cabinet
+  const baseCab = createCabinet('base', project, { width: 800, height: 860, depth: 580, x: 200, z: 1200 });
+  const mezz = createCabinet('wall', project, { parentId: baseCab.id, width: 800, height: 400, depth: 580, x: 200, z: 1200, y: 860 });
+  project.cabinets.push(baseCab, mezz);
+
+  const mezzDup = duplicateCabinet(baseCab, project);
+  assert.ok(mezzDup?.copy);
+  assert.ok(mezzDup?.mezzanineCopy);
+  assert.equal(mezzDup.mezzanineCopy.parentId, mezzDup.copy.id);
+  assert.equal(mezzDup.mezzanineCopy.x, mezzDup.copy.x);
+  assert.equal(mezzDup.mezzanineCopy.z, mezzDup.copy.z);
+
+  // Cannot directly duplicate a mezzanine
+  assert.throws(() => duplicateCabinet(mezz, project), /Антресоль привязана/);
+
+  // Limit 150
+  const fullProject = { ...project, cabinets: Array(150).fill(original) };
+  assert.throws(() => duplicateCabinet(original, fullProject), /150/);
 });

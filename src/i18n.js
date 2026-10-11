@@ -310,6 +310,10 @@ Yıldız Kapak Panel · Глянцевые (1220 × 2800 мм)|Yıldız Kapak Pa
 Название модуля|Modül adı|Module name
 Переименовать|Yeniden adlandır|Rename
 Дублировать|Çoğalt|Duplicate
+Дублировать шкаф|Dolabı çoğalt|Duplicate cabinet
+Шкаф продублирован|Dolap çoğaltıldı|Cabinet duplicated
+Шкаф скопирован в буфер|Dolap panoya kopyalandı|Cabinet copied to clipboard
+Дублировать шкаф (Ctrl+D)|Dolabı çoğalt (Ctrl+D)|Duplicate cabinet (Ctrl+D)
 Удалить шкаф|Dolabı sil|Delete cabinet
 Сохранить файл проекта|Proje dosyasını kaydet|Save project file
 Открыть файл проекта|Proje dosyasını aç|Open project file

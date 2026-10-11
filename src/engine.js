@@ -744,6 +744,84 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   return { ...cabinet, ...position };
 }
 
+export function duplicateCabinet(cabinet, project = { cabinets: [] }, overrides = {}) {
+  if (!cabinet || typeof cabinet !== 'object') return null;
+  const existing = project.cabinets ?? [];
+  if (existing.length >= 150) throw Error('В проекте уже 150 шкафов.');
+  if (cabinet.parentId) throw Error('Антресоль привязана к основному шкафу. Перемещайте или дублируйте основной шкаф.');
+
+  const copy = structuredClone(cabinet);
+  copy.id = uid('cabinet');
+
+  const regenerateIds = node => {
+    if (!node || typeof node !== 'object') return;
+    if (node.id) node.id = uid(node.kind || 'section');
+    if (Array.isArray(node.children)) node.children.forEach(regenerateIds);
+    if (node.interiorLayout) regenerateIds(node.interiorLayout);
+    if (Array.isArray(node.rods)) node.rods.forEach(r => { r.id = uid('rod'); });
+    if (Array.isArray(node.rearBraces)) node.rearBraces.forEach(b => { b.id = uid('brace'); });
+  };
+  if (copy.layout) regenerateIds(copy.layout);
+  if (Array.isArray(copy.rearBraces)) copy.rearBraces = copy.rearBraces.map(b => ({ ...b, id: uid('brace') }));
+
+  const namingLang = ['ru', 'tr', 'en'].includes(project.namingLanguage) ? project.namingLanguage : 'ru';
+  const copySuffix = defaultName('copy', namingLang) || 'копия';
+  copy.name = (copy.name + ' · ' + copySuffix).slice(0, 100);
+
+  for (const [key, val] of Object.entries(overrides)) {
+    if (val !== undefined) copy[key] = val;
+  }
+
+  if (overrides.x === undefined || overrides.z === undefined) {
+    const rot = (copy.rotation || 0) * Math.PI / 180;
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    const w = number(copy.width);
+
+    // 1. Right flush candidate
+    const candRight = { ...copy, x: Math.round((copy.x + w * cos) * 100) / 100, z: Math.round((copy.z + w * sin) * 100) / 100 };
+    if (canPlaceCabinet(candRight, project)) {
+      copy.x = candRight.x;
+      copy.z = candRight.z;
+    } else {
+      // 2. Left flush candidate
+      const candLeft = { ...copy, x: Math.round((copy.x - w * cos) * 100) / 100, z: Math.round((copy.z - w * sin) * 100) / 100 };
+      if (canPlaceCabinet(candLeft, project)) {
+        copy.x = candLeft.x;
+        copy.z = candLeft.z;
+      } else {
+        // 3. Room candidate search
+        const { x, z, ...placementOverrides } = copy;
+        const autoPlaced = createCabinet(copy.type, project, placementOverrides);
+        if (autoPlaced && canPlaceCabinet(autoPlaced, project)) {
+          copy.x = autoPlaced.x;
+          copy.z = autoPlaced.z;
+          copy.rotation = autoPlaced.rotation || 0;
+        } else {
+          copy.x = Math.round((copy.x + 50) * 100) / 100;
+          copy.z = Math.round((copy.z + 50) * 100) / 100;
+        }
+      }
+    }
+  }
+
+  const created = [copy];
+  const mezzanine = existing.find(item => item.parentId === cabinet.id);
+  if (mezzanine) {
+    const mezzCopy = structuredClone(mezzanine);
+    mezzCopy.id = uid('cabinet');
+    mezzCopy.parentId = copy.id;
+    if (mezzCopy.layout) regenerateIds(mezzCopy.layout);
+    mezzCopy.x = copy.x;
+    mezzCopy.z = copy.z;
+    mezzCopy.y = copy.y + copy.height;
+    mezzCopy.rotation = copy.rotation || 0;
+    mezzCopy.name = (mezzCopy.name + ' · ' + copySuffix).slice(0, 100);
+    created.push(mezzCopy);
+  }
+
+  return { copy, mezzanineCopy: created[1] ?? null, cabinets: created };
+}
+
 /** Front coordinates are relative to the body, above the plinth. */
 export function getFrontLayout(cabinet, project = { materials: [] }) {
   const isBlindCorner = cabinet.cornerType === 'blind' || String(cabinet.type).startsWith('corner');
