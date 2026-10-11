@@ -423,6 +423,40 @@ export function makeScene(project, options = {}, direction = null) {
         line([rx, railY + railDiameter / 2, zStart + 10], [rx, railY + railDiameter / 2, zEnd - 10], '#eaf1f5', 1.2, id, { ...drawerExtras, component: 'drawer-railing-highlight' });
       }
     };
+    const renderDrawerRunners = (boxX, boxY, boxZ, boxW, boxH, boxD, slideDistance, leftWallX, rightWallX, drawerExtras) => {
+      if (boxW <= 0 || boxD <= 0) return;
+      const runnerH = 26, runnerThick = 4;
+      const runnerY = boxY + 4;
+      const zBase = boxZ - slideDistance;
+      const runnerDepth = Math.max(20, boxD - 10);
+
+      // Left runner (between leftWallX and boxX)
+      const leftFixedX = leftWallX;
+      rawBox(leftFixedX, runnerY, zBase, runnerThick, runnerH, runnerDepth, '#8a959b', id, { ...drawerExtras, component: 'drawer-runner', runnerPart: 'fixed-rail' });
+      line([leftFixedX + runnerThick, runnerY + runnerH - 1, zBase], [leftFixedX + runnerThick, runnerY + runnerH - 1, zBase + runnerDepth], '#dbe3e8', 1.2, id, { ...drawerExtras, component: 'drawer-runner-highlight' });
+      const leftSlideX = boxX - runnerThick;
+      rawBox(leftSlideX, runnerY + 3, boxZ, runnerThick, runnerH - 6, runnerDepth, '#a4b0b6', id, { ...drawerExtras, component: 'drawer-runner', runnerPart: 'moving-rail' });
+      if (slideDistance > 10) {
+        const midZ = zBase + slideDistance * 0.48;
+        const midX = (leftFixedX + leftSlideX) / 2;
+        rawBox(midX, runnerY + 5, midZ, 2.5, runnerH - 10, runnerDepth * 0.85, '#bcc7cd', id, { ...drawerExtras, component: 'drawer-runner', runnerPart: 'telescope-mid' });
+      }
+
+      // Right runner (between boxX + boxW and rightWallX)
+      const rightFixedX = rightWallX - runnerThick;
+      rawBox(rightFixedX, runnerY, zBase, runnerThick, runnerH, runnerDepth, '#8a959b', id, { ...drawerExtras, component: 'drawer-runner', runnerPart: 'fixed-rail' });
+      line([rightFixedX, runnerY + runnerH - 1, zBase], [rightFixedX, runnerY + runnerH - 1, zBase + runnerDepth], '#dbe3e8', 1.2, id, { ...drawerExtras, component: 'drawer-runner-highlight' });
+      const rightSlideX = boxX + boxW;
+      rawBox(rightSlideX, runnerY + 3, boxZ, runnerThick, runnerH - 6, runnerDepth, '#a4b0b6', id, { ...drawerExtras, component: 'drawer-runner', runnerPart: 'moving-rail' });
+      if (slideDistance > 10) {
+        const midZ = zBase + slideDistance * 0.48;
+        const midX = (rightFixedX + rightSlideX) / 2;
+        rawBox(midX, runnerY + 5, midZ, 2.5, runnerH - 10, runnerDepth * 0.85, '#bcc7cd', id, { ...drawerExtras, component: 'drawer-runner', runnerPart: 'telescope-mid' });
+      }
+    };
+
+    let fronts = [];
+    try { fronts = getFrontLayout(raw, project) || []; } catch { /* Empty fronts keep partially edited models usable. */ }
 
     const EPSILON = 1e-4;
     const internalDrawersList = engine.getInternalDrawerLayout(raw, project) || [];
@@ -434,20 +468,30 @@ export function makeScene(project, options = {}, direction = null) {
         const sectionDrawers = internalDrawersList.filter(d => (d.interiorSectionId ?? d.sectionId) === hostId);
         const outerSection = layout.sections.find(s => s.id === internal.sectionId);
         const hostSection = internal.interiorSectionId ? layout.internalSections?.find(s => s.id === internal.interiorSectionId) : outerSection;
-        if (hostSection && outerSection) {
-          const hingeGap = outerSection.node.front === 'doors' ? Math.max(0, number(outerSection.node.internalDrawerHingeGap, 20)) : 0;
-          const leftHinge = Math.abs(hostSection.x - outerSection.x) < EPSILON ? hingeGap : 0;
-          const rightHinge = Math.abs(hostSection.x + hostSection.width - outerSection.x - outerSection.width) < EPSILON ? hingeGap : 0;
+        if (hostSection && outerSection && outerSection.node.front === 'doors') {
+          const sectionDoors = fronts.filter(f => f.sectionId === outerSection.id && f.kind === 'door');
+          const hasLeftHinges = sectionDoors.some(d => d.opening === 'left' || (d.opening !== 'right' && d.opening !== 'up' && d.index % 2 === 0));
+          const hasRightHinges = sectionDoors.some(d => d.opening === 'right' || (d.opening !== 'left' && d.opening !== 'up' && d.index % 2 === 1));
+
+          // Hinge arm protrusion into carcass opening is 26-28mm. The spacer panel provides clearance for drawer runners.
+          const hingeProtrusion = Math.max(28, number(outerSection.node.internalDrawerHingeGap, 28));
+          const leftHinge = hasLeftHinges && Math.abs(hostSection.x - outerSection.x) < EPSILON ? hingeProtrusion : 0;
+          const rightHinge = hasRightHinges && Math.abs(hostSection.x + hostSection.width - outerSection.x - outerSection.width) < EPSILON ? hingeProtrusion : 0;
+
           if (leftHinge > 0 || rightHinge > 0) {
-            const maxY = Math.max(...sectionDrawers.map(d => d.y + d.height));
-            const spacerHeight = Math.min(hostSection.height, Math.round(maxY - hostSection.y + 10));
-            const spacerDepth = Math.round(hostSection.usableDepth - 20);
-            const spacerZ = bodyZ + hostSection.rearOffset + 20;
+            const minDrawerY = Math.min(...sectionDrawers.map(d => d.y));
+            const maxDrawerY = Math.max(...sectionDrawers.map(d => d.y + d.height));
+            const spacerY = bodyY + Math.min(hostSection.y, minDrawerY);
+            const spacerHeight = Math.min(hostSection.height, Math.round(maxDrawerY - Math.min(hostSection.y, minDrawerY) + 12));
+
+            // The spacer panel sits behind the front 44mm hinge mounting plate, providing the solid runner mounting base up to the hinge zone.
+            const spacerDepth = Math.max(10, Math.round(hostSection.usableDepth - 44));
+            const spacerZ = bodyZ + hostSection.rearOffset;
             if (leftHinge > 0) {
-              box(x + hostSection.x, bodyY + hostSection.y, spacerZ, leftHinge, spacerHeight, spacerDepth, c.bodyColor, id, { component: 'internal-drawer-spacer', sectionId: outerSection.id, noCutout: true });
+              box(x + hostSection.x, spacerY, spacerZ, leftHinge, spacerHeight, spacerDepth, c.bodyColor, id, { component: 'internal-drawer-spacer', sectionId: outerSection.id, noCutout: true });
             }
             if (rightHinge > 0) {
-              box(x + hostSection.x + hostSection.width - rightHinge, bodyY + hostSection.y, spacerZ, rightHinge, spacerHeight, spacerDepth, c.bodyColor, id, { component: 'internal-drawer-spacer', sectionId: outerSection.id, noCutout: true });
+              box(x + hostSection.x + hostSection.width - rightHinge, spacerY, spacerZ, rightHinge, spacerHeight, spacerDepth, c.bodyColor, id, { component: 'internal-drawer-spacer', sectionId: outerSection.id, noCutout: true });
             }
           }
         }
@@ -459,9 +503,22 @@ export function makeScene(project, options = {}, direction = null) {
         box(x + internal.x + (internal.width - handleWidth) / 2, bodyY + internal.y + internal.height * .65, iz, handleWidth, 7, 9, '#6a655b', id, { component: 'internal-drawer-handle', sectionId: internal.sectionId, internalDrawerIndex: internal.index, handle: true, noCutout: true });
       }
       renderDrawerRailings(internal.box, internal.depth + internal.frontThickness, internal.height, slide, { sectionId: internal.sectionId, internalDrawerIndex: internal.index });
+
+      // Render internal drawer telescopic runners
+      const ibox = internal.box;
+      const ibx = x + ibox.x, iby = bodyY + ibox.y, ibz = bodyZ + ibox.z + slide;
+      const outerSection = layout.sections.find(s => s.id === internal.sectionId);
+      const hostSection = internal.interiorSectionId ? layout.internalSections?.find(s => s.id === internal.interiorSectionId) : outerSection;
+      const sectionDoors = fronts.filter(f => f.sectionId === outerSection?.id && f.kind === 'door');
+      const hasLeftHinges = sectionDoors.some(d => d.opening === 'left' || (d.opening !== 'right' && d.opening !== 'up' && d.index % 2 === 0));
+      const hasRightHinges = sectionDoors.some(d => d.opening === 'right' || (d.opening !== 'left' && d.opening !== 'up' && d.index % 2 === 1));
+      const hingeProtrusion = Math.max(28, number(outerSection?.node?.internalDrawerHingeGap, 28));
+      const leftHinge = hasLeftHinges && hostSection && outerSection && Math.abs(hostSection.x - outerSection.x) < EPSILON ? hingeProtrusion : 0;
+      const rightHinge = hasRightHinges && hostSection && outerSection && Math.abs(hostSection.x + hostSection.width - outerSection.x - outerSection.width) < EPSILON ? hingeProtrusion : 0;
+      const leftMountX = x + (hostSection?.x ?? internal.box.x - 13) + leftHinge;
+      const rightMountX = x + (hostSection?.x ?? 0) + (hostSection?.width ?? w - 2 * t) - rightHinge;
+      renderDrawerRunners(ibx, iby, ibz, ibox.width, ibox.height, ibox.depth, slide, leftMountX, rightMountX, { sectionId: internal.sectionId, internalDrawerIndex: internal.index });
     }
-    let fronts = [];
-    try { fronts = getFrontLayout(raw, project) || []; } catch { /* Empty fronts keep partially edited models usable. */ }
     for (const s of layout.sections) {
       const appliance = s.node.appliance;
       if (!appliance) continue;
@@ -589,6 +646,12 @@ export function makeScene(project, options = {}, direction = null) {
           box(dx + drawerT, dy + bottomT, dz, dw - 2 * drawerT, dh, drawerT, drawerMaterial.color, id, drawerExtras);
           box(dx + drawerT, dy + bottomT, dz + dd - drawerT, dw - 2 * drawerT, dh, drawerT, drawerMaterial.color, id, drawerExtras);
         }
+        const sliderGap = Math.max(0, number(raw.drawerSlideGap, 13));
+        const dw = (section?.width ?? w - 2 * t) - 2 * sliderGap, dd = usableDepth - 40, dh = Math.max(10, fh - 40 - 6);
+        const dx = x + (section?.x ?? t) + sliderGap, dy = fy + 20, dz = bodyZ + rearOffset + 40 + slide;
+        const leftWallX = x + (section?.x ?? t);
+        const rightWallX = x + (section?.x ?? t) + (section?.width ?? w - 2 * t);
+        renderDrawerRunners(dx, dy, dz, dw, dh, dd, slide, leftWallX, rightWallX, { sectionId: f.sectionId, drawerIndex: f.index });
         if (options.interior) continue;
         box(fx, fy, fz + slide, fw, fh, frontT, c.frontColor, id, frontExtras);
         const handleW = Math.min(160, fw * .38);
