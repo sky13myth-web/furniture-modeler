@@ -277,6 +277,10 @@ const partTerms = [
   ['Фасад ящика','Çekmece önü','Drawer front'],['Дверь','Kapak','Door'],
   ['боковина левая','sol yan panel','left side'],['боковина правая','sağ yan panel','right side'],
   ['передняя стенка','ön panel','front panel'],['задняя стенка','arka panel','back panel'],['дно','taban','bottom'],
+  ['добор для внутренних ящиков левый','iç çekmece sol boşluk paneli','internal drawer left spacer'],
+  ['добор для внутренних ящиков правый','iç çekmece sağ boşluk paneli','internal drawer right spacer'],
+  ['Добор для внутренних ящиков левый','İç çekmece sol boşluk paneli','Internal drawer left spacer'],
+  ['Добор для внутренних ящиков правый','İç çekmece sağ boşluk paneli','Internal drawer right spacer'],
 ];
 
 /** Translate generated construction terms while preserving the custom middle

@@ -265,6 +265,13 @@ export function makeScene(project, options = {}, direction = null) {
     face(ring.map(([y,z])=>[x,y,z]),color,[-1,0,0],id,metadata);face(ring.map(([y,z])=>[x+length,y,z]),color,[1,0,0],id,metadata);
     ring.forEach(([py,pz],index)=>{const [qy,qz]=ring[(index+1)%count],angle=(index+.5)*Math.PI*2/count;face([[x,py,pz],[x+length,py,pz],[x+length,qy,qz],[x,qy,qz]],color,[0,Math.cos(angle),Math.sin(angle)],id,metadata);});
   };
+  const cylinderZ=(x,y,z,length,diameter,color,id,extras={})=>{
+    if(length<=0||diameter<=0)return;
+    const radius=diameter/2,count=16,ring=Array.from({length:count},(_,index)=>[x+radius*Math.cos(index*Math.PI*2/count),y+radius*Math.sin(index*Math.PI*2/count)]);
+    const metadata={...extras,stroke:'transparent'};
+    face(ring.map(([px,py])=>[px,py,z]),color,[0,0,-1],id,metadata);face(ring.map(([px,py])=>[px,py,z+length]),color,[0,0,1],id,metadata);
+    ring.forEach(([px,py],index)=>{const [qx,qy]=ring[(index+1)%count],angle=(index+.5)*Math.PI*2/count;face([[px,py,z],[qx,qy,z],[qx,qy,z+length],[px,py,z+length]],color,[Math.cos(angle),Math.sin(angle),0],id,metadata);});
+  };
   const box = (x, y, z, w, h, d, color, id, extras = {}) => {
     const c = currentCabinet, notch = c?.cutout;
     if (!notch || extras.noCutout || number(notch.width) <= 0 || number(notch.depth) <= 0) return rawBox(x, y, z, w, h, d, color, id, extras);
@@ -397,11 +404,61 @@ export function makeScene(project, options = {}, direction = null) {
       cylinderX(rx,ry,rz,holderLength,rod.diameter+.6,'#435b55',id,{...extras,component:'rod-holder',holderIndex:0});
       cylinderX(rx+rod.length-holderLength,ry,rz,holderLength,rod.diameter+.6,'#435b55',id,{...extras,component:'rod-holder',holderIndex:1});
     }
-    for(const internal of engine.getInternalDrawerLayout(raw,project)){
-      if(internal.openingMechanism==='push')continue;
-      const slide=options.doorsOpen&&options.internalDrawersOpen?Math.min(internal.box.depth*.48,260):0;
-      const handleWidth=Math.min(160,internal.width*.38), iz=bodyZ+internal.depth+internal.frontThickness+7+slide;
-      box(x+internal.x+(internal.width-handleWidth)/2,bodyY+internal.y+internal.height*.65,iz,handleWidth,7,9,'#6a655b',id,{component:'internal-drawer-handle',sectionId:internal.sectionId,internalDrawerIndex:internal.index,handle:true,noCutout:true});
+    const renderDrawerRailings = (boxData, frontDepth, frontH, slideDistance, drawerExtras) => {
+      if (!boxData || (frontH < 150 && boxData.height < 80)) return;
+      const railDiameter = 10, connectorDiameter = 14;
+      const railY = bodyY + boxData.y + boxData.height - 2;
+      const zStart = bodyZ + boxData.z + 8 + slideDistance;
+      const zEnd = bodyZ + frontDepth - 4 + slideDistance;
+      const railLength = zEnd - zStart;
+      if (railLength <= 40) return;
+
+      const leftX = x + boxData.x + boxData.panelThickness / 2;
+      const rightX = x + boxData.x + boxData.width - boxData.panelThickness / 2;
+
+      for (const rx of [leftX, rightX]) {
+        cylinderZ(rx, railY, zStart + 10, railLength - 20, railDiameter, '#c0c8cc', id, { ...drawerExtras, component: 'drawer-railing' });
+        cylinderZ(rx, railY, zEnd - 10, 10, connectorDiameter, '#7e888d', id, { ...drawerExtras, component: 'drawer-railing-connector' });
+        cylinderZ(rx, railY, zStart, 10, connectorDiameter, '#7e888d', id, { ...drawerExtras, component: 'drawer-railing-connector' });
+        line([rx, railY + railDiameter / 2, zStart + 10], [rx, railY + railDiameter / 2, zEnd - 10], '#eaf1f5', 1.2, id, { ...drawerExtras, component: 'drawer-railing-highlight' });
+      }
+    };
+
+    const EPSILON = 1e-4;
+    const internalDrawersList = engine.getInternalDrawerLayout(raw, project) || [];
+    const processedSpacerSections = new Set();
+    for (const internal of internalDrawersList) {
+      const hostId = internal.interiorSectionId ?? internal.sectionId;
+      if (!processedSpacerSections.has(hostId)) {
+        processedSpacerSections.add(hostId);
+        const sectionDrawers = internalDrawersList.filter(d => (d.interiorSectionId ?? d.sectionId) === hostId);
+        const outerSection = layout.sections.find(s => s.id === internal.sectionId);
+        const hostSection = internal.interiorSectionId ? layout.internalSections?.find(s => s.id === internal.interiorSectionId) : outerSection;
+        if (hostSection && outerSection) {
+          const hingeGap = outerSection.node.front === 'doors' ? Math.max(0, number(outerSection.node.internalDrawerHingeGap, 20)) : 0;
+          const leftHinge = Math.abs(hostSection.x - outerSection.x) < EPSILON ? hingeGap : 0;
+          const rightHinge = Math.abs(hostSection.x + hostSection.width - outerSection.x - outerSection.width) < EPSILON ? hingeGap : 0;
+          if (leftHinge > 0 || rightHinge > 0) {
+            const maxY = Math.max(...sectionDrawers.map(d => d.y + d.height));
+            const spacerHeight = Math.min(hostSection.height, Math.round(maxY - hostSection.y + 10));
+            const spacerDepth = Math.round(hostSection.usableDepth - 20);
+            const spacerZ = bodyZ + hostSection.rearOffset + 20;
+            if (leftHinge > 0) {
+              box(x + hostSection.x, bodyY + hostSection.y, spacerZ, leftHinge, spacerHeight, spacerDepth, c.bodyColor, id, { component: 'internal-drawer-spacer', sectionId: outerSection.id, noCutout: true });
+            }
+            if (rightHinge > 0) {
+              box(x + hostSection.x + hostSection.width - rightHinge, bodyY + hostSection.y, spacerZ, rightHinge, spacerHeight, spacerDepth, c.bodyColor, id, { component: 'internal-drawer-spacer', sectionId: outerSection.id, noCutout: true });
+            }
+          }
+        }
+      }
+
+      const slide = options.doorsOpen && options.internalDrawersOpen ? Math.min(internal.box.depth * .48, 260) : 0;
+      if (internal.openingMechanism !== 'push') {
+        const handleWidth = Math.min(160, internal.width * .38), iz = bodyZ + internal.depth + internal.frontThickness + 7 + slide;
+        box(x + internal.x + (internal.width - handleWidth) / 2, bodyY + internal.y + internal.height * .65, iz, handleWidth, 7, 9, '#6a655b', id, { component: 'internal-drawer-handle', sectionId: internal.sectionId, internalDrawerIndex: internal.index, handle: true, noCutout: true });
+      }
+      renderDrawerRailings(internal.box, internal.depth + internal.frontThickness, internal.height, slide, { sectionId: internal.sectionId, internalDrawerIndex: internal.index });
     }
     let fronts = [];
     try { fronts = getFrontLayout(raw, project) || []; } catch { /* Empty fronts keep partially edited models usable. */ }
@@ -450,25 +507,71 @@ export function makeScene(project, options = {}, direction = null) {
         }
       }
     }
-    const hingeRows = options.hinges === true ? getHardwareSchedule(raw, project).rows.filter(row => row.kind === 'hinge') : [];
+    const showHinges = options.hinges !== false && !options.exploded;
+    const hingeRows = showHinges ? getHardwareSchedule(raw, project).rows.filter(row => row.kind === 'hinge') : [];
+    const externalDrawers = engine.getExternalDrawerLayout?.(raw, project) || [];
     for (const f of fronts) {
       const section = layout.sections.find(s => s.id === f.sectionId), fd = number(f.depth, bodyD);
       const fx = x + number(f.x), fy = bodyY + number(f.y), fw = number(f.width), fh = number(f.height), fz = bodyZ + fd;
-      const opening=f.kind==='door'?doorOpening(f):null;
-      const frontExtras = { component: 'front', sectionId: f.sectionId, frontIndex:f.index, openingMechanism:f.openingMechanism||'handle', ...(opening?{doorOpening:opening}:{}) };
+      const opening = f.kind === 'door' ? doorOpening(f) : null;
+      const frontExtras = { component: 'front', sectionId: f.sectionId, frontIndex: f.index, openingMechanism: f.openingMechanism || 'handle', ...(opening ? { doorOpening: opening } : {}) };
       if (fw <= 0 || fh <= 0) continue;
-      if (f.kind === 'door' && options.hinges === true && !options.interior) {
-        const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? 2;
-        for (const hinge of createDoorHingeSymbols({ width: fw, height: fh, thickness: frontT, opening, opened: Boolean(options.doorsOpen), count })) {
-          const world = p => [fx + p[0], fy + p[1], fz + p[2]], extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, schematic: true, stroke: '#53605e' };
-          face(hinge.cupOutline.map(world), '#aebdb9', null, id, { ...extras, hingePart: 'cup' });
-          face(hinge.plate.map(world), '#b9c8c4', null, id, { ...extras, hingePart: 'plate' });
+      if (f.kind === 'door' && showHinges && !options.interior) {
+        const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? (f.hingesPerDoor || (fh >= 2000 ? 5 : fh >= 1600 ? 4 : fh >= 900 ? 3 : 2));
+        const rightHinge = opening === 'right', topHinge = opening === 'up';
+        const hingeSymbols = createDoorHingeSymbols({ width: fw, height: fh, thickness: frontT, opening, opened: Boolean(options.doorsOpen), count });
+        for (const hinge of hingeSymbols) {
+          const world = p => [fx + p[0], fy + p[1], fz + p[2]];
+          const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, schematic: true, stroke: '#53605e' };
+
+          // 1. Primary Cup Face on the door
+          face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+
+          // 2. 3D Mounting Plate on carcass side wall
+          const stationY = fy + (hinge.cup[1] !== undefined ? hinge.cup[1] : fh / 2);
+          if (topHinge) {
+            const hx = fx + (hinge.plate[0] ? (hinge.plate[0][0] + hinge.plate[1][0]) / 2 : fw / 2);
+            rawBox(hx - 14, fy + fh - 4, fz - 44, 28, 4, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
+            rawBox(hx - 7.5, fy + fh - 14, fz - 32, 15, 12, 34, '#c5ced2', id, { ...extras, hingePart: 'arm' });
+          } else {
+            const plateX = rightHinge ? fx + fw - 4 : fx;
+            const armX = rightHinge ? fx + fw - 15 : fx + 3;
+            rawBox(plateX, stationY - 16, fz - 44, 4, 32, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
+            rawBox(plateX + (rightHinge ? -0.5 : 3.5), stationY - 9, fz - 38, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
+            rawBox(plateX + (rightHinge ? -0.5 : 3.5), stationY + 4, fz - 24, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
+            rawBox(armX, stationY - 7.5, fz - 34, 12, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
+            rawBox(armX + 2, stationY + 7.5, fz - 22, 8, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
+          }
+
+          // 3. Linkage connecting arm to cup when opened
+          if (options.doorsOpen) {
+            const pArm = topHinge ? [fx + fw / 2, fy + fh - 8, fz - 2] : [fx + (rightHinge ? fw - 9 : 9), stationY, fz - 2];
+            const pCup = world(hinge.cup);
+            face([
+              [pArm[0], pArm[1] + 3, pArm[2]],
+              [pArm[0], pArm[1] + 5, pArm[2]],
+              [pCup[0], pCup[1] + 5, pCup[2]],
+              [pCup[0], pCup[1] + 3, pCup[2]]
+            ], '#dce4e7', [0, 1, 0], id, { ...extras, hingePart: 'linkage' });
+            face([
+              [pArm[0], pArm[1] - 5, pArm[2]],
+              [pArm[0], pArm[1] - 3, pArm[2]],
+              [pCup[0], pCup[1] - 3, pCup[2]],
+              [pCup[0], pCup[1] - 5, pCup[2]]
+            ], '#dce4e7', [0, -1, 0], id, { ...extras, hingePart: 'linkage' });
+          }
+
+          // 4. Lines for 2D schematic mode compatibility
           for (let index = 1; index < hinge.arm.length; index++) line(world(hinge.arm[index - 1]), world(hinge.arm[index]), '#465c58', 2.2, id, { ...extras, hingePart: 'arm' });
         }
       }
       if (f.kind === 'drawer') {
         const usableDepth = number(section?.usableDepth, fd), rearOffset = number(section?.rearOffset);
         const slide = options.doorsOpen ? Math.min(usableDepth * .48, 260) : 0;
+        const boxData = externalDrawers.find(drawer => drawer.index === f.index && drawer.sectionId === f.sectionId)?.box;
+        if (boxData) {
+          renderDrawerRailings(boxData, fd, fh, slide, { sectionId: f.sectionId, drawerIndex: f.index });
+        }
         if (!modelParts.some(part => part.component === 'external-drawer-box' && part.drawerIndex === f.index && part.sectionId === f.sectionId && part.position && part.orientation)) {
           const drawerMaterial = material(project, raw.drawerMaterialId || raw.materialId);
           const bottomMaterial = material(project, raw.drawerBottomMaterialId || raw.backMaterialId);
