@@ -1016,7 +1016,7 @@ test('actual internal drawer parts stay behind closed doors and slide together o
     assert.ok(handles.length>0);
     assert.ok(Math.max(...handles.map(point=>point[2]))<=cabinet.z+cabinet.depth-2,'internal handles fit behind the closed door with the specified gap');
     viewport.setOptions({doorsOpen:true,internalDrawersOpen:false});
-    assert.deepEqual(pixel(),[228,228,224,255],'opening the outer doors reveals the actual internal front');
+    assert.deepEqual(pixel(),[245,245,245,255],'opening the outer doors reveals the actual internal front');
     for(const part of internalParts)assert.deepEqual(bounds(part),stored.get(part.id));
     viewport.setOptions({internalDrawersOpen:true});
     for(const part of internalParts){

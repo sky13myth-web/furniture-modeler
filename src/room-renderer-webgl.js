@@ -199,7 +199,7 @@ void main() {
 
   // Distance falloff in meters (smooth, natural gradient from ceiling to floor)
   float dMeters = dist * 0.001;
-  float atten = 1.0 / (1.0 + 0.30 * dMeters + 0.12 * dMeters * dMeters);
+  float atten = 1.0 / (1.0 + 0.22 * dMeters + 0.06 * dMeters * dMeters);
 
   // Direct ceiling light
   float diff = max(dot(norm, lightDir), 0.0);
@@ -210,19 +210,22 @@ void main() {
 
   // Blinn-phong specular
   float isGlass = (vColor.a < 0.9) ? 1.0 : 0.0;
-  float shininess = (isGlass > 0.5) ? 48.0 : 24.0;
-  float specStrength = (isGlass > 0.5) ? 0.42 : 0.14;
+  float shininess = (isGlass > 0.5) ? 48.0 : 28.0;
+  float specStrength = (isGlass > 0.5) ? 0.42 : 0.16;
   float spec = pow(max(dot(norm, halfDir), 0.0), shininess) * specStrength;
+
+  // Convert input sRGB color to linear space for physically accurate lighting
+  vec3 albedoLinear = pow(vColor.rgb, vec3(2.2));
 
   // Ambient lighting setup based on lighting mode (day vs evening)
   vec3 skyColor;
   vec3 groundColor;
   if (uLightingMode == 1) {
-    skyColor = vec3(0.52, 0.56, 0.62);
-    groundColor = vec3(0.34, 0.33, 0.30);
+    skyColor = vec3(0.68, 0.72, 0.78);
+    groundColor = vec3(0.46, 0.44, 0.41);
   } else {
-    skyColor = vec3(0.36, 0.39, 0.42);
-    groundColor = vec3(0.28, 0.27, 0.25);
+    skyColor = vec3(0.50, 0.52, 0.56);
+    groundColor = vec3(0.36, 0.34, 0.32);
   }
   float hemi = norm.y * 0.5 + 0.5;
   vec3 ambient = mix(groundColor, skyColor, hemi);
@@ -231,44 +234,46 @@ void main() {
   float shadowFactor = uUseShadows ? sampleShadow(vLightSpacePos, norm, lightDir) : 1.0;
 
   // Direct ceiling light contribution
-  vec3 directDiffuse = diff * uLightColor * atten * shadowFactor;
+  float directScale = (uLightingMode == 1) ? 1.0 : 1.45;
+  vec3 directDiffuse = diff * uLightColor * directScale * atten * shadowFactor;
   vec3 directSpec = spec * uLightColor * atten * shadowFactor;
 
   // Day mode bright sunlight entering at an angle
   vec3 sunContrib = vec3(0.0);
   vec3 sunSpecContrib = vec3(0.0);
   if (uLightingMode == 1) {
-    vec3 sunDir = normalize(vec3(0.5, 0.85, -0.4));
-    float sunDiff = max(dot(norm, sunDir), 0.0) * 0.75;
+    vec3 sunDir = normalize(vec3(0.55, 0.82, -0.42));
+    float sunDiff = max(dot(norm, sunDir), 0.0) * 0.90;
     vec3 sunHalfDir = normalize(sunDir + viewDir);
-    float sunSpec = pow(max(dot(norm, sunHalfDir), 0.0), shininess) * specStrength * 0.75;
-    vec3 sunColor = vec3(1.0, 0.98, 0.92);
+    float sunSpec = pow(max(dot(norm, sunHalfDir), 0.0), shininess) * specStrength * 0.85;
+    vec3 sunColor = vec3(1.10, 1.08, 1.02);
     sunContrib = sunDiff * sunColor;
     sunSpecContrib = sunSpec * sunColor;
   }
 
   // Directional key / angle light for 3D depth and shape definition
   vec3 keyDir = normalize(vec3(0.35, 0.85, 0.4));
-  float keyDiff = (uLightingMode == 1) ? 0.0 : (max(dot(norm, keyDir), 0.0) * 0.22);
+  float keyDiff = (uLightingMode == 1) ? 0.0 : (max(dot(norm, keyDir), 0.0) * 0.28);
 
-  // Camera fill to prevent pure black back sides
-  float camFill = max(dot(norm, viewDir), 0.0) * 0.08;
+  // Indirect interior diffuse bounce (room walls reflecting light back)
+  float bounce = 0.14;
+  float camFill = max(dot(norm, viewDir), 0.0) * 0.10;
 
   // Composite lighting for surfaces
-  vec3 lighting = ambient + directDiffuse + sunContrib + keyDiff + camFill;
+  vec3 lighting = ambient + directDiffuse + sunContrib + keyDiff + camFill + bounce;
   vec3 totalSpec = directSpec + sunSpecContrib;
 
   // Floor subtle contact darkening near base
   if (vPosition.y < 4.0) {
-    lighting *= 0.93;
+    lighting *= 0.95;
   }
 
   vec3 surfaceColor;
   if (isGlass > 0.5) {
     // Glass has high transparency and specular highlights
-    surfaceColor = vColor.rgb * (ambient * 0.6 + totalSpec * 1.5) + totalSpec;
+    surfaceColor = albedoLinear * (ambient * 0.6 + totalSpec * 1.5) + totalSpec;
   } else {
-    surfaceColor = vColor.rgb * lighting + totalSpec;
+    surfaceColor = albedoLinear * lighting + totalSpec;
 
     // Floor procedural texture: for floor faces (where vPosition.y < 2.0)
     if (vPosition.y < 2.0 && norm.y > 0.5) {
@@ -305,10 +310,16 @@ void main() {
     }
   }
 
-  // Smooth, balanced filmic exposure curve (never overexposed, never washed out!)
-  vec3 exposed = surfaceColor * 1.25;
-  vec3 mapped = exposed / (exposed + vec3(0.85));
-  vec3 finalColor = pow(mapped, vec3(1.0 / 1.4));
+  // Extended Reinhard tone mapping with white point calibration:
+  // Maps linear HDR light smoothly into displayable range, keeping white pure and crisp (RGB 240-255)
+  // while preventing blowout or flat clipping.
+  vec3 exposed = surfaceColor * 1.20;
+  float whitePoint = 2.2;
+  vec3 mapped = (exposed * (vec3(1.0) + exposed / (whitePoint * whitePoint))) / (vec3(1.0) + exposed);
+  mapped = clamp(mapped, 0.0, 1.0);
+
+  // Gamma correction to sRGB
+  vec3 finalColor = pow(mapped, vec3(1.0 / 2.2));
 
   gl_FragColor = vec4(finalColor, vColor.a);
 }
