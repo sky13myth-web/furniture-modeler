@@ -715,9 +715,34 @@ export function makeScene(project, options = {}, direction = null) {
     }
     for (const s of layout.sections) {
       const appliance = s.node.appliance;
-      if (!appliance) continue;
+      const sectionCooktop = s.node.cooktop;
+      // Cooktop on top of the section (in the countertop / over carcass)
+      if (sectionCooktop || appliance?.type === 'cooktop') {
+        const ct = sectionCooktop || appliance;
+        const cw = Math.max(1, number(ct.width, 590)), ch = 45, cd = Math.max(1, number(ct.depth, 520));
+        const cx = x + s.x + Math.max(0, (s.width - cw) / 2);
+        const cy = bodyY + bodyH + (c.countertop ? 38 : 0);
+        const cz = bodyZ + Math.max(0, (bodyD - cd) / 2);
+        renderKitchenAppliance({
+          appliance: { type: 'cooktop', ...ct },
+          bounds: { x: cx, y: cy, z: cz, width: cw, height: ch, depth: cd },
+          cabinetId: id,
+          sectionId: s.id,
+          renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+        });
+      }
+      if (!appliance || appliance.type === 'cooktop') continue;
       const aw = Math.max(1, number(appliance.width, 600)), ah = Math.max(1, number(appliance.height, 850)), ad = Math.max(1, number(appliance.depth, 550));
-      const ax = x + s.x + (s.width - aw) / 2, ay = bodyY + s.y, az = bodyZ + number(s.rearOffset) + Math.max(0, number(s.usableDepth, s.depth) - ad);
+      const hasCooktopAbove = Boolean(sectionCooktop || c.cooktop);
+      // When combining cooktop + oven:
+      // Cooktop drop box intrudes 45mm from countertop top.
+      // With countertop (38mm), drop into carcass is 7mm. Without countertop: 45mm.
+      // Required ventilation clearance under cooktop bottom is at least 20mm. Total = 27mm.
+      const cooktopVentClearance = hasCooktopAbove && appliance.type === 'oven' ? Math.max(25, 45 - (c.countertop ? 38 : 0) + 20) : 0;
+      const ax = x + s.x + (s.width - aw) / 2;
+      const maxTopY = bodyY + s.y + Math.max(0, s.height - cooktopVentClearance - ah);
+      const ay = Math.min(bodyY + s.y, maxTopY);
+      const az = bodyZ + number(s.rearOffset) + Math.max(0, number(s.usableDepth, s.depth) - ad);
       renderKitchenAppliance({
         appliance,
         bounds: { x: ax, y: ay, z: az, width: aw, height: ah, depth: ad },

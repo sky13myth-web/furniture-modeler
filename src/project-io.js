@@ -135,6 +135,12 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
         if (node.appliance.hasDrainer !== undefined) boolean(node.appliance.hasDrainer, 'Раковина: крыло для сушки');
         if (node.appliance.drainerSide !== undefined && !['left', 'right'].includes(node.appliance.drainerSide)) fail('Раковина: неизвестная сторона крыла.');
       }
+      if (node.cooktop !== undefined && node.cooktop !== null) {
+        record(node.cooktop, 'варочная панель');
+        for (const key of ['width', 'depth']) finite(node.cooktop[key], `Варочная панель: ${key}`, 3000, true);
+        if (node.cooktop.height !== undefined) finite(node.cooktop.height, 'Варочная панель: высота', 500, true);
+        if (node.cooktop.label !== undefined) text(node.cooktop.label, 'Варочная панель: название');
+      }
       if (!interior && node.interiorLayout !== undefined) {
         if (!['doors', 'open'].includes(node.front)) fail('Внутреннее наполнение возможно только у открытой секции или секции с дверями.');
         visit(node.interiorLayout, depth + 1, true);
@@ -252,6 +258,15 @@ export function checkImport(project) {
       if (cabinet.cutout.width >= cabinet.width || cabinet.cutout.depth >= cabinet.depth) fail('Вырез должен быть меньше габаритов корпуса.');
     }
     if (cabinet.parentId !== undefined && cabinet.parentId !== null) text(cabinet.parentId, 'Модуль: родительский шкаф');
+    if (cabinet.cooktop !== undefined && cabinet.cooktop !== null) {
+      record(cabinet.cooktop, 'варочная панель шкафа');
+      for (const key of ['width', 'depth']) finite(cabinet.cooktop[key], `Варочная панель: ${key}`, 3000, true);
+      if (cabinet.cooktop.height !== undefined) finite(cabinet.cooktop.height, 'Варочная панель: высота', 500, true);
+    }
+    if (cabinet.sink !== undefined && cabinet.sink !== null) {
+      record(cabinet.sink, 'раковина шкафа');
+      for (const key of ['width', 'depth']) finite(cabinet.sink[key], `Раковина: ${key}`, 3000, true);
+    }
   }
   for (const cabinet of project.cabinets) {
     if (cabinet.parentId !== undefined && cabinet.parentId !== null) {

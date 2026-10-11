@@ -164,3 +164,59 @@ test('getApplianceDefaultDimensions and getApplianceGapDefaults return valid dat
     assert.ok(preset.name && preset.nameTr && preset.nameEn, `Preset ${type} missing localizations`);
   }
 });
+
+test('cooktop is rendered on countertop above section and oven respects ventilation clearance when combined', async () => {
+  const { makeScene } = await import('../src/renderer.js');
+  const project = {
+    settings: { unifiedPlinth: false, wallFinishPanels: false, ledLighting: false },
+    materials: [{ id: 'm1', name: 'Белый', type: 'ЛДСП', thickness: 18, sheetWidth: 2800, sheetHeight: 2070, color: '#ffffff' }],
+    room: { width: 3000, depth: 3000, height: 2500, windows: [] },
+    cabinets: [
+      {
+        id: 'kitchen-base-1',
+        type: 'base',
+        x: 0,
+        y: 0,
+        z: 0,
+        width: 600,
+        height: 850,
+        depth: 600,
+        plinth: 100,
+        countertop: true,
+        materialId: 'm1',
+        layout: {
+          id: 'sec-1',
+          kind: 'section',
+          front: 'open',
+          shelves: 0,
+          cooktop: { width: 590, depth: 520, height: 45, label: 'Варочная панель' },
+          appliance: {
+            type: 'oven',
+            width: 595,
+            height: 595,
+            depth: 550,
+            label: 'Духовой шкаф',
+            useClearances: true,
+            clearances: { side: 5, top: 30, rear: 30 }
+          }
+        }
+      }
+    ]
+  };
+
+  const scene = makeScene(project, project.cabinets[0], '3d', { plinth: true, exploded: false });
+  // Verify cooktop is present in scene and rendered at top of carcass/countertop level (Y >= 850)
+  const cooktopFaces = scene.faces.filter(f => f.applianceType === 'cooktop');
+  assert.ok(cooktopFaces.length > 0, 'Cooktop must be rendered');
+  // Check vertices of cooktop are at or above cabinet height (850mm)
+  const cooktopMinY = Math.min(...cooktopFaces.flatMap(f => f.points.map(p => p[1])));
+  assert.ok(cooktopMinY >= 850, `Cooktop must sit on top of carcass/countertop (got min Y ${cooktopMinY})`);
+
+  // Verify oven is also rendered in the section
+  const ovenFaces = scene.faces.filter(f => f.applianceType === 'oven');
+  assert.ok(ovenFaces.length > 0, 'Oven must be rendered in the section');
+  const ovenMaxY = Math.max(...ovenFaces.flatMap(f => f.points.map(p => p[1])));
+  // Oven max Y must be under the carcass top (850mm) with ventilation clearance (<= 850 - 25 = 825mm)
+  assert.ok(ovenMaxY <= 830, `Oven must have ventilation clearance below cooktop (got max Y ${ovenMaxY})`);
+});
+

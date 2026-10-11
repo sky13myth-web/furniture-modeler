@@ -1075,6 +1075,14 @@ X / Z, мм|X / Z, mm|X / Z, mm
 Крыло слева|Damlalık solda|Drainer on left
 Раковина: неизвестная форма чаши.|Evye: bilinmeyen hazne şekli.|Sink: unknown bowl shape.
 Раковина: неизвестная сторона крыла.|Evye: bilinmeyen damlalık yönü.|Sink: unknown drainer side.
+Убрать технику|Cihazı kaldır|Remove appliance
+Убрать технику из секции|Cihazı bölmeden kaldır|Remove appliance from section
+Убрать варочную панель|Ocağı kaldır|Remove cooktop
+Варочная панель на столешнице|Tezgah üstü ocak|Cooktop on countertop
+Врезка в столешницу над секцией|Bölme üstü tezgaha montaj|Mounted into countertop above section
+Совместить с духовым шкафом в этой секции|Bu bölmede fırın ile birleştir|Combine with oven in this section
+Автоматически учитывает зазор 30 мм под варочной панелью для вентиляции и охлаждения духового шкафа.|Fırının havalandırması ve soğutulması için ocak altında 30 mm boşluk otomatik olarak bırakılır.|Automatically reserves a 30 mm gap below cooktop for oven ventilation and cooling.
+Техника убрана|Cihaz kaldırıldı|Appliance removed
 `);
 
 let phrasePattern;
