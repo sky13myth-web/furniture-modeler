@@ -754,25 +754,31 @@ export function makeScene(project, options = {}, direction = null) {
 
       if (!appliance || appliance.type === 'cooktop' || appliance.type === 'sink-round' || appliance.type === 'sink-rectangular') continue;
 
-      const aw = Math.max(1, number(appliance.width, 600)), ah = Math.max(1, number(appliance.height, 850)), ad = Math.max(1, number(appliance.depth, 550));
       const hasCooktopAbove = Boolean(sectionCooktop || c.cooktop);
       // When combining cooktop + oven:
       // Cooktop drop box intrudes 45mm from countertop top.
       // With countertop (38mm), drop into carcass is 7mm. Without countertop: 45mm.
       // Required ventilation clearance under cooktop bottom is at least 20mm. Total = 27mm.
       const cooktopVentClearance = hasCooktopAbove && appliance.type === 'oven' ? Math.max(25, 45 - (c.countertop ? 38 : 0) + 20) : 0;
-      const ax = x + s.x + (s.width - aw) / 2;
 
       // 3. Built-in Range Hood: mounts from the bottom of wall cabinet!
-      let ay;
-      if (appliance.type === 'hood-builtin') {
+      const isHood = appliance.type === 'hood-builtin';
+      let aw, ah, ad, ay, az;
+      if (isHood) {
         ay = bodyY; // Sits at the bottom panel of the wall cabinet carcass
+        aw = Math.min(s.width, Math.max(1, number(appliance.width, 600)));
+        ah = s.height; // Extends through the full height of the cabinet section (with duct pipe to ceiling)
+        ad = Math.min(number(s.usableDepth, s.depth), Math.max(1, number(appliance.depth, 300)));
+        az = bodyZ + (number(s.usableDepth, s.depth) - ad);
       } else {
+        aw = Math.max(1, number(appliance.width, 600));
+        ah = Math.max(1, number(appliance.height, 850));
+        ad = Math.max(1, number(appliance.depth, 550));
         const maxTopY = bodyY + s.y + Math.max(0, s.height - cooktopVentClearance - ah);
         ay = Math.min(bodyY + s.y, maxTopY);
+        az = bodyZ + number(s.rearOffset) + Math.max(0, number(s.usableDepth, s.depth) - ad);
       }
-
-      const az = bodyZ + number(s.rearOffset) + Math.max(0, number(s.usableDepth, s.depth) - ad);
+      const ax = x + s.x + (s.width - aw) / 2;
       renderKitchenAppliance({
         appliance,
         bounds: { x: ax, y: ay, z: az, width: aw, height: ah, depth: ad },

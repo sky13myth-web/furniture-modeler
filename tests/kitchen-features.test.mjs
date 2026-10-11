@@ -95,8 +95,7 @@ test('renderKitchenAppliance renders all major kitchen appliances', () => {
     'dishwasher-freestanding',
     'sink-round',
     'sink-rectangular',
-    'hood-builtin',
-    'hood-wall'
+    'hood-builtin'
   ];
 
   for (const type of applianceTypes) {
@@ -320,8 +319,8 @@ test('built-in hood is mounted into wall cabinet from the bottom', async () => {
   assert.ok(hoodFaces.length > 0, 'Built-in hood faces must be rendered');
 
   const hoodMinY = Math.min(...hoodFaces.flatMap(f => f.points.map(p => p[1])));
-  // Built-in hood bottom face with pull-out visor / LED spotlight discs extends ~3.5mm below cabinet bottom (1400mm)
-  assert.ok(Math.abs(hoodMinY - 1400) <= 5, `Hood must start at cabinet bottom Y=1400 (got ${hoodMinY})`);
+  // Built-in hood bottom mounting frame sits at Y=1400 with front telescopic visor trim extending down ~20mm
+  assert.ok(Math.abs(hoodMinY - (1400 - 20)) <= 5, `Hood must start at cabinet bottom Y=1400 (got ${hoodMinY})`);
 });
 
 test('checkImport validates cooktop, sink, and all kitchen appliance configurations', async () => {

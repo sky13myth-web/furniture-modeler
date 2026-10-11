@@ -124,21 +124,10 @@ export const APPLIANCE_PRESETS = {
     nameTr: 'Ankastre davlumbaz',
     nameEn: 'Built-in range hood',
     width: 600,
-    height: 260,
+    height: 380,
     depth: 300,
     builtin: true,
-    clearances: { side: 5, top: 10, rear: 10 }
-  },
-  'hood-wall': {
-    type: 'hood-wall',
-    name: 'Настенная вытяжка',
-    nameTr: 'Duvar tipi davlumbaz',
-    nameEn: 'Wall chimney hood',
-    width: 600,
-    height: 750,
-    depth: 480,
-    builtin: false,
-    clearances: { side: 20, top: 0, rear: 0 }
+    clearances: { side: 0, top: 0, rear: 0 }
   }
 };
 
@@ -538,50 +527,82 @@ export function renderKitchenAppliance({
     line([tapX + 12, tapY + 45, tapZ], [tapX + 48, tapY + 70, tapZ + 25], inoxBright, 4.5, cabinetId, detailExtras);
   } else if (type === 'hood-builtin') {
     // ----------------------------------------------------
-    // Built-in Range Hood (Встраиваемая вытяжка)
+    // Built-in Range Hood (Встраиваемая вытяжка в навесной шкаф)
     // ----------------------------------------------------
-    // Housing in cabinet bottom
-    box(x, y, z, w, h, d, darkSteel, cabinetId, extras);
-    // Telescopic pull-out visor / grease filter cassettes on underside
     const bottomY = y;
-    box(x + 15, bottomY - 3, z + 15, w - 30, 3, d - 30, inox, cabinetId, detailExtras);
-    // Aluminum grease filter mesh panels
-    const halfW = (w - 40) / 2;
-    box(x + 18, bottomY - 2, z + 20, halfW - 4, 1.5, d - 40, '#a2acb0', cabinetId, detailExtras);
-    box(x + 18 + halfW, bottomY - 2, z + 20, halfW - 4, 1.5, d - 40, '#a2acb0', cabinetId, detailExtras);
-    // Two LED spotlight discs
-    cylinderY(x + w * 0.28, bottomY - 3.5, z + 35, 1, 40, '#fff9c4', cabinetId, detailExtras);
-    cylinderY(x + w * 0.72, bottomY - 3.5, z + 35, 1, 40, '#fff9c4', cabinetId, detailExtras);
-  } else if (type === 'hood-wall') {
-    // ----------------------------------------------------
-    // Wall Chimney Hood (Настенная купольная вытяжка)
-    // ----------------------------------------------------
-    // Lower horizontal canopy
-    const canopyH = 65;
-    box(x, y, z, w, canopyH, d, inox, cabinetId, extras);
-    // Canopy beveled bottom edge
-    line([x, y + canopyH, z + d], [x + w, y + canopyH, z + d], inoxBright, 1.5, cabinetId, detailExtras);
 
-    // Grease filters on underside
-    const halfW = (w - 30) / 2;
-    box(x + 12, y - 2, z + 15, halfW - 4, 2, d - 30, '#a6b0b5', cabinetId, detailExtras);
-    box(x + 12 + halfW, y - 2, z + 15, halfW - 4, 2, d - 30, '#a6b0b5', cabinetId, detailExtras);
+    // 1. Bottom perimeter mounting flange (flushed against the underside of cabinet bottom panel)
+    box(x, bottomY - 2.5, z, w, 2.5, d, inox, cabinetId, detailExtras);
 
-    // Front control buttons
-    for (let i = 0; i < 4; i++) {
-      const bx = x + w / 2 - 30 + i * 20;
-      cylinderZ(bx, y + canopyH / 2, z + d + 1, 3, 10, '#42484b', cabinetId, detailExtras);
+    // 2. Telescopic pull-out visor / front fascia along front edge (z + d)
+    // Horizontal slide runner
+    box(x + 2, bottomY - 3, z + d - 26, w - 4, 3, 26, inoxBright, cabinetId, detailExtras);
+    // Front vertical fascia trim (visible beneath closed cabinet doors)
+    box(x + 2, bottomY - 20, z + d - 2.5, w - 4, 20, 2.5, inoxBright, cabinetId, detailExtras);
+    // Recessed handle groove line on front visor
+    line([x + 25, bottomY - 10, z + d + 0.2], [x + w - 25, bottomY - 10, z + d + 0.2], '#7c868a', 1.8, cabinetId, detailExtras);
+
+    // 3. Dual aluminum grease filter cassettes on underside
+    const filterZ = z + 18;
+    const filterD = Math.max(80, d - 52);
+    const filterW = w - 36;
+    const halfW = filterW / 2;
+
+    // Left cassette
+    const f1X = x + 18;
+    box(f1X, bottomY - 2, filterZ, halfW - 3, 1.8, filterD, '#a6b0b4', cabinetId, detailExtras);
+    // Right cassette
+    const f2X = f1X + halfW + 3;
+    box(f2X, bottomY - 2, filterZ, halfW - 3, 1.8, filterD, '#a6b0b4', cabinetId, detailExtras);
+
+    // Filter mesh cross lines
+    line([f1X + 8, bottomY - 2.1, filterZ + filterD / 2], [f1X + halfW - 11, bottomY - 2.1, filterZ + filterD / 2], '#788286', 1.1, cabinetId, detailExtras);
+    line([f2X + 8, bottomY - 2.1, filterZ + filterD / 2], [f2X + halfW - 11, bottomY - 2.1, filterZ + filterD / 2], '#788286', 1.1, cabinetId, detailExtras);
+
+    // Quick-release latch handles on each filter cassette
+    const latchW = 24, latchD = 18;
+    box(f1X + (halfW - latchW) / 2, bottomY - 2.8, filterZ + (filterD - latchD) / 2, latchW, 1.4, latchD, '#25292b', cabinetId, detailExtras);
+    box(f2X + (halfW - latchW) / 2, bottomY - 2.8, filterZ + (filterD - latchD) / 2, latchW, 1.4, latchD, '#25292b', cabinetId, detailExtras);
+
+    // 4. Dual LED spotlight discs illuminating cooktop below
+    const spotZ = z + 36;
+    for (const sx of [x + w * 0.22, x + w * 0.78]) {
+      cylinderY(sx, bottomY - 2.8, spotZ, 1, 38, '#fffde7', cabinetId, detailExtras);
+      const ring = circle2D(sx, spotZ, 20, 16);
+      for (let i = 0; i < ring.length; i++) {
+        const p1 = ring[i], p2 = ring[(i + 1) % ring.length];
+        line([p1[0], bottomY - 2.9, p1[1]], [p2[0], bottomY - 2.9, p2[1]], inoxBright, 1.5, cabinetId, detailExtras);
+      }
     }
 
-    // Vertical telescopic chimney duct rising upwards to ceiling/cabinet height
-    const chimneyW = Math.min(260, w * 0.45);
-    const chimneyD = Math.min(240, d * 0.52);
-    const chimneyX = x + (w - chimneyW) / 2;
-    const chimneyZ = z + 10;
-    const chimneyH = h - canopyH;
-    box(chimneyX, y + canopyH, chimneyZ, chimneyW, chimneyH, chimneyD, inox, cabinetId, extras);
-    line([chimneyX, y + canopyH, chimneyZ + chimneyD], [chimneyX, y + h, chimneyZ + chimneyD], inoxBright, 1.2, cabinetId, detailExtras);
-    line([chimneyX + chimneyW, y + canopyH, chimneyZ + chimneyD], [chimneyX + chimneyW, y + h, chimneyZ + chimneyD], inoxBright, 1.2, cabinetId, detailExtras);
+    // 5. Internal Motor Housing inside cabinet
+    const motorH = Math.min(220, Math.max(140, h * 0.45));
+    const motorD = Math.min(260, d - 20);
+    const motorW = Math.min(460, w - 24);
+    const motorX = x + (w - motorW) / 2;
+    const motorZ = z + 12;
+    box(motorX, y, motorZ, motorW, motorH, motorD, darkSteel, cabinetId, extras);
+
+    // Motor casing beveled upper shoulder
+    line([motorX, y + motorH, motorZ], [motorX + motorW, y + motorH, motorZ], '#4d5559', 1.4, cabinetId, detailExtras);
+    line([motorX, y + motorH, motorZ + motorD], [motorX + motorW, y + motorH, motorZ + motorD], '#4d5559', 1.4, cabinetId, detailExtras);
+
+    // 6. Round ventilation exhaust duct pipe (Ø 130mm) rising upwards through the cabinet
+    const ductH = h - motorH;
+    if (ductH > 10) {
+      const ductX = x + w / 2;
+      const ductZ = motorZ + motorD / 2;
+      const ductR = 60;
+      cylinderY(ductX, y + motorH, ductZ, ductH, ductR * 2, '#dbe2e6', cabinetId, extras);
+      // Corrugated duct rings
+      for (let dy = y + motorH + 18; dy < y + h - 8; dy += 22) {
+        const ring = circle2D(ductX, ductZ, ductR + 0.8, 20);
+        for (let i = 0; i < ring.length; i++) {
+          const p1 = ring[i], p2 = ring[(i + 1) % ring.length];
+          line([p1[0], dy, p1[1]], [p2[0], dy, p2[1]], '#9da7ac', 1.2, cabinetId, detailExtras);
+        }
+      }
+    }
   } else {
     // Fallback for generic washer / dryer / boiler / custom equipment
     box(x, y, z, w, h, d, '#d8dddb', cabinetId, extras);
