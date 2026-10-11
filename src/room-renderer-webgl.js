@@ -125,203 +125,245 @@ function vec4Transform(v, m) {
   ];
 }
 
+// Material ids passed per vertex (aMaterial):
+// 0 = furniture / frames (satin), 1 = floor, 2 = walls & ceiling (matte),
+// 3 = glass, 4 = emissive light diffuser.
+export const MATERIAL = Object.freeze({ furniture: 0, floor: 1, wall: 2, glass: 3, emissive: 4 });
+
 export const VERTEX_SHADER_SOURCE = `
 attribute vec3 aPosition;
 attribute vec3 aNormal;
 attribute vec4 aColor;
+attribute float aMaterial;
 
 uniform mat4 uProjectionMatrix;
 uniform mat4 uViewMatrix;
-uniform mat4 uLightSpaceMatrix;
 
 varying vec3 vPosition;
 varying vec3 vNormal;
 varying vec4 vColor;
-varying vec4 vLightSpacePos;
+varying float vMaterial;
 
 void main() {
   vPosition = aPosition;
   vNormal = aNormal;
   vColor = aColor;
-  vLightSpacePos = uLightSpaceMatrix * vec4(aPosition, 1.0);
+  vMaterial = aMaterial;
   gl_Position = uProjectionMatrix * uViewMatrix * vec4(aPosition, 1.0);
 }
 `;
 
 export const FRAGMENT_SHADER_SOURCE = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 
 varying vec3 vPosition;
 varying vec3 vNormal;
 varying vec4 vColor;
-varying vec4 vLightSpacePos;
+varying float vMaterial;
 
 uniform vec3 uLightPos;
 uniform vec3 uLightColor;
 uniform vec3 uCameraPos;
+uniform mat4 uLightSpaceMatrix;
 uniform sampler2D uShadowMap;
 uniform bool uUseShadows;
 uniform int uLightingMode;
+uniform vec2 uResolution;
+uniform float uRoomHeight;
+uniform float uShadowTexel;
 
-float sampleShadow(vec4 lightSpacePos, vec3 norm, vec3 lightDir) {
-  vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
-  projCoords = projCoords * 0.5 + 0.5;
+const float PI = 3.14159265;
 
-  if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
-      projCoords.y < 0.0 || projCoords.y > 1.0 ||
-      projCoords.z < 0.0 || projCoords.z > 1.0) {
-    return 1.0;
+float hash12(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+float unpackDepth(vec4 c) {
+  return c.r + c.g / 255.0;
+}
+
+// Overhead light-space visibility. The light looks straight down, so a wide
+// rotated spiral kernel doubles as soft contact shadow / ambient occlusion
+// under and around furniture, inside carcasses and below shelves.
+float shadowVisibility(vec3 worldPos, vec3 norm, float radiusTexels) {
+  vec4 ls = uLightSpaceMatrix * vec4(worldPos + norm * 8.0, 1.0);
+  vec3 p = ls.xyz / ls.w * 0.5 + 0.5;
+  if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
+  float current = p.z - 0.0008;
+  float rot = hash12(gl_FragCoord.xy) * 6.2831853;
+  float lit = 0.0;
+  for (int i = 0; i < 16; i++) {
+    float fi = float(i);
+    float r = sqrt((fi + 0.5) / 16.0) * radiusTexels;
+    float a = fi * 2.39996323 + rot;
+    vec2 off = vec2(cos(a), sin(a)) * r * uShadowTexel;
+    float d = unpackDepth(texture2D(uShadowMap, p.xy + off));
+    lit += (current <= d) ? 1.0 : 0.0;
   }
+  return lit / 16.0;
+}
 
-  // Slope-scaled depth bias to eliminate acne completely
-  float cosTheta = max(dot(norm, lightDir), 0.0);
-  float bias = max(0.0035 * (1.0 - cosTheta), 0.0012);
-  float currentDepth = projCoords.z - bias;
+float distributionGGX(float NdH, float a) {
+  float a2 = a * a;
+  float d = NdH * NdH * (a2 - 1.0) + 1.0;
+  return a2 / (PI * d * d + 1e-5);
+}
 
-  float shadow = 0.0;
-  vec2 texelSize = vec2(1.0 / 2048.0);
+float visibilitySmith(float NdL, float NdV, float a) {
+  return 0.5 / max(mix(2.0 * NdL * NdV, NdL + NdV, a), 1e-4);
+}
 
-  // 4x4 PCF filter for soft, natural shadow edges
-  for (int x = -1; x <= 2; x++) {
-    for (int y = -1; y <= 2; y++) {
-      vec4 packedZ = texture2D(uShadowMap, projCoords.xy + vec2(float(x), float(y)) * texelSize);
-      float pDepth = packedZ.r + packedZ.g / 255.0;
-      shadow += (currentDepth <= pDepth) ? 1.0 : 0.32;
-    }
-  }
-  return shadow / 16.0;
+vec3 acesFilm(vec3 x) {
+  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+
+float vignette() {
+  vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
+  float d = length((uv - 0.5) * vec2(1.12, 1.0)) * 1.32;
+  return clamp(1.0 - 0.30 * pow(d, 2.6), 0.0, 1.0);
 }
 
 void main() {
   vec3 norm = normalize(vNormal);
-  vec3 lightDir = normalize(uLightPos - vPosition);
-  float dist = length(uLightPos - vPosition);
-
-  // Distance falloff in meters (smooth, natural gradient from ceiling to floor)
-  float dMeters = dist * 0.001;
-  float atten = 1.0 / (1.0 + 0.22 * dMeters + 0.06 * dMeters * dMeters);
-
-  // Direct ceiling light
-  float diff = max(dot(norm, lightDir), 0.0);
-
-  // Camera view direction
   vec3 viewDir = normalize(uCameraPos - vPosition);
-  vec3 halfDir = normalize(lightDir + viewDir);
+  if (dot(norm, viewDir) < 0.0) norm = -norm;
+  bool evening = uLightingMode != 1;
 
-  // Blinn-phong specular
-  float isGlass = (vColor.a < 0.9) ? 1.0 : 0.0;
-  float shininess = (isGlass > 0.5) ? 48.0 : 28.0;
-  float specStrength = (isGlass > 0.5) ? 0.42 : 0.16;
-  float spec = pow(max(dot(norm, halfDir), 0.0), shininess) * specStrength;
+  bool isFloorMat = vMaterial > 0.5 && vMaterial < 1.5;
+  bool isWall = vMaterial > 1.5 && vMaterial < 2.5;
+  bool isGlass = vMaterial > 2.5 && vMaterial < 3.5;
+  bool isEmissive = vMaterial > 3.5;
+  // Floor faces: tagged floor material, or any room surface at floor level (vPosition.y < 2.0)
+  bool isFloor = isFloorMat || (isWall && vPosition.y < 2.0 && norm.y > 0.5);
 
-  // Convert input sRGB color to linear space for physically accurate lighting
-  vec3 albedoLinear = pow(vColor.rgb, vec3(2.2));
-
-  // Ambient lighting setup based on lighting mode (day vs evening)
-  vec3 skyColor;
-  vec3 groundColor;
-  if (uLightingMode == 1) {
-    skyColor = vec3(0.68, 0.72, 0.78);
-    groundColor = vec3(0.46, 0.44, 0.41);
-  } else {
-    skyColor = vec3(0.50, 0.52, 0.56);
-    groundColor = vec3(0.36, 0.34, 0.32);
+  if (isEmissive) {
+    vec3 glow = evening ? vec3(1.0, 0.97, 0.90) : vec3(0.96, 0.96, 0.94);
+    gl_FragColor = vec4(glow * vignette(), 1.0);
+    return;
   }
-  float hemi = norm.y * 0.5 + 0.5;
-  vec3 ambient = mix(groundColor, skyColor, hemi);
 
-  // Soft shadow from ceiling chandelier
-  float shadowFactor = uUseShadows ? sampleShadow(vLightSpacePos, norm, lightDir) : 1.0;
+  vec3 albedo = pow(vColor.rgb, vec3(2.2));
+  float roughness = 0.52;
+  float f0 = 0.04;
+  if (isWall) roughness = 0.94;
 
-  // Direct ceiling light contribution
-  float directScale = (uLightingMode == 1) ? 1.0 : 1.45;
-  vec3 directDiffuse = diff * uLightColor * directScale * atten * shadowFactor;
-  vec3 directSpec = spec * uLightColor * atten * shadowFactor;
+  // Natural oak plank floor
+  if (isFloor) {
+    float plankWidth = 190.0;
+    float plankLength = 1400.0;
+    float row = floor(vPosition.z / plankWidth);
+    float stagger = hash12(vec2(row, 7.0)) * plankLength;
+    vec2 pCoord = vec2(vPosition.x + stagger, vPosition.z);
+    float col = floor(pCoord.x / plankLength);
+    vec2 cell = vec2(mod(pCoord.x, plankLength), mod(pCoord.y, plankWidth));
+    float edgeX = min(cell.x, plankLength - cell.x);
+    float edgeZ = min(cell.y, plankWidth - cell.y);
+    float seam = 1.0 - smoothstep(0.6, 2.6, min(edgeX, edgeZ));
+    float plankRand = hash12(vec2(row * 1.37, col * 2.11));
+    vec3 oak = pow(vec3(0.70, 0.54, 0.38), vec3(2.2));
+    oak *= 0.86 + plankRand * 0.26;
+    float rings = sin(cell.y * 0.11 + sin(cell.x * 0.0045 + plankRand * 20.0) * 6.0 + plankRand * 40.0);
+    float fibre = sin(cell.y * 0.95 + cell.x * 0.002 + plankRand * 13.0);
+    oak *= 1.0 + rings * 0.06 + fibre * 0.025;
+    albedo = mix(albedo, oak, 0.92) * (1.0 - seam * 0.45);
+    roughness = 0.36;
+  }
 
-  // Day mode bright sunlight entering at an angle
-  vec3 sunContrib = vec3(0.0);
-  vec3 sunSpecContrib = vec3(0.0);
-  if (uLightingMode == 1) {
+  // Subtle procedural grain on wood-coloured furniture decors
+  bool isWood = (!isFloor && !isWall && !isGlass && vColor.a > 0.9 &&
+                 vColor.r > vColor.b * 1.08 && (vColor.r - vColor.b) > 0.045 &&
+                 vColor.r > 0.22 && vColor.b < 0.88);
+  if (isWood) {
+    float u = (abs(norm.y) < 0.5) ? dot(vPosition.xz, vec2(-norm.z, norm.x)) : vPosition.x;
+    float v = (abs(norm.y) < 0.5) ? vPosition.y : vPosition.z;
+    float grainWave = sin(u * 0.45 + sin(v * 0.015) * 3.5);
+    float fineGrain = sin(u * 1.8 + sin(v * 0.04) * 4.0);
+    float microFibers = sin(u * 6.0 + v * 0.2) * 0.5 + 0.5;
+    float grain = grainWave * 0.05 + fineGrain * 0.025 + (microFibers - 0.5) * 0.02;
+    albedo *= (1.0 + grain);
+    roughness = 0.58;
+  }
+
+  // Hemispheric ambient (sky / bounced floor light)
+  vec3 skyCol = evening ? vec3(0.34, 0.32, 0.30) : vec3(0.46, 0.50, 0.56);
+  vec3 groundCol = evening ? vec3(0.17, 0.145, 0.12) : vec3(0.27, 0.25, 0.22);
+  vec3 ambient = mix(groundCol, skyCol, norm.y * 0.5 + 0.5);
+
+  // Ambient occlusion: wide kernel on upward faces, tight on vertical ones
+  float upFacing = smoothstep(0.3, 0.9, norm.y);
+  float vis = uUseShadows ? shadowVisibility(vPosition, norm, mix(4.0, 170.0, upFacing)) : 1.0;
+  // Top-down shadow map is only meaningful on horizontal faces; avoid speckle on vertical panels
+  vis = mix(1.0, vis, smoothstep(0.25, 0.75, abs(norm.y)));
+  vis = mix(vis, vis * vis, upFacing);
+  float ao = mix(mix(0.70, 1.0, vis), mix(0.26, 1.0, vis), upFacing);
+  float vertical = 1.0 - abs(norm.y);
+  ao *= mix(1.0, mix(0.66, 1.0, smoothstep(0.0, 320.0, vPosition.y)), vertical * (isWall ? 1.0 : 0.55));
+  if (isWall) ao *= mix(0.80, 1.0, smoothstep(0.0, 260.0, uRoomHeight - vPosition.y));
+
+  float NdV = max(dot(norm, viewDir), 1e-3);
+  float alpha = roughness * roughness;
+
+  // Ceiling light (warm point light, inverse-square falloff in metres)
+  vec3 toLight = uLightPos - vPosition;
+  float dist = length(toLight);
+  vec3 L = toLight / max(dist, 1.0);
+  float dM = dist * 0.001;
+  float atten = 1.6 / (1.0 + 0.30 * dM * dM);
+  vec3 lightCol = uLightColor * (evening ? 1.9 : 1.2) * atten * vis;
+  float NdL = max(dot(norm, L), 0.0);
+  vec3 H = normalize(L + viewDir);
+  float NdH = max(dot(norm, H), 0.0);
+  float VdH = max(dot(viewDir, H), 0.0);
+  float F = f0 + (1.0 - f0) * pow(1.0 - VdH, 5.0);
+  float specTerm = distributionGGX(NdH, alpha) * visibilitySmith(NdL, NdV, alpha) * F * PI;
+  vec3 diffuse = lightCol * NdL;
+  vec3 specular = lightCol * NdL * specTerm;
+
+  if (!evening) {
+    // Daylight sun through the windows
     vec3 sunDir = normalize(vec3(0.55, 0.82, -0.42));
-    float sunDiff = max(dot(norm, sunDir), 0.0) * 0.90;
-    vec3 sunHalfDir = normalize(sunDir + viewDir);
-    float sunSpec = pow(max(dot(norm, sunHalfDir), 0.0), shininess) * specStrength * 0.85;
-    vec3 sunColor = vec3(1.10, 1.08, 1.02);
-    sunContrib = sunDiff * sunColor;
-    sunSpecContrib = sunSpec * sunColor;
-  }
-
-  // Directional key / angle light for 3D depth and shape definition
-  vec3 keyDir = normalize(vec3(0.35, 0.85, 0.4));
-  float keyDiff = (uLightingMode == 1) ? 0.0 : (max(dot(norm, keyDir), 0.0) * 0.28);
-
-  // Indirect interior diffuse bounce (room walls reflecting light back)
-  float bounce = 0.14;
-  float camFill = max(dot(norm, viewDir), 0.0) * 0.10;
-
-  // Composite lighting for surfaces
-  vec3 lighting = ambient + directDiffuse + sunContrib + keyDiff + camFill + bounce;
-  vec3 totalSpec = directSpec + sunSpecContrib;
-
-  // Floor subtle contact darkening near base
-  if (vPosition.y < 4.0) {
-    lighting *= 0.95;
-  }
-
-  vec3 surfaceColor;
-  if (isGlass > 0.5) {
-    // Glass has high transparency and specular highlights
-    surfaceColor = albedoLinear * (ambient * 0.6 + totalSpec * 1.5) + totalSpec;
+    vec3 sunCol = vec3(1.45, 1.40, 1.30) * mix(0.55, 1.0, vis);
+    float sNdL = max(dot(norm, sunDir), 0.0);
+    vec3 sH = normalize(sunDir + viewDir);
+    float sF = f0 + (1.0 - f0) * pow(1.0 - max(dot(viewDir, sH), 0.0), 5.0);
+    float sSpec = distributionGGX(max(dot(norm, sH), 0.0), alpha) * visibilitySmith(sNdL, NdV, alpha) * sF * PI;
+    diffuse += sunCol * sNdL;
+    specular += sunCol * sNdL * sSpec;
   } else {
-    surfaceColor = albedoLinear * lighting + totalSpec;
-
-    // Floor procedural texture: for floor faces (where vPosition.y < 2.0)
-    if (vPosition.y < 2.0 && norm.y > 0.5) {
-      float plankWidth = 200.0;
-      float plankLength = 1200.0;
-      float row = floor(vPosition.z / plankWidth);
-      float stagger = mod(row * 400.0, plankLength);
-      vec2 pCoord = vec2(vPosition.x + stagger, vPosition.z);
-      vec2 cell = mod(pCoord, vec2(plankLength, plankWidth));
-      float edgeX = min(cell.x, plankLength - cell.x);
-      float edgeZ = min(cell.y, plankWidth - cell.y);
-      float seam = 1.0 - smoothstep(0.8, 3.2, min(edgeX, edgeZ));
-
-      // Subtle per-plank tone variation
-      float plankId = sin(row * 127.1 + floor(pCoord.x / plankLength) * 311.7);
-      float plankTone = fract(plankId * 43758.5453) * 0.05 - 0.025;
-      surfaceColor = surfaceColor * (1.0 + plankTone) * (1.0 - seam * 0.16);
-    }
-
-    // Wood grain: for wooden materials / decors, add subtle procedural micro-grain along length of parts
-    bool isWood = (vPosition.y >= 2.0 && vColor.a > 0.9 &&
-                   vColor.r > vColor.b * 1.08 && (vColor.r - vColor.b) > 0.045 &&
-                   vColor.r > 0.22 && vColor.b < 0.88);
-    if (isWood) {
-      float u = (abs(norm.y) < 0.5) ? dot(vPosition.xz, vec2(-norm.z, norm.x)) : vPosition.x;
-      float v = (abs(norm.y) < 0.5) ? vPosition.y : vPosition.z;
-
-      float grainWave = sin(u * 0.45 + sin(v * 0.015) * 3.5);
-      float fineGrain = sin(u * 1.8 + sin(v * 0.04) * 4.0);
-      float microFibers = sin(u * 6.0 + v * 0.2) * 0.5 + 0.5;
-
-      float grain = grainWave * 0.035 + fineGrain * 0.02 + (microFibers - 0.5) * 0.02;
-      surfaceColor *= (1.0 + grain);
-    }
+    // Soft warm key light to model furniture volumes
+    vec3 keyDir = normalize(vec3(0.35, 0.85, 0.4));
+    diffuse += vec3(0.24, 0.22, 0.19) * max(dot(norm, keyDir), 0.0) * ao;
   }
 
-  // Extended Reinhard tone mapping with white point calibration:
-  // Maps linear HDR light smoothly into displayable range, keeping white pure and crisp (RGB 240-255)
-  // while preventing blowout or flat clipping.
-  vec3 exposed = surfaceColor * 1.20;
-  float whitePoint = 2.2;
-  vec3 mapped = (exposed * (vec3(1.0) + exposed / (whitePoint * whitePoint))) / (vec3(1.0) + exposed);
-  mapped = clamp(mapped, 0.0, 1.0);
+  // Environment reflection (fresnel-weighted sky / floor)
+  vec3 R = reflect(-viewDir, norm);
+  vec3 env = mix(groundCol, skyCol * 1.35, smoothstep(-0.2, 0.6, R.y));
+  float fresnelV = f0 + (1.0 - f0) * pow(1.0 - NdV, 5.0);
+  vec3 envSpec = env * fresnelV * (1.0 - roughness) * 0.9 * ao;
 
-  // Gamma correction to sRGB
+  vec3 color;
+  float outAlpha = vColor.a;
+  if (isGlass) {
+    float gF = 0.04 + 0.96 * pow(1.0 - NdV, 5.0);
+    color = albedo * ambient * 0.35 + env * (0.12 + gF * 0.6) + min(specular, vec3(0.6));
+    outAlpha = clamp(vColor.a + gF * 0.45, 0.0, 0.92);
+  } else {
+    color = albedo * (ambient * ao + diffuse) + specular + envSpec;
+  }
+
+  // Filmic ACES tone mapping, gamma, light warm grade and lens vignette
+  float exposure = evening ? 1.12 : 1.0;
+  vec3 mapped = acesFilm(color * exposure);
   vec3 finalColor = pow(mapped, vec3(1.0 / 2.2));
-
-  gl_FragColor = vec4(finalColor, vColor.a);
+  if (evening) finalColor *= vec3(1.015, 1.0, 0.975);
+  finalColor *= vignette();
+  gl_FragColor = vec4(clamp(finalColor, 0.0, 1.0), outAlpha);
 }
 `;
 
@@ -334,12 +376,59 @@ void main() {
 }
 `;
 
+// Depth packed into two 8-bit channels (16-bit precision) for WebGL1.
 const SHADOW_FS = `
 precision mediump float;
 
 void main() {
   float depth = gl_FragCoord.z;
-  gl_FragColor = vec4(depth, fract(depth * 255.0), 0.0, 1.0);
+  float hi = floor(depth * 255.0) / 255.0;
+  float lo = fract(depth * 255.0);
+  gl_FragColor = vec4(hi, lo, 0.0, 1.0);
+}
+`;
+
+// Studio backdrop: soft vertical gradient with vignette behind the room.
+const BACKGROUND_VS = `
+attribute vec2 aPos;
+void main() {
+  gl_Position = vec4(aPos, 0.999, 1.0);
+}
+`;
+
+const BACKGROUND_FS = `
+precision mediump float;
+uniform vec2 uResolution;
+uniform int uLightingMode;
+void main() {
+  vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
+  vec3 top = uLightingMode == 1 ? vec3(0.86, 0.90, 0.95) : vec3(0.88, 0.88, 0.87);
+  vec3 bottom = uLightingMode == 1 ? vec3(0.72, 0.75, 0.79) : vec3(0.69, 0.67, 0.64);
+  vec3 c = mix(bottom, top, smoothstep(0.0, 1.0, uv.y));
+  float d = length((uv - 0.5) * vec2(1.12, 1.0)) * 1.32;
+  c *= clamp(1.0 - 0.30 * pow(d, 2.6), 0.0, 1.0);
+  gl_FragColor = vec4(c, 1.0);
+}
+`;
+
+// Thin darkened outlines on furniture panel edges for crisp joinery reading.
+const EDGE_VS = `
+attribute vec3 aPosition;
+attribute vec4 aColor;
+uniform mat4 uProjectionMatrix;
+uniform mat4 uViewMatrix;
+varying vec4 vColor;
+void main() {
+  vColor = aColor;
+  gl_Position = uProjectionMatrix * uViewMatrix * vec4(aPosition, 1.0);
+}
+`;
+
+const EDGE_FS = `
+precision mediump float;
+varying vec4 vColor;
+void main() {
+  gl_FragColor = vColor;
 }
 `;
 
@@ -424,6 +513,7 @@ export class RoomWebGLRenderer {
         position: gl.getAttribLocation(this.mainProgram, 'aPosition'),
         normal: gl.getAttribLocation(this.mainProgram, 'aNormal'),
         color: gl.getAttribLocation(this.mainProgram, 'aColor'),
+        material: gl.getAttribLocation(this.mainProgram, 'aMaterial'),
       };
       this.mainUniforms = {
         projection: gl.getUniformLocation(this.mainProgram, 'uProjectionMatrix'),
@@ -435,6 +525,9 @@ export class RoomWebGLRenderer {
         shadowMap: gl.getUniformLocation(this.mainProgram, 'uShadowMap'),
         useShadows: gl.getUniformLocation(this.mainProgram, 'uUseShadows'),
         lightingMode: gl.getUniformLocation(this.mainProgram, 'uLightingMode'),
+        resolution: gl.getUniformLocation(this.mainProgram, 'uResolution'),
+        roomHeight: gl.getUniformLocation(this.mainProgram, 'uRoomHeight'),
+        shadowTexel: gl.getUniformLocation(this.mainProgram, 'uShadowTexel'),
       };
 
       this.shadowProgram = createProgram(gl, SHADOW_VS, SHADOW_FS);
@@ -444,6 +537,28 @@ export class RoomWebGLRenderer {
       this.shadowUniforms = {
         lightSpace: gl.getUniformLocation(this.shadowProgram, 'uLightSpaceMatrix'),
       };
+
+      this.bgProgram = createProgram(gl, BACKGROUND_VS, BACKGROUND_FS);
+      this.bgAttribs = { pos: gl.getAttribLocation(this.bgProgram, 'aPos') };
+      this.bgUniforms = {
+        resolution: gl.getUniformLocation(this.bgProgram, 'uResolution'),
+        lightingMode: gl.getUniformLocation(this.bgProgram, 'uLightingMode'),
+      };
+      this.bgVbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.bgVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+      this.edgeProgram = createProgram(gl, EDGE_VS, EDGE_FS);
+      this.edgeAttribs = {
+        position: gl.getAttribLocation(this.edgeProgram, 'aPosition'),
+        color: gl.getAttribLocation(this.edgeProgram, 'aColor'),
+      };
+      this.edgeUniforms = {
+        projection: gl.getUniformLocation(this.edgeProgram, 'uProjectionMatrix'),
+        view: gl.getUniformLocation(this.edgeProgram, 'uViewMatrix'),
+      };
+      this.edgeVbo = gl.createBuffer();
+      this.edgeVertexCount = 0;
 
       this.initShadowFBO();
       this.vbo = gl.createBuffer();
@@ -459,8 +574,9 @@ export class RoomWebGLRenderer {
     this.shadowTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.shadowSize, this.shadowSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // Packed depth must not be interpolated between texels.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
@@ -679,21 +795,35 @@ export class RoomWebGLRenderer {
     const casterFloats = [];
     const opaqueFloats = [];
     const transparentFloats = [];
+    const edgeFloats = [];
+    const edgeKeys = new Set();
+    const FLOATS = 11; // pos(3) normal(3) color(4) material(1)
 
-    const pushPoly = (targetArray, points, normal, colorRGBA) => {
+    const pushPoly = (targetArray, points, normal, colorRGBA, materialId = MATERIAL.furniture) => {
       if (points.length < 3) return;
       const pushV = p => {
-        targetArray.push(p[0], p[1], p[2], normal[0], normal[1], normal[2], colorRGBA[0], colorRGBA[1], colorRGBA[2], colorRGBA[3]);
+        targetArray.push(p[0], p[1], p[2], normal[0], normal[1], normal[2], colorRGBA[0], colorRGBA[1], colorRGBA[2], colorRGBA[3], materialId);
       };
-      if (points.length === 3) {
-        pushV(points[0]); pushV(points[1]); pushV(points[2]);
-      } else if (points.length === 4) {
-        pushV(points[0]); pushV(points[1]); pushV(points[2]);
-        pushV(points[0]); pushV(points[2]); pushV(points[3]);
-      } else {
-        for (let i = 1; i < points.length - 1; i++) {
-          pushV(points[0]); pushV(points[i]); pushV(points[i + 1]);
-        }
+      for (let i = 1; i < points.length - 1; i++) {
+        pushV(points[0]); pushV(points[i]); pushV(points[i + 1]);
+      }
+    };
+
+    // Shared panel edges are emitted once, in a darkened tone of the panel decor.
+    const pushEdges = (points, rgb) => {
+      const lum = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+      const edge = lum < 0.28
+        ? [Math.min(1, rgb[0] + 0.16), Math.min(1, rgb[1] + 0.16), Math.min(1, rgb[2] + 0.16), 0.35]
+        : [rgb[0] * 0.42, rgb[1] * 0.42, rgb[2] * 0.42, 0.42];
+      const key = p => `${Math.round(p[0] * 2)},${Math.round(p[1] * 2)},${Math.round(p[2] * 2)}`;
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i], b = points[(i + 1) % points.length];
+        const ka = key(a), kb = key(b);
+        if (ka === kb) continue;
+        const k = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+        if (edgeKeys.has(k)) continue;
+        edgeKeys.add(k);
+        edgeFloats.push(a[0], a[1], a[2], ...edge, b[0], b[1], b[2], ...edge);
       }
     };
 
@@ -714,7 +844,7 @@ export class RoomWebGLRenderer {
 
       // Handle window glass and architectural window framing
       if (f.window && f.points.length === 4) {
-        const [p0, p1, p2, p3] = f.points;
+        const [p0, p1, , p3] = f.points;
         const wLen = Math.hypot(p1[0] - p0[0], p1[2] - p0[2]);
         const hLen = Math.abs(p3[1] - p0[1]);
 
@@ -722,39 +852,33 @@ export class RoomWebGLRenderer {
           const ux = (p1[0] - p0[0]) / wLen, uz = (p1[2] - p0[2]) / wLen;
           const fw = Math.min(45, wLen * 0.08); // frame border width
 
-          // Clean architectural window frame colors (warm neutral graphite & sill)
-          const frameColor = [0.82, 0.83, 0.82, 1.0];
-          const sillColor = [0.86, 0.85, 0.81, 1.0];
-          const glassColor = [0.68, 0.80, 0.90, 0.28]; // Transparent glass
+          const frameColor = [0.93, 0.93, 0.92, 1.0];
+          const sillColor = [0.90, 0.89, 0.86, 1.0];
+          const glassColor = [0.70, 0.82, 0.92, 0.22];
 
-          // 1. Window Sill at bottom
+          // 1. Window sill at bottom
           const sillExt = 40;
           const s0 = [p0[0] - ux * 25 + norm[0] * sillExt, p0[1], p0[2] - uz * 25 + norm[2] * sillExt];
           const s1 = [p1[0] + ux * 25 + norm[0] * sillExt, p1[1], p1[2] + uz * 25 + norm[2] * sillExt];
           pushPoly(opaqueFloats, [s0, s1, [s1[0], s1[1] - 22, s1[2]], [s0[0], s0[1] - 22, s0[2]]], norm, sillColor);
           pushPoly(opaqueFloats, [s0, s1, [p1[0] + ux * 25, p1[1], p1[2] + uz * 25], [p0[0] - ux * 25, p0[1], p0[2] - uz * 25]], [0, 1, 0], sillColor);
 
-          // 2. Outer 4-edge Window Frame
+          // 2. Outer 4-edge window frame
           const pt = (u, v, inset = 0) => [p0[0] + ux * u + norm[0] * inset, p0[1] + v, p0[2] + uz * u + norm[2] * inset];
-          // Bottom rail
           pushPoly(opaqueFloats, [pt(0, 0, 8), pt(wLen, 0, 8), pt(wLen, fw, 8), pt(0, fw, 8)], norm, frameColor);
-          // Top rail
           pushPoly(opaqueFloats, [pt(0, hLen - fw, 8), pt(wLen, hLen - fw, 8), pt(wLen, hLen, 8), pt(0, hLen, 8)], norm, frameColor);
-          // Left stile
           pushPoly(opaqueFloats, [pt(0, fw, 8), pt(fw, fw, 8), pt(fw, hLen - fw, 8), pt(0, hLen - fw, 8)], norm, frameColor);
-          // Right stile
           pushPoly(opaqueFloats, [pt(wLen - fw, fw, 8), pt(wLen, fw, 8), pt(wLen, hLen - fw, 8), pt(wLen - fw, hLen - fw, 8)], norm, frameColor);
 
-          // 3. Central Mullion Bar for wider windows
+          // 3. Central mullion bar for wider windows
           if (wLen > 750) {
             const mw = 30, mx = wLen * 0.5;
             pushPoly(opaqueFloats, [pt(mx - mw / 2, fw, 8), pt(mx + mw / 2, fw, 8), pt(mx + mw / 2, hLen - fw, 8), pt(mx - mw / 2, hLen - fw, 8)], norm, frameColor);
           }
 
-          // 4. Transparent Glass Pane recessed inside frame
+          // 4. Transparent glass pane recessed inside frame
           const g0 = pt(fw, fw, -10), g1 = pt(wLen - fw, fw, -10), g2 = pt(wLen - fw, hLen - fw, -10), g3 = pt(fw, hLen - fw, -10);
-          pushPoly(transparentFloats, [g0, g1, g2, g3], norm, glassColor);
-          pushPoly(transparentFloats, [g3, g2, g1, g0], [-norm[0], -norm[1], -norm[2]], glassColor);
+          pushPoly(transparentFloats, [g0, g1, g2, g3], norm, glassColor, MATERIAL.glass);
         }
         continue;
       }
@@ -766,42 +890,45 @@ export class RoomWebGLRenderer {
       const isTransparent = f.doorLeaf || (f.opacity !== undefined && f.opacity < 0.9);
       const alpha = isTransparent ? (f.opacity ?? 0.85) : 1.0;
       const rgba = [rgb[0], rgb[1], rgb[2], alpha];
+      const materialId = f.room ? (f.floor ? MATERIAL.floor : MATERIAL.wall) : MATERIAL.furniture;
 
-      // Furniture casters (only cabinets, drawers, doors, shelves cast shadows!)
-      // Room walls and floor DO NOT cast shadows onto the floor.
+      // Only furniture casts into the overhead shadow / occlusion map.
       const isFurnitureCaster = !f.room && !isTransparent;
       if (isFurnitureCaster) {
-        pushPoly(casterFloats, f.points, norm, rgba);
+        pushPoly(casterFloats, f.points, norm, rgba, materialId);
+        if (f.stroke !== 'transparent') pushEdges(f.points, rgb);
       }
 
       if (isTransparent) {
-        pushPoly(transparentFloats, f.points, norm, rgba);
+        pushPoly(transparentFloats, f.points, norm, rgba, materialId);
       } else {
-        pushPoly(opaqueFloats, f.points, norm, rgba);
+        pushPoly(opaqueFloats, f.points, norm, rgba, materialId);
       }
     }
 
-    // Modern glowing ceiling chandelier fixture
+    // Round ceiling luminaire: emissive diffuser with a satin trim ring
     if (this.lightPos) {
       const lx = this.lightPos[0], ly = this.lightPos[1], lz = this.lightPos[2];
-      const r = 55;
-      const count = 16;
-      const trimColor = [0.82, 0.82, 0.80, 1.0];
-      const glowColor = this.lightingMode === 'day' ? [0.85, 0.85, 0.82, 1.0] : [0.98, 0.96, 0.90, 1.0];
+      const r = 180;
+      const count = 32;
+      const trimColor = [0.90, 0.90, 0.88, 1.0];
+      const glowColor = [1.0, 0.98, 0.94, 1.0];
 
       for (let i = 0; i < count; i++) {
         const a1 = (i / count) * Math.PI * 2, a2 = ((i + 1) / count) * Math.PI * 2;
-        const norm = [0, -1, 0];
-        // Inner glowing diffuser
-        const p0 = [lx, ly, lz];
-        const p1 = [lx + Math.cos(a1) * (r - 12), ly, lz + Math.sin(a1) * (r - 12)];
-        const p2 = [lx + Math.cos(a2) * (r - 12), ly, lz + Math.sin(a2) * (r - 12)];
-        pushPoly(opaqueFloats, [p0, p1, p2], norm, glowColor);
+        const down = [0, -1, 0];
+        const c0 = [lx, ly - 30, lz];
+        const p1 = [lx + Math.cos(a1) * (r - 18), ly - 30, lz + Math.sin(a1) * (r - 18)];
+        const p2 = [lx + Math.cos(a2) * (r - 18), ly - 30, lz + Math.sin(a2) * (r - 18)];
+        pushPoly(opaqueFloats, [c0, p1, p2], down, glowColor, MATERIAL.emissive);
 
-        // Outer trim ring
-        const t1 = [lx + Math.cos(a1) * r, ly - 2, lz + Math.sin(a1) * r];
-        const t2 = [lx + Math.cos(a2) * r, ly - 2, lz + Math.sin(a2) * r];
-        pushPoly(opaqueFloats, [p1, t1, t2, p2], norm, trimColor);
+        const t1 = [lx + Math.cos(a1) * r, ly - 30, lz + Math.sin(a1) * r];
+        const t2 = [lx + Math.cos(a2) * r, ly - 30, lz + Math.sin(a2) * r];
+        pushPoly(opaqueFloats, [p1, t1, t2, p2], down, trimColor);
+        // Outer rim of the fitting
+        const u1 = [t1[0], ly, t1[2]], u2 = [t2[0], ly, t2[2]];
+        const mid = (a1 + a2) / 2;
+        pushPoly(opaqueFloats, [t1, u1, u2, t2], [Math.cos(mid), 0, Math.sin(mid)], trimColor);
       }
     }
 
@@ -809,17 +936,25 @@ export class RoomWebGLRenderer {
     // [0 .. casterFloats] -> used for shadow map depth pass
     // [casterFloats .. opaqueFloats] -> used for opaque pass
     // [opaqueFloats .. transparentFloats] -> used for transparent pass
-    this.casterVertexCount = casterFloats.length / 10;
-    this.opaqueOffset = casterFloats.length / 10;
-    this.opaqueVertexCount = opaqueFloats.length / 10;
-    this.transparentOffset = (casterFloats.length + opaqueFloats.length) / 10;
-    this.transparentVertexCount = transparentFloats.length / 10;
+    this.casterVertexCount = casterFloats.length / FLOATS;
+    this.opaqueOffset = casterFloats.length / FLOATS;
+    this.opaqueVertexCount = opaqueFloats.length / FLOATS;
+    this.transparentOffset = (casterFloats.length + opaqueFloats.length) / FLOATS;
+    this.transparentVertexCount = transparentFloats.length / FLOATS;
 
-    const fullBuffer = new Float32Array([...casterFloats, ...opaqueFloats, ...transparentFloats]);
+    const fullBuffer = new Float32Array(casterFloats.length + opaqueFloats.length + transparentFloats.length);
+    fullBuffer.set(casterFloats, 0);
+    fullBuffer.set(opaqueFloats, casterFloats.length);
+    fullBuffer.set(transparentFloats, casterFloats.length + opaqueFloats.length);
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, fullBuffer, gl.STATIC_DRAW);
+
+    this.edgeVertexCount = edgeFloats.length / 7;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(edgeFloats), gl.STATIC_DRAW);
   }
+
 
   resize() {
     if (!this.canvas) return;
@@ -862,7 +997,7 @@ export class RoomWebGLRenderer {
     const totalVertices = this.opaqueVertexCount + this.transparentVertexCount;
     if (!totalVertices) return;
 
-    const stride = 10 * 4; // 10 floats per vertex: pos(3), norm(3), color(4)
+    const stride = 11 * 4; // 11 floats per vertex: pos(3), norm(3), color(4), material(1)
     const lightSpaceMatrix = this.computeLightSpaceMatrix();
 
     // 1. Render Shadow Depth Pass (furniture casters only)
@@ -886,13 +1021,27 @@ export class RoomWebGLRenderer {
 
     // 2. Main Render Pass
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    // Soft architectural neutral backdrop (studio lighting)
+    // Fallback clear colour (overdrawn by the gradient backdrop)
     if (this.lightingMode === 'day') {
       gl.clearColor(0.92, 0.94, 0.96, 1.0);
     } else {
       gl.clearColor(0.86, 0.88, 0.87, 1.0);
     }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // 2-pre. Studio gradient backdrop
+    if (this.bgProgram && this.bgVbo) {
+      gl.disable(gl.DEPTH_TEST);
+      gl.useProgram(this.bgProgram);
+      gl.uniform2f(this.bgUniforms.resolution, this.canvas.width, this.canvas.height);
+      gl.uniform1i(this.bgUniforms.lightingMode, this.lightingMode === 'day' ? 1 : 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.bgVbo);
+      gl.enableVertexAttribArray(this.bgAttribs.pos);
+      gl.vertexAttribPointer(this.bgAttribs.pos, 2, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.disableVertexAttribArray(this.bgAttribs.pos);
+      gl.enable(gl.DEPTH_TEST);
+    }
 
     gl.useProgram(this.mainProgram);
 
@@ -913,35 +1062,76 @@ export class RoomWebGLRenderer {
     gl.uniform3fv(this.mainUniforms.cameraPos, eye);
     gl.uniform1i(this.mainUniforms.useShadows, 1);
     gl.uniform1i(this.mainUniforms.lightingMode, this.lightingMode === 'day' ? 1 : 0);
+    gl.uniform2f(this.mainUniforms.resolution, this.canvas.width, this.canvas.height);
+    gl.uniform1f(this.mainUniforms.roomHeight, (this.roomBounds && this.roomBounds.height) || 2700);
+    gl.uniform1f(this.mainUniforms.shadowTexel, 1 / (this.shadowSize || 2048));
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
     gl.uniform1i(this.mainUniforms.shadowMap, 0);
 
+    const hasMaterial = this.mainAttribs.material >= 0;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.enableVertexAttribArray(this.mainAttribs.position);
     gl.enableVertexAttribArray(this.mainAttribs.normal);
     gl.enableVertexAttribArray(this.mainAttribs.color);
+    if (hasMaterial) gl.enableVertexAttribArray(this.mainAttribs.material);
 
     gl.vertexAttribPointer(this.mainAttribs.position, 3, gl.FLOAT, false, stride, 0);
     gl.vertexAttribPointer(this.mainAttribs.normal, 3, gl.FLOAT, false, stride, 3 * 4);
     gl.vertexAttribPointer(this.mainAttribs.color, 4, gl.FLOAT, false, stride, 6 * 4);
+    if (hasMaterial) gl.vertexAttribPointer(this.mainAttribs.material, 1, gl.FLOAT, false, stride, 10 * 4);
 
-    // 2a. Opaque Pass (furniture, walls, floor, frames)
+    // 2a. Opaque Pass (furniture, walls, floor, frames); polygon offset keeps edge lines crisp
     if (this.opaqueVertexCount > 0) {
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(1, 1);
       gl.drawArrays(gl.TRIANGLES, this.opaqueOffset, this.opaqueVertexCount);
-    }
-
-    // 2b. Transparent Pass (window glass, door leaves) with alpha blending
-    if (this.transparentVertexCount > 0) {
-      gl.depthMask(false);
-      gl.drawArrays(gl.TRIANGLES, this.transparentOffset, this.transparentVertexCount);
-      gl.depthMask(true);
+      gl.disable(gl.POLYGON_OFFSET_FILL);
     }
 
     gl.disableVertexAttribArray(this.mainAttribs.position);
     gl.disableVertexAttribArray(this.mainAttribs.normal);
     gl.disableVertexAttribArray(this.mainAttribs.color);
+    if (hasMaterial) gl.disableVertexAttribArray(this.mainAttribs.material);
+
+    // 2b. Panel edge outlines (separate seams between boards)
+    if (this.edgeProgram && this.edgeVertexCount > 0) {
+      gl.useProgram(this.edgeProgram);
+      gl.uniformMatrix4fv(this.edgeUniforms.projection, false, projMatrix);
+      gl.uniformMatrix4fv(this.edgeUniforms.view, false, viewMatrix);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeVbo);
+      gl.enableVertexAttribArray(this.edgeAttribs.position);
+      gl.enableVertexAttribArray(this.edgeAttribs.color);
+      gl.vertexAttribPointer(this.edgeAttribs.position, 3, gl.FLOAT, false, 7 * 4, 0);
+      gl.vertexAttribPointer(this.edgeAttribs.color, 4, gl.FLOAT, false, 7 * 4, 3 * 4);
+      gl.depthMask(false);
+      gl.drawArrays(gl.LINES, 0, this.edgeVertexCount);
+      gl.depthMask(true);
+      gl.disableVertexAttribArray(this.edgeAttribs.position);
+      gl.disableVertexAttribArray(this.edgeAttribs.color);
+    }
+
+    // 2c. Transparent Pass (window glass, door leaves) with alpha blending
+    if (this.transparentVertexCount > 0) {
+      gl.useProgram(this.mainProgram);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+      gl.enableVertexAttribArray(this.mainAttribs.position);
+      gl.enableVertexAttribArray(this.mainAttribs.normal);
+      gl.enableVertexAttribArray(this.mainAttribs.color);
+      if (hasMaterial) gl.enableVertexAttribArray(this.mainAttribs.material);
+      gl.vertexAttribPointer(this.mainAttribs.position, 3, gl.FLOAT, false, stride, 0);
+      gl.vertexAttribPointer(this.mainAttribs.normal, 3, gl.FLOAT, false, stride, 3 * 4);
+      gl.vertexAttribPointer(this.mainAttribs.color, 4, gl.FLOAT, false, stride, 6 * 4);
+      if (hasMaterial) gl.vertexAttribPointer(this.mainAttribs.material, 1, gl.FLOAT, false, stride, 10 * 4);
+      gl.depthMask(false);
+      gl.drawArrays(gl.TRIANGLES, this.transparentOffset, this.transparentVertexCount);
+      gl.depthMask(true);
+      gl.disableVertexAttribArray(this.mainAttribs.position);
+      gl.disableVertexAttribArray(this.mainAttribs.normal);
+      gl.disableVertexAttribArray(this.mainAttribs.color);
+      if (hasMaterial) gl.disableVertexAttribArray(this.mainAttribs.material);
+    }
   }
 
   attachEvents() {
@@ -1174,6 +1364,10 @@ export class RoomWebGLRenderer {
       if (this.shadowFBO) this.gl.deleteFramebuffer(this.shadowFBO);
       if (this.shadowTexture) this.gl.deleteTexture(this.shadowTexture);
       if (this.shadowDepthRB) this.gl.deleteRenderbuffer(this.shadowDepthRB);
+      if (this.bgVbo) this.gl.deleteBuffer(this.bgVbo);
+      if (this.edgeVbo) this.gl.deleteBuffer(this.edgeVbo);
+      if (this.bgProgram) this.gl.deleteProgram(this.bgProgram);
+      if (this.edgeProgram) this.gl.deleteProgram(this.edgeProgram);
     }
   }
 }
