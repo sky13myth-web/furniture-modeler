@@ -250,13 +250,19 @@ export function checkImport(project) {
   for (const window of project.room.windows) {
     record(window, 'окно');
     uniqueId(window.id, windowIds, 'Окно');
-    if (window.kind !== undefined && !['window', 'door'].includes(window.kind)) fail('Проём: неизвестный вид.');
+    if (window.kind !== undefined && !['window', 'door', 'pipe', 'box'].includes(window.kind)) fail('Проём: неизвестный вид.');
     if (window.wallIndex !== undefined) {
       if (!Number.isInteger(window.wallIndex) || window.wallIndex < 0 || window.wallIndex >= (project.room.outline?.length ?? 4)) fail('Окно: неизвестная стена.');
     } else if (!['back', 'left', 'right', 'front'].includes(window.wall)) fail('Окно: неизвестная стена.');
     for (const [key, label] of [['width', 'ширина'], ['height', 'высота']]) finite(window[key], `Окно: ${label}`, 20000, true);
     if (typeof window.offset !== 'number' || !Number.isFinite(window.offset) || Math.abs(window.offset) > 20000) fail('Окно: отступ от угла вне допустимого диапазона.');
     finite(window.sill, 'Окно: высота подоконника', 20000);
+    if (window.kind === 'pipe') {
+      finite(window.diameter, 'Труба: диаметр', 1000, true);
+      finite(window.standoff, 'Труба: отступ от стены', 2000);
+      if (window.orientation !== undefined && !['vertical', 'horizontal'].includes(window.orientation)) fail('Труба: неизвестное направление.');
+    }
+    if (window.kind === 'box') finite(window.depth, 'Короб: глубина', 5000, true);
   }
 
   finite(project.settings.kerf, 'Раскрой: ширина пропила', 20);

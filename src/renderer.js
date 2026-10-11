@@ -8,6 +8,7 @@ import { productionPartCode } from './production-id.js';
 import { contourMarkerRegions } from './contour-markers.js';
 import { getDocumentInfo, printDocumentText, documentMetadataLine } from './print-document.js';
 import { renderUnifiedCountertops, isBaseCabinet } from './countertop.js';
+import { roomObstacles, roomOpenings, obstacleGeometry } from './room-obstacles.js';
 const { getFrontLayout } = engine;
 
 const VIEWS = {
@@ -105,7 +106,7 @@ function cabinetData(project, source) {
 
 function roomData(project) {
   const room = project.room || {};
-  return { width: Math.max(500, number(room.width, 4200)), depth: Math.max(500, number(room.depth, 3000)), height: Math.max(500, number(room.height, 2600)), wallThickness: Math.max(10, number(room.wallThickness, 120)), windows: room.windows || [] };
+  return { width: Math.max(500, number(room.width, 4200)), depth: Math.max(500, number(room.depth, 3000)), height: Math.max(500, number(room.height, 2600)), wallThickness: Math.max(10, number(room.wallThickness, 120)), windows: roomOpenings(room) };
 }
 
 function rotateCabinetPoint(c, p) {
@@ -273,6 +274,106 @@ export function makeScene(project, options = {}, direction = null) {
     face(ring.map(([px,py])=>[px,py,z]),color,[0,0,-1],id,metadata);face(ring.map(([px,py])=>[px,py,z+length]),color,[0,0,1],id,metadata);
     ring.forEach(([px,py],index)=>{const [qx,qy]=ring[(index+1)%count],angle=(index+.5)*Math.PI*2/count;face([[px,py,z],[qx,qy,z],[qx,qy,z+length],[px,py,z+length]],color,[Math.cos(angle),Math.sin(angle),0],id,metadata);});
   };
+  // Cylinder between two arbitrary points (pipes, hinge cups, handle bars).
+  const cylinderAxis = (p0, p1, radius, color, extras = {}, id = null, count = 18) => {
+    const axis = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], length = Math.hypot(...axis);
+    if (!(length > 0) || !(radius > 0)) return;
+    const k = axis.map(v => v / length), ref = Math.abs(k[1]) < .9 ? [0, 1, 0] : [1, 0, 0];
+    const crossV = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const e1 = crossV(k, ref), l1 = Math.hypot(...e1), u = e1.map(v => v / l1), v = crossV(k, u);
+    const dir = i => { const a = i * Math.PI * 2 / count; return add(mul(u, Math.cos(a)), mul(v, Math.sin(a))); };
+    const ring0 = Array.from({ length: count }, (_, i) => add(p0, mul(dir(i), radius))), ring1 = ring0.map(q => add(q, axis));
+    const metadata = { ...extras, stroke: 'transparent' };
+    face([...ring0].reverse(), color, mul(k, -1), id, metadata); face(ring1, color, k, id, metadata);
+    for (let i = 0; i < count; i++) { const j = (i + 1) % count; face([ring0[i], ring0[j], ring1[j], ring1[i]], color, dir(i + .5), id, metadata); }
+  };
+  // ---- Door-local geometry -------------------------------------------------
+  // W(a, b, n) maps door coordinates to world: a along the door width from its
+  // left edge (closed state), b up from its bottom edge, n from the back face
+  // (0) through the front face (frontT) and beyond. It is a rigid motion, so
+  // directions are W(d) - W(0).
+  const sid = () => currentCabinet?.id ?? null;
+  const localDir = (W, da, db, dn) => { const o = W(0, 0, 0), q = W(da, db, dn); return [q[0] - o[0], q[1] - o[1], q[2] - o[2]]; };
+  const localPrism = (W, axis, profile, t0, t1, color, extras) => {
+    if (!(t1 > t0) || profile.length < 3) return;
+    const pt = (pq, t) => axis === 'b' ? W(pq[0], t, pq[1]) : axis === 'a' ? W(t, pq[0], pq[1]) : W(pq[0], pq[1], t);
+    const dir2 = (p, q) => axis === 'b' ? localDir(W, p, 0, q) : axis === 'a' ? localDir(W, 0, p, q) : localDir(W, p, q, 0);
+    const axisDir = axis === 'b' ? localDir(W, 0, 1, 0) : axis === 'a' ? localDir(W, 1, 0, 0) : localDir(W, 0, 0, 1);
+    const cp = profile.reduce((s, p) => s + p[0], 0) / profile.length, cq = profile.reduce((s, p) => s + p[1], 0) / profile.length;
+    face(profile.map(pq => pt(pq, t0)).reverse(), color, mul(axisDir, -1), sid(), extras);
+    face(profile.map(pq => pt(pq, t1)), color, axisDir, sid(), extras);
+    profile.forEach((p, i) => {
+      const q = profile[(i + 1) % profile.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+      let n = [(q[1] - p[1]) / len, -(q[0] - p[0]) / len];
+      if (n[0] * ((p[0] + q[0]) / 2 - cp) + n[1] * ((p[1] + q[1]) / 2 - cq) < 0) n = [-n[0], -n[1]];
+      face([pt(p, t0), pt(q, t0), pt(q, t1), pt(p, t1)], color, dir2(n[0], n[1]), sid(), extras);
+    });
+  };
+  // Chamfered rectangle whose minimum coordinates are exactly (p0, q0).
+  const octagon = (p0, q0, w, d, c = Math.min(w, d) * .28) => [[p0 + c, q0], [p0 + w - c, q0], [p0 + w, q0 + c], [p0 + w, q0 + d - c], [p0 + w - c, q0 + d], [p0 + c, q0 + d], [p0, q0 + d - c], [p0, q0 + c]];
+  const circle = (p, q, r, count = 16) => Array.from({ length: count }, (_, i) => [p + r * Math.cos(i * Math.PI * 2 / count), q + r * Math.sin(i * Math.PI * 2 / count)]);
+  // Standard furniture handle hole spacings (centre-to-centre), mm.
+  const HANDLE_SPACINGS = [320, 256, 192, 160, 128, 96];
+  const handleSpacing = available => HANDLE_SPACINGS.find(cc => cc + 24 <= available) ?? 96;
+  /**
+   * Bar ("рейлинг") handle on the front face: chamfered 12×10 mm bar on two
+   * 8×8 mm posts, 24 mm stand-off. `vertical` bars run along b, others along a.
+   * (a0, b0) is the exact minimum corner of the bar in door coordinates.
+   */
+  const barHandle = (W, frontT, { vertical, a0, b0, length }, extras) => {
+    const cc = length - 24, bar = '#a9afb2', post = '#8b9194', n0 = frontT + 24, n1 = n0 + 10;
+    if (vertical) {
+      localPrism(W, 'b', octagon(a0, n0, 12, n1 - n0), b0, b0 + length, bar, { ...extras, handlePart: 'bar' });
+      for (const pc of [b0 + 12, b0 + 12 + cc]) localPrism(W, 'n', octagon(a0 + 2, pc - 4, 8, 8, 1.5), frontT, n0, post, { ...extras, handlePart: 'post' });
+    } else {
+      localPrism(W, 'a', octagon(b0, n0, 12, n1 - n0), a0, a0 + length, bar, { ...extras, handlePart: 'bar' });
+      for (const pc of [a0 + 12, a0 + 12 + cc]) localPrism(W, 'n', octagon(pc - 4, b0 + 2, 8, 8, 1.5), frontT, n0, post, { ...extras, handlePart: 'post' });
+    }
+  };
+  /**
+   * Concealed 35 mm cup hinge (110°, clip-on) for a side-hung door.
+   * - cup Ø35 in the door back, centre 22.5 mm from the hinge edge, with
+   *   flange screws 9.5 mm towards the door centre at ±22.5 mm;
+   * - cruciform mounting plate on the side/partition inner face, centred on
+   *   the System 32 line 37 mm behind the front edge, screws 32 mm apart;
+   * - arm clipped to the plate; half-overlay (shared partition) arms carry the
+   *   9 mm crank so two doors can share one 16–18 mm partition.
+   */
+  const concealedHinge = ({ W, rightHinge, inner, station, stationY, a, fz, opened, halfOverlay }, extras) => {
+    const side = rightHinge ? 1 : -1, into = -side; // `into` points from the panel into the opening
+    const xr = (o0, o1) => [inner + into * o0, inner + into * o1].sort((p, q) => p - q);
+    const boxAt = (o0, o1, y0, y1, z0, z1, color, part) => { const [xa, xb] = xr(o0, o1); rawBox(xa, y0, z0, xb - xa, y1 - y0, z1 - z0, color, sid(), { ...extras, hingePart: part }); };
+    const steel = '#c3cacd', dark = '#7d878b', zp = fz - 37;
+    // Cup flange (exactly one face per hinge for hit tests), rim and knuckle boss.
+    const cupFace = circle(a, station, 19, 20).map(([p, q]) => W(p, q, -1.5));
+    face([...cupFace].reverse(), '#b0b8bc', null, sid(), { ...extras, hingePart: 'cup' });
+    localPrism(W, 'n', circle(a, station, 19, 20), -1.5, -.01, '#b8c0c3', { ...extras, hingePart: 'cup-rim' });
+    localPrism(W, 'n', circle(a, station, 12.5, 16), -7, -1.5, steel, { ...extras, hingePart: 'cup-boss' });
+    for (const dy of [-22.5, 22.5]) localPrism(W, 'n', circle(a - side * 9.5, station + dy, 3, 10), -2.4, -1.5, dark, { ...extras, hingePart: 'cup-screw' });
+    // Cruciform plate, clip boss and plate screws on the panel face.
+    boxAt(0, 3, stationY - 20, stationY + 20, zp - 6, zp + 6, '#b0b8bc', 'plate');
+    boxAt(0, 3, stationY - 6, stationY + 6, zp - 21, zp + 21, '#b0b8bc', 'plate-wing');
+    boxAt(3, 10, stationY - 9, stationY + 9, zp - 16, zp + 14, '#b5bfc4', 'arm-base');
+    for (const dy of [-16, 16]) { const [xa, xb] = xr(3, 4.2); cylinderX(xa, stationY + dy, zp, xb - xa, 7, dark, sid(), { ...extras, hingePart: 'plate-screw' }); }
+    // Arm: U-channel body over the boss, with depth and side adjustment screws.
+    const armFront = fz - 4;
+    boxAt(2, 17, stationY - 8, stationY + 8, zp - 22, armFront, steel, 'arm');
+    for (const z of [zp - 10, armFront - 12]) { const [xa, xb] = xr(17, 18.5); cylinderX(xa, stationY, z, xb - xa, 6.5, dark, sid(), { ...extras, hingePart: 'arm-cam' }); }
+    let noseOffset = 9.5;
+    if (halfOverlay) {
+      // 9 mm crank: the arm nose steps into the opening.
+      boxAt(15, 26, stationY - 7, stationY + 7, armFront - 14, armFront, '#c5ced2', 'arm-crank');
+      noseOffset = 18.5;
+    }
+    const nose = [inner + into * noseOffset, stationY, armFront];
+    const cupBoss = W(a, station, -7);
+    if (opened) {
+      // Four-bar linkage from the arm nose to the cup on the swung door.
+      for (const dy of [-4, 4]) cylinderAxis([nose[0], nose[1] + dy, nose[2]], [cupBoss[0], cupBoss[1] + dy, cupBoss[2]], 2.6, '#dce4e7', { ...extras, hingePart: 'linkage' }, sid(), 8);
+    } else {
+      cylinderAxis(nose, cupBoss, 5, '#d2dbe0', { ...extras, hingePart: 'arm-nose' }, sid(), 10);
+    }
+  };
   const box = (x, y, z, w, h, d, color, id, extras = {}) => {
     const c = currentCabinet, notch = c?.cutout;
     if (!notch || extras.noCutout || number(notch.width) <= 0 || number(notch.depth) <= 0) return rawBox(x, y, z, w, h, d, color, id, extras);
@@ -380,6 +481,42 @@ export function makeScene(project, options = {}, direction = null) {
       if (!nearWall) {
         face([fixedPoint(0, r.height), fixedPoint(length, r.height), fixedPoint(length, r.height, r.wallThickness), fixedPoint(0, r.height, r.wallThickness)], '#f5f3eb', null, null, { room: true, stroke: '#d4d2c8' });
         line(fixedPoint(0, r.height), fixedPoint(length, r.height), '#d4d2c8', .8);
+      }
+    }
+    for (const element of roomObstacles(project.room || {})) {
+      const g = obstacleGeometry(project.room || {}, element);
+      if (!g) continue;
+      const inward = [g.frame.inward.x, 0, g.frame.inward.z];
+      const nearWall = !options.allFaces && direction && dot(inward, direction) < -.00001;
+      // Elements on a cut-away near wall would float in front of the camera.
+      if (nearWall) continue;
+      const extras = { room: true, component: 'obstacle', obstacle: true, obstacleKind: g.kind, obstacleId: element.id };
+      if (g.kind === 'pipe') {
+        const pipeColor = '#dfe2df', clampColor = '#9aa3a6', p = g.pipe;
+        const axisPoint = s => p.axis === 'y' ? [p.center.x, p.center.y + s, p.center.z] : [p.from.x + g.frame.u.x * s, p.from.y, p.from.z + g.frame.u.z * s];
+        cylinderAxis(axisPoint(0), axisPoint(p.length), p.radius, pipeColor, extras, element.id);
+        for (const s of g.clamps) {
+          const c = axisPoint(s), span = Math.max(8, p.radius * .5);
+          const along = p.axis === 'y' ? [0, 1, 0] : [g.frame.u.x, 0, g.frame.u.z];
+          cylinderAxis(add(c, mul(along, -span / 2)), add(c, mul(along, span / 2)), p.radius + 2.5, clampColor, { ...extras, obstacleKind: 'pipe-clamp' }, element.id);
+          // Threaded rod from the clamp back to the wall surface.
+          const standoff = g.element.standoff, back = [c[0] - inward[0] * (p.radius + standoff), c[1], c[2] - inward[2] * (p.radius + standoff)];
+          if (standoff > 1) cylinderAxis(back, [c[0] - inward[0] * p.radius, c[1], c[2] - inward[2] * p.radius], 4, clampColor, { ...extras, obstacleKind: 'pipe-clamp' }, element.id);
+        }
+        const label = p.axis === 'y' ? [p.center.x, g.top + 40, p.center.z] : [(p.from.x + p.to.x) / 2, p.from.y + p.radius + 40, (p.from.z + p.to.z) / 2];
+        labels.push({ point: label, text: `Труба Ø${mm(g.element.diameter)} мм`, room: true });
+      } else {
+        const fp = g.footprint, cx = fp.reduce((s, q) => s + q.x, 0) / 4, cz = fp.reduce((s, q) => s + q.z, 0) / 4;
+        const color = '#ebe8df';
+        fp.forEach((q, i) => {
+          const r2 = fp[(i + 1) % 4], ex = r2.x - q.x, ez = r2.z - q.z, len = Math.hypot(ex, ez) || 1;
+          let n = [ez / len, 0, -ex / len];
+          if (n[0] * ((q.x + r2.x) / 2 - cx) + n[2] * ((q.z + r2.z) / 2 - cz) < 0) n = [-n[0], 0, -n[2]];
+          face([[q.x, g.bottom, q.z], [r2.x, g.bottom, r2.z], [r2.x, g.top, r2.z], [q.x, g.top, q.z]], color, n, element.id, { ...extras, stroke: '#cfcabd' });
+        });
+        face(fp.map(q => [q.x, g.top, q.z]), colorShade(color, 1.02), [0, 1, 0], element.id, { ...extras, stroke: '#cfcabd' });
+        if (g.bottom > 1) face(fp.map(q => [q.x, g.bottom, q.z]), colorShade(color, .92), [0, -1, 0], element.id, { ...extras, stroke: '#cfcabd' });
+        labels.push({ point: [cx, g.top + 40, cz], text: `Короб · ${mm(g.width)} × ${mm(g.depth)} мм`, room: true });
       }
     }
     if (options.ceiling) face(outline.map(p => [p.x, r.height, p.z]), '#e7e5db', null, null, { opacity: .14, room: true, ceiling: true, stroke: '#aaa89f' });
@@ -621,89 +758,32 @@ export function makeScene(project, options = {}, direction = null) {
       const wallLeft = section && section.x > t ? x + section.x - t : x;
       const wallRight = section && section.x + section.width < w - t ? x + section.x + section.width + t : x + w;
       const wallTop = section && section.y + section.height < bodyH - t ? bodyY + section.y + section.height + t : y + h;
+      // Side-hung doors hinged on a shared partition use half-overlay hinges;
+      // each door then swings about its own edge (≈ partition centre ± gap/2)
+      // instead of the partition face, so twin doors never occupy the same
+      // space when opened.
+      const sideHung = f.kind === 'door' && (opening === 'left' || opening === 'right');
+      const sharedPartitionHinge = sideHung ? isDoorOnSharedPartition(f, fronts, layout, w) : false;
+      const hingePlaneX = opening === 'right' ? (sharedPartitionHinge ? fx + fw : wallRight) : (sharedPartitionHinge ? fx : wallLeft);
+      const closedW = (a, b, n) => [fx + a, fy + b, fz + n];
+      const doorW = !options.doorsOpen || !sideHung ? closedW
+        : opening === 'right' ? (a, b, n) => [hingePlaneX - frontT + n, fy + b, fz + (fw - a)]
+        : (a, b, n) => [hingePlaneX + frontT - n, fy + b, fz + a];
       if (f.kind === 'door' && showHinges && !options.interior) {
-        const sharedPartitionHinge = isDoorOnSharedPartition(f, fronts, layout, w);
         const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? (f.hingesPerDoor || (fh >= 2000 ? 5 : fh >= 1600 ? 4 : fh >= 900 ? 3 : 2));
         const rightHinge = opening === 'right', topHinge = opening === 'up';
         const hingeSymbols = createDoorHingeSymbols({ width: fw, height: fh, thickness: frontT, opening, opened: Boolean(options.doorsOpen), count });
         for (const hinge of hingeSymbols) {
           const world = p => [fx + p[0], fy + p[1], fz + p[2]];
           const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, hingeType: sharedPartitionHinge ? 'half-overlay' : 'full-overlay', sharedPartition: sharedPartitionHinge, schematic: true, stroke: '#53605e' };
-          const stationY = fy + (hinge.cup[1] !== undefined ? hinge.cup[1] : fh / 2);
-
+          const station = hinge.cup[1] !== undefined ? hinge.cup[1] : fh / 2, stationY = fy + station;
           if (topHinge) {
             face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
             const hx = fx + (hinge.plate[0] ? (hinge.plate[0][0] + hinge.plate[1][0]) / 2 : fw / 2);
             rawBox(hx - 14, wallTop - t, fz - 44, 28, 4, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
             rawBox(hx - 7.5, wallTop - t - 10, fz - 32, 15, 12, 34, '#c5ced2', id, { ...extras, hingePart: 'arm' });
-          } else if (rightHinge) {
-            if (sharedPartitionHinge) {
-              // Half-overlay hinge (cranked neck 9mm, twin application on shared partition)
-              if (options.doorsOpen) {
-                const cupZ = fz + 22;
-                const cupRing = Array.from({ length: 20 }, (_, step) => [wallRight - frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
-                face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-                face([[wallRight - t - 8, stationY - 4, fz + 2], [wallRight - t - 8, stationY + 4, fz + 2], [wallRight - frontT - 2, stationY + 4, cupZ], [wallRight - frontT - 2, stationY - 4, cupZ]], '#dce4e7', [-1, 0, 0], id, { ...extras, hingePart: 'linkage' });
-              } else {
-                face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-              }
-              // Base on mounting plate
-              rawBox(wallRight - t - 5, stationY - 7.5, fz - 38, 4.5, 15, 16, '#b5bfc4', id, { ...extras, hingePart: 'arm-base' });
-              // Crank step 9mm into the door opening
-              rawBox(wallRight - t - 13.5, stationY - 7, fz - 24, 9, 14, 13, '#c5ced2', id, { ...extras, hingePart: 'arm-crank' });
-              rawBox(wallRight - t - 12.5, stationY + 7, fz - 20, 4, 2, 7, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
-              // Arm nose connecting to cup
-              rawBox(wallRight - t - 14, stationY - 6.5, fz - 14, 5, 13, 16, '#d2dbe0', id, { ...extras, hingePart: 'arm-nose' });
-            } else {
-              // Full-overlay hinge (straight arm, 0mm crank)
-              if (options.doorsOpen) {
-                const cupZ = fz + 22;
-                const cupRing = Array.from({ length: 20 }, (_, step) => [wallRight - frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
-                face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-                face([[wallRight - t - 2, stationY - 4, fz + 2], [wallRight - t - 2, stationY + 4, fz + 2], [wallRight - frontT - 2, stationY + 4, cupZ], [wallRight - frontT - 2, stationY - 4, cupZ]], '#dce4e7', [-1, 0, 0], id, { ...extras, hingePart: 'linkage' });
-              } else {
-                face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-              }
-              rawBox(wallRight - t - 11, stationY - 7.5, fz - 34, 10, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
-              rawBox(wallRight - t - 9, stationY + 7.5, fz - 22, 6, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
-            }
-            rawBox(wallRight - t - 4, stationY - 16, fz - 44, 4, 32, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
-            rawBox(wallRight - t - 4.5, stationY - 9, fz - 38, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
-            rawBox(wallRight - t - 4.5, stationY + 4, fz - 24, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
           } else {
-            if (sharedPartitionHinge) {
-              // Half-overlay hinge (cranked neck 9mm, twin application on shared partition)
-              if (options.doorsOpen) {
-                const cupZ = fz + 22;
-                const cupRing = Array.from({ length: 20 }, (_, step) => [wallLeft + frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
-                face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-                face([[wallLeft + t + 8, stationY - 4, fz + 2], [wallLeft + t + 8, stationY + 4, fz + 2], [wallLeft + frontT + 2, stationY + 4, cupZ], [wallLeft + frontT + 2, stationY - 4, cupZ]], '#dce4e7', [1, 0, 0], id, { ...extras, hingePart: 'linkage' });
-              } else {
-                face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-              }
-              // Base on mounting plate
-              rawBox(wallLeft + t + 0.5, stationY - 7.5, fz - 38, 4.5, 15, 16, '#b5bfc4', id, { ...extras, hingePart: 'arm-base' });
-              // Crank step 9mm into the door opening
-              rawBox(wallLeft + t + 4.5, stationY - 7, fz - 24, 9, 14, 13, '#c5ced2', id, { ...extras, hingePart: 'arm-crank' });
-              rawBox(wallLeft + t + 8.5, stationY + 7, fz - 20, 4, 2, 7, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
-              // Arm nose connecting to cup
-              rawBox(wallLeft + t + 9, stationY - 6.5, fz - 14, 5, 13, 16, '#d2dbe0', id, { ...extras, hingePart: 'arm-nose' });
-            } else {
-              // Full-overlay hinge (straight arm, 0mm crank)
-              if (options.doorsOpen) {
-                const cupZ = fz + 22;
-                const cupRing = Array.from({ length: 20 }, (_, step) => [wallLeft + frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
-                face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-                face([[wallLeft + t + 2, stationY - 4, fz + 2], [wallLeft + t + 2, stationY + 4, fz + 2], [wallLeft + frontT + 2, stationY + 4, cupZ], [wallLeft + frontT + 2, stationY - 4, cupZ]], '#dce4e7', [1, 0, 0], id, { ...extras, hingePart: 'linkage' });
-              } else {
-                face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-              }
-              rawBox(wallLeft + t + 1, stationY - 7.5, fz - 34, 10, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
-              rawBox(wallLeft + t + 3, stationY + 7.5, fz - 22, 6, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
-            }
-            rawBox(wallLeft + t, stationY - 16, fz - 44, 4, 32, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
-            rawBox(wallLeft + t + 3.5, stationY - 9, fz - 38, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
-            rawBox(wallLeft + t + 3.5, stationY + 4, fz - 24, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
+            concealedHinge({ W: doorW, rightHinge, inner: rightHinge ? wallRight - t : wallLeft + t, station, stationY, a: rightHinge ? fw - 22.5 : 22.5, fz, opened: Boolean(options.doorsOpen), halfOverlay: sharedPartitionHinge }, extras);
           }
 
           // Lines for 2D schematic mode compatibility
@@ -740,13 +820,15 @@ export function makeScene(project, options = {}, direction = null) {
         renderDrawerRunners(dx, dy, dz, dw, dh, dd, slide, leftWallX, rightWallX, { sectionId: f.sectionId, drawerIndex: f.index });
         if (options.interior) continue;
         box(fx, fy, fz + slide, fw, fh, frontT, c.frontColor, id, frontExtras);
-        const handleW = Math.min(160, fw * .38);
-        if(f.openingMechanism!=='push')box(fx + (fw - handleW) / 2, fy + fh * .65, fz + slide + frontT + 7, handleW, 7, 9, '#6a655b', id, { handle: true,component:'drawer-handle',sectionId:f.sectionId,frontIndex:f.index });
+        if (f.openingMechanism !== 'push') {
+          const length = handleSpacing(Math.max(120, Math.min(fw * .45, 344))) + 24;
+          barHandle((a, b, n) => [fx + a, fy + b, fz + slide + n], frontT, { vertical: false, a0: (fw - length) / 2, b0: fh < 250 ? fh / 2 - 6 : fh - 66, length }, { handle: true, component: 'drawer-handle', sectionId: f.sectionId, frontIndex: f.index, stroke: 'transparent' });
+        }
       } else if (options.interior) {
         continue;
       } else if (options.doorsOpen && f.kind !== 'blind-panel') {
         const rightHinge = opening === 'right', topHinge = opening === 'up';
-        const handleExtras = { component: 'door-handle', handle: true, sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening };
+        const handleExtras = { component: 'door-handle', handle: true, sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, stroke: 'transparent' };
         if (topHinge) {
           const angle = Math.PI * .44, cos = Math.cos(angle), sin = Math.sin(angle);
           const u = [1, 0, 0], v = [0, -cos, sin], n = [0, sin, cos];
@@ -755,40 +837,31 @@ export function makeScene(project, options = {}, direction = null) {
           const doorPoints = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, frontT], [fw, 0, frontT], [fw, fh, frontT], [0, fh, frontT]].map(v => transform(...v));
           [[0, 1, 2, 3], [4, 5, 6, 7], [3, 2, 6, 7], [1, 5, 6, 2], [0, 4, 7, 3], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => doorPoints[j]), colorShade(c.frontColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
           if (f.openingMechanism !== 'push') {
-            const handleW = Math.min(160, fw * .38);
-            line(transform((fw - handleW) / 2, fh - 30, frontT + 10), transform((fw + handleW) / 2, fh - 30, frontT + 10), '#676358', 3, id, handleExtras);
-          }
-        } else if (rightHinge) {
-          // Open right door: flush with carcass right side wall
-          const p = [
-            [wallRight - frontT, fy, fz], [wallRight, fy, fz], [wallRight, fy + fh, fz], [wallRight - frontT, fy + fh, fz],
-            [wallRight - frontT, fy, fz + fw], [wallRight, fy, fz + fw], [wallRight, fy + fh, fz + fw], [wallRight - frontT, fy + fh, fz + fw]
-          ];
-          [[0, 3, 2, 1], [4, 5, 6, 7], [0, 4, 7, 3], [1, 2, 6, 5], [3, 7, 6, 2], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => p[j]), colorShade(c.frontColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
-          if (f.openingMechanism !== 'push') {
-            line([wallRight + 10, fy + fh * .43, fz + fw - 32], [wallRight + 10, fy + fh * .43 + Math.min(160, fh * .25), fz + fw - 32], '#676358', 3, id, handleExtras);
+            const length = handleSpacing(Math.max(120, fw * .4)) + 24;
+            barHandle((a, b, depth) => transform(a, fh - b, depth), frontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length }, handleExtras);
           }
         } else {
-          // Open left door: flush with carcass left side wall
-          const p = [
-            [wallLeft, fy, fz], [wallLeft + frontT, fy, fz], [wallLeft + frontT, fy + fh, fz], [wallLeft, fy + fh, fz],
-            [wallLeft, fy, fz + fw], [wallLeft + frontT, fy, fz + fw], [wallLeft + frontT, fy + fh, fz + fw], [wallLeft, fy + fh, fz + fw]
-          ];
-          [[0, 3, 2, 1], [4, 5, 6, 7], [0, 4, 7, 3], [1, 2, 6, 5], [3, 7, 6, 2], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => p[j]), colorShade(c.frontColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
+          // Side-hung door swung 90° about its hinge plane (wall face, or its own
+          // edge on a shared partition); the front face stays on the outside.
+          const corners = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, frontT], [fw, 0, frontT], [fw, fh, frontT], [0, fh, frontT]].map(v => doorW(...v));
+          [[[0, 3, 2, 1], [0, 0, -1]], [[4, 5, 6, 7], [0, 0, 1]], [[0, 4, 7, 3], [-1, 0, 0]], [[1, 2, 6, 5], [1, 0, 0]], [[3, 7, 6, 2], [0, 1, 0]], [[0, 1, 5, 4], [0, -1, 0]]].forEach(([indices], i) => face(indices.map(j => corners[j]), colorShade(c.frontColor, i === 1 ? 1.03 : .94), null, id, frontExtras));
           if (f.openingMechanism !== 'push') {
-            line([wallLeft - 10, fy + fh * .43, fz + fw - 32], [wallLeft - 10, fy + fh * .43 + Math.min(160, fh * .25), fz + fw - 32], '#676358', 3, id, handleExtras);
+            const length = handleSpacing(Math.max(120, fh * .3)) + 24;
+            barHandle(doorW, frontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length }, handleExtras);
           }
         }
       } else {
         box(fx, fy, fz, fw, fh, frontT, c.frontColor, id, frontExtras);
-        const rightHinge = opening==='right', topHinge=opening==='up';
-        const handleX = rightHinge ? fx + 26 : fx + fw - 34;
-        const handleExtras={component:'door-handle',handle:true,sectionId:f.sectionId,frontIndex:f.index,doorOpening:opening};
-        if(f.openingMechanism==='push' || f.kind === 'blind-panel')continue;
-        if(topHinge){
-          const handleW=Math.min(160,fw*.38);
-          box(fx+(fw-handleW)/2,fy+26,fz+frontT+7,handleW,7,9,'#6a655b',id,handleExtras);
-        } else box(handleX, fy + fh * .43, fz + frontT + 7, 7, Math.min(160, fh * .25), 9, '#6a655b', id, handleExtras);
+        const rightHinge = opening === 'right', topHinge = opening === 'up';
+        const handleExtras = { component: 'door-handle', handle: true, sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, stroke: 'transparent' };
+        if (f.openingMechanism === 'push' || f.kind === 'blind-panel') continue;
+        if (topHinge) {
+          const length = handleSpacing(Math.max(120, fw * .4)) + 24;
+          barHandle(closedW, frontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length }, handleExtras);
+        } else {
+          const length = handleSpacing(Math.max(120, fh * .3)) + 24;
+          barHandle(closedW, frontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length }, handleExtras);
+        }
       }
     }
   }

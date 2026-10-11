@@ -3,6 +3,7 @@ import { applyTranslations } from './i18n.js';
 import { resolveCabinetMovement, canApplyCabinetMovement } from './cabinet-motion.js';
 import { canPlaceCabinet } from './engine.js';
 import { resizeCabinetOnPlan } from './cabinet-plan-resize.js';
+import { isObstacle, obstacleGeometry } from './room-obstacles.js';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const clonePoints = points => points.map(({ x, z }) => ({ x, z }));
@@ -622,8 +623,31 @@ export class RoomEditor {
       if (!length) return '';
       const start = Math.max(0, Math.min(length, number(window.offset))), end = Math.max(0, Math.min(length, number(window.offset) + number(window.width)));
       const dx = (b.x - a.x) / length, dz = (b.z - a.z) / length, sx = a.x + dx * start, sz = a.z + dz * start, ex = a.x + dx * end, ez = a.z + dz * end;
+      let distances = '';
+      if (isObstacle(window)) {
+        const g = obstacleGeometry({ ...this.project.room, outline }, window);
+        if (!g) return '';
+        const selected = window.id === this.selectedWindowId, color = selected ? '#157f72' : window.kind === 'pipe' ? '#4f7f9a' : '#8a7f6a';
+        let shape;
+        if (window.kind === 'pipe' && g.pipe.axis === 'y') {
+          shape = `<circle cx="${g.pipe.center.x}" cy="${g.pipe.center.z}" r="${g.pipe.radius}" fill="#e9f1f4" stroke="${color}" stroke-width="${selected ? 3 : 2}" vector-effect="non-scaling-stroke"/><circle cx="${g.pipe.center.x}" cy="${g.pipe.center.z}" r="${Math.max(2, g.pipe.radius * .45)}" fill="none" stroke="${color}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+        } else if (window.kind === 'pipe') {
+          shape = `<polygon points="${g.footprint.map(p => `${p.x},${p.z}`).join(' ')}" fill="#e9f1f4" stroke="${color}" stroke-width="${selected ? 3 : 2}" vector-effect="non-scaling-stroke"/><line x1="${g.pipe.from.x}" y1="${g.pipe.from.z}" x2="${g.pipe.to.x}" y2="${g.pipe.to.z}" stroke="${color}" stroke-width="1" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/>`;
+        } else {
+          const [p0, p1, p2, p3] = g.footprint;
+          shape = `<polygon points="${g.footprint.map(p => `${p.x},${p.z}`).join(' ')}" fill="#ece7dc" stroke="${color}" stroke-width="${selected ? 3 : 2}" vector-effect="non-scaling-stroke"/><path d="M${p0.x} ${p0.z}L${p2.x} ${p2.z}M${p1.x} ${p1.z}L${p3.x} ${p3.z}" stroke="${color}" stroke-width="1" fill="none" vector-effect="non-scaling-stroke"/>`;
+        }
+        if (selected) {
+          openingDistances = { left: number(window.offset), right: length - number(window.offset) - number(window.width) };
+          const nx = dz * outside, nz = -dx * outside;
+          distances = `<g class="room-opening-distances" pointer-events="none" fill="#486956" font-size="${font}"><text x="${a.x + dx * start / 2 + nx * font * 1.6}" y="${a.z + dz * start / 2 + nz * font * 1.6}" text-anchor="middle">${fmt(openingDistances.left)} мм</text><text x="${a.x + dx * (end + length) / 2 + nx * font * 1.6}" y="${a.z + dz * (end + length) / 2 + nz * font * 1.6}" text-anchor="middle">${fmt(openingDistances.right)} мм</text></g>`;
+        }
+        const label = window.kind === 'pipe' ? 'Труба' : 'Короб';
+        const hit = g.footprint.map(p => `${p.x},${p.z}`).join(' ');
+        return `<g data-room-window="${escape(window.id)}" data-room-obstacle="${escape(window.kind)}" class="room-obstacle${selected ? ' is-selected' : ''}" aria-label="${label} ${escape(window.id)}" style="cursor:ew-resize"><title>${label} · перетяните вдоль стены</title><polygon points="${hit}" fill="transparent" stroke="transparent" stroke-width="22" vector-effect="non-scaling-stroke"/>${shape}</g>${distances}`;
+      }
       const selected = window.id === this.selectedWindowId, door = window.kind === 'door', openingColor = selected ? '#157f72' : door ? '#b18b64' : '#79aebb';
-      let swing = '', distances = '';
+      let swing = '';
       if (door) {
         const nx = -dz * outside, nz = dx * outside, width = end - start;
         swing = `<path d="M${sx} ${sz}L${sx + nx * width} ${sz + nz * width}M${ex} ${ez}A${width} ${width} 0 0 ${outside > 0 ? 1 : 0} ${sx + nx * width} ${sz + nz * width}" stroke="${openingColor}" fill="none" stroke-dasharray="5 4" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;

@@ -314,6 +314,48 @@ Yıldız Kapak Panel · Глянцевые (1220 × 2800 мм)|Yıldız Kapak Pa
 Шкаф продублирован|Dolap çoğaltıldı|Cabinet duplicated
 Шкаф скопирован в буфер|Dolap panoya kopyalandı|Cabinet copied to clipboard
 Дублировать шкаф (Ctrl+D)|Dolabı çoğalt (Ctrl+D)|Duplicate cabinet (Ctrl+D)
+Труба|Boru|Pipe
+Короб|Kutu|Box
+Трубы и короба|Borular ve kutular|Pipes and boxes
+Труба у выбранной стены|Seçili duvarda boru|Pipe at the selected wall
+Короб, колонна или вентканал у выбранной стены|Seçili duvarda kutu, kolon veya havalandırma bacası|Box, column or vent shaft at the selected wall
+Короб / выступ|Kutu / çıkıntı|Box / protrusion
+Труба горизонтальная|Yatay boru|Horizontal pipe
+Труба вертикальная|Dikey boru|Vertical pipe
+Направление|Yön|Direction
+Вертикальная (стояк)|Dikey (kolon hattı)|Vertical (riser)
+Горизонтальная|Yatay|Horizontal
+Диаметр|Çap|Diameter
+Диаметр трубы|Boru çapı|Pipe diameter
+Отступ от стены|Duvardan mesafe|Wall stand-off
+Высота трубы|Boru yüksekliği|Pipe height
+Длина трубы|Boru uzunluğu|Pipe length
+Низ трубы от пола|Borunun yerden yüksekliği|Pipe bottom above floor
+Ширина вдоль стены|Duvar boyunca genişlik|Width along the wall
+Выступ от стены|Duvardan çıkıntı|Projection from wall
+Выступ от стены, мм|Duvardan çıkıntı, mm|Projection from wall, mm
+Тип|Tür|Type
+Мешает шкафам:|Engel olduğu dolaplar:|Obstructs cabinets:
+Тяните элемент вдоль стены. Шкаф, который его задевает, получает предупреждение и кнопку выреза корпуса.|Elemanı duvar boyunca sürükleyin. Ona çarpan dolap bir uyarı ve gövde kesimi düğmesi alır.|Drag the element along the wall. A cabinet that hits it gets a warning and a carcass cutout button.
+Удалить трубу|Boruyu sil|Delete pipe
+Удалить короб|Kutuyu sil|Delete box
+Шкаф упирается в трубу|Dolap boruya çarpıyor|Cabinet hits a pipe
+Шкаф упирается в короб|Dolap kutuya çarpıyor|Cabinet hits a box
+Сдвиньте шкаф или уменьшите его глубину.|Dolabı kaydırın veya derinliğini azaltın.|Move the cabinet or reduce its depth.
+Сделать вырез под препятствие|Engel için kesim yap|Cut out around the obstacle
+Вырез не требуется или невозможен|Kesim gerekmiyor veya mümkün değil|Cutout not needed or not possible
+упирается в трубу|boruya çarpıyor|hits a pipe
+упирается в короб|kutuya çarpıyor|hits a box
+сделайте вырез корпуса сзади или сдвиньте шкаф.|gövdenin arkasında kesim yapın veya dolabı kaydırın.|cut out the back of the carcass or move the cabinet.
+сдвиньте шкаф или уменьшите его глубину.|dolabı kaydırın veya derinliğini azaltın.|move the cabinet or reduce its depth.
+Труба или короб: проверьте размеры и положение.|Boru veya kutu: ölçüleri ve konumu kontrol edin.|Pipe or box: check the size and position.
+Труба или короб выходит за границы стены.|Boru veya kutu duvar sınırlarını aşıyor.|The pipe or box extends beyond the wall.
+У трубы или короба должна быть выбрана стена.|Boru veya kutu için bir duvar seçilmelidir.|A wall must be selected for the pipe or box.
+У трубы или короба должна быть выбрана существующая стена.|Boru veya kutu için mevcut bir duvar seçilmelidir.|An existing wall must be selected for the pipe or box.
+Труба: диаметр|Boru: çap|Pipe: diameter
+Труба: отступ от стены|Boru: duvardan mesafe|Pipe: wall stand-off
+Труба: неизвестное направление.|Boru: bilinmeyen yön.|Pipe: unknown direction.
+Короб: глубина|Kutu: derinlik|Box: depth
 Удалить шкаф|Dolabı sil|Delete cabinet
 Сохранить файл проекта|Proje dosyasını kaydet|Save project file
 Открыть файл проекта|Proje dosyasını aç|Open project file

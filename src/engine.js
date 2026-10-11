@@ -5,6 +5,7 @@
 
 import { getRoomOutline, polygonIsSimple, pointInPolygon, polygonContained, polygonBoundaryDistance, polygonsOverlap, polygonArea, roomBounds, wallLength, cabinetFootprint, getCabinetFootprint as localFootprint } from './room-geometry.js';
 import { validateLayoutSchema, validateDoorOpenings } from './project-io.js';
+import { ROOM_ELEMENT_KINDS, isObstacle, findObstacleConflicts } from './room-obstacles.js';
 import { MATERIAL_PRESETS, DEFAULT_MATERIAL_PRESETS, THIN_BACK_PRESET } from './standards.js';
 import { defaultName, localizeMaterialPreset } from './i18n.js';
 import { getInteriorLayout } from './cabinet-interior.js';
@@ -1664,12 +1665,18 @@ export function validateProject(project) {
     }
   }
   for (const window of room.windows ?? []) {
-    if (window.kind !== undefined && !['window', 'door'].includes(window.kind)) add('error', 'Проём: неизвестный вид.');
+    if (window.kind !== undefined && !ROOM_ELEMENT_KINDS.includes(window.kind)) add('error', 'Проём: неизвестный вид.');
     if (window.kind === 'door' && number(window.sill) !== 0) add('warning', 'Дверной проём должен начинаться от пола: задайте высоту подоконника 0 мм.');
+    const obstacle = isObstacle(window);
     const wallIndex = window.wallIndex ?? ({ back: 0, right: 1, front: 2, left: 3 })[window.wall];
     if (wallIndex !== undefined) {
-      if (!Number.isInteger(wallIndex) || wallIndex < 0 || wallIndex >= roomOutline.length) { add('error', 'У оконного проёма должна быть выбрана существующая стена.'); continue; }
+      if (!Number.isInteger(wallIndex) || wallIndex < 0 || wallIndex >= roomOutline.length) { add('error', obstacle ? 'У трубы или короба должна быть выбрана существующая стена.' : 'У оконного проёма должна быть выбрана существующая стена.'); continue; }
       const length = wallLength(room, wallIndex);
+      if (obstacle) {
+        if (!positive(window.width) || !positive(window.height) || !Number.isFinite(Number(window.offset)) || number(window.offset) < 0 || !Number.isFinite(Number(window.sill)) || number(window.sill) < 0) add('error', 'Труба или короб: проверьте размеры и положение.');
+        if (number(window.offset) + number(window.width) > length + EPSILON || number(window.sill) + number(window.height) > number(room.height) + EPSILON) add('error', 'Труба или короб выходит за границы стены.');
+        continue;
+      }
       if (!positive(window.width) || !positive(window.height) || !Number.isFinite(Number(window.offset)) || number(window.offset) < 0 || !Number.isFinite(Number(window.sill)) || number(window.sill) < 0) add('error', 'Оконный проём: проверьте размеры, отступ и высоту подоконника.');
       if (number(window.offset) + number(window.width) > length + EPSILON || number(window.sill) + number(window.height) > number(room.height) + EPSILON) add('error', 'Оконный проём выходит за границы стены.');
       const a = roomOutline[wallIndex], b = roomOutline[(wallIndex + 1) % roomOutline.length];
@@ -1682,7 +1689,10 @@ export function validateProject(project) {
       }
       continue;
     }
-    add('error', 'У оконного проёма должна быть выбрана стена.');
+    add('error', obstacle ? 'У трубы или короба должна быть выбрана стена.' : 'У оконного проёма должна быть выбрана стена.');
+  }
+  for (const conflict of findObstacleConflicts({ ...project, room, cabinets }, { physical: cabinet => physicalCabinet(cabinet, project) })) {
+    add('warning', `«${conflict.cabinet.name}» ${conflict.obstacle.kind === 'pipe' ? 'упирается в трубу' : 'упирается в короб'}; ${conflict.suggestion ? 'сделайте вырез корпуса сзади или сдвиньте шкаф.' : 'сдвиньте шкаф или уменьшите его глубину.'}`, conflict.cabinet.id);
   }
   return warnings;
 }
