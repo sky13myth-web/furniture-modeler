@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isWallCabinet,
+  isFloorPlinthCabinet,
+  MAX_PLINTH_PIECE_LENGTH,
   getPlinthRuns,
   renderUnifiedPlinths,
   getWallCabinetRuns,
@@ -338,6 +340,98 @@ test('checkImport validates cooktop, sink, and all kitchen appliance configurati
 
   // Must not throw for valid kitchen equipment schema
   assert.doesNotThrow(() => checkImport(validProject));
+});
+
+test('isFloorPlinthCabinet accurately tests cabinets on legs vs floor sides', () => {
+  // Base cabinet with legs (sidesToFloor: false) -> eligible
+  assert.equal(isFloorPlinthCabinet({ type: 'base', y: 0, plinth: 100, sidesToFloor: false }), true);
+  // Tall cabinet with legs (sidesToFloor: false) -> eligible
+  assert.equal(isFloorPlinthCabinet({ type: 'tall', y: 0, plinth: 100, sidesToFloor: false }), true);
+  // Cabinet with sidesToFloor: true (sides reach floor) -> NOT eligible
+  assert.equal(isFloorPlinthCabinet({ type: 'base', y: 0, plinth: 100, sidesToFloor: true }), false);
+  assert.equal(isFloorPlinthCabinet({ type: 'tall', y: 0, plinth: 100, sidesToFloor: true }), false);
+  // Wall cabinet hanging on wall -> NOT eligible
+  assert.equal(isFloorPlinthCabinet({ type: 'wall', y: 1400, plinth: 0 }), false);
+  // Zero plinth -> NOT eligible
+  assert.equal(isFloorPlinthCabinet({ type: 'base', y: 0, plinth: 0, sidesToFloor: false }), false);
+});
+
+test('getPlinthRuns merges tall columns and base cabinets and splits runs exceeding 2800mm', () => {
+  // A kitchen run with tall oven column (600) + base oven (600) + base sink (800) + 2 base cabinets (600+600) = 3200mm
+  const project = {
+    cabinets: [
+      { id: 'tall-1', type: 'tall', x: 0, y: 0, z: 0, width: 600, height: 2200, depth: 580, plinth: 100, sidesToFloor: false },
+      { id: 'base-1', type: 'base', x: 600, y: 0, z: 0, width: 600, height: 860, depth: 580, plinth: 100, sidesToFloor: false },
+      { id: 'base-2', type: 'base', x: 1200, y: 0, z: 0, width: 800, height: 860, depth: 580, plinth: 100, sidesToFloor: false },
+      { id: 'base-3', type: 'base', x: 2000, y: 0, z: 0, width: 600, height: 860, depth: 580, plinth: 100, sidesToFloor: false },
+      { id: 'base-4', type: 'base', x: 2600, y: 0, z: 0, width: 600, height: 860, depth: 580, plinth: 100, sidesToFloor: false },
+    ]
+  };
+
+  const runs = getPlinthRuns(project);
+  assert.equal(runs.length, 1, 'All 5 cabinets must merge into 1 continuous run');
+  assert.equal(runs[0].cabinets.length, 5);
+  assert.equal(runs[0].wings[0].minU, 0);
+  assert.equal(runs[0].wings[0].maxU, 3200);
+
+  const faces = [];
+  const lines = [];
+  const face = (pts, col, norm, cabId, extras) => faces.push({ pts, col, norm, cabId, extras });
+  const line = (a, b, col, width, cabId, extras) => lines.push({ a, b, col, width, cabId, extras });
+  const box = () => {};
+  const rawBox = () => {};
+
+  renderUnifiedPlinths(box, rawBox, face, line, project);
+
+  const plinthFaces = faces.filter(f => f.extras?.component === 'unified-plinth');
+  assert.ok(plinthFaces.length > 0, 'Unified plinths must render');
+
+  // Check seams: since total length is 3200mm > 2800mm, a seam must be placed
+  const seamLines = lines.filter(l => l.extras?.component === 'plinth-seam');
+  assert.ok(seamLines.length > 0, 'Seam connector lines must be rendered when run > 2800mm');
+
+  // Verify that each plinth segment does not exceed 2800mm
+  const frontFaces = plinthFaces.filter(f => f.pts.length === 4 && Math.abs(f.pts[0][1] - 0) <= 0.1 && Math.abs(f.pts[2][1] - 90) <= 0.1);
+  for (const ff of frontFaces) {
+    const minX = Math.min(...ff.pts.map(p => p[0]));
+    const maxX = Math.max(...ff.pts.map(p => p[0]));
+    const pieceLen = maxX - minX;
+    assert.ok(pieceLen <= MAX_PLINTH_PIECE_LENGTH + 0.1, `Piece length ${pieceLen} must not exceed ${MAX_PLINTH_PIECE_LENGTH}mm`);
+  }
+});
+
+test('renderKitchenAppliance correctly scales round sink with custom diameter and bowl depth', () => {
+  const cylinders = [];
+  const lines = [];
+  const cylinderY = (x, y, z, h, diam, col) => cylinders.push({ x, y, z, h, diam, col });
+  const line = (a, b, col, width) => lines.push({ a, b, col, width });
+  const box = () => {};
+  const rawBox = () => {};
+  const face = () => {};
+  const cylinderX = () => {};
+  const cylinderZ = () => {};
+
+  renderKitchenAppliance({
+    appliance: {
+      type: 'sink-round',
+      diameter: 480,
+      bowlDiameter: 390,
+      bowlDepth: 200,
+      width: 480,
+      depth: 480,
+      height: 200
+    },
+    bounds: { x: 100, y: 700, z: 100, width: 480, height: 200, depth: 480 },
+    cabinetId: 'cab-1',
+    sectionId: 'sec-1',
+    renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+  });
+
+  // Bowl volume cylinder must have height 200 and diameter 390 (or 2 * rInner)
+  const bowlCylinder = cylinders.find(c => c.col === '#484e52');
+  assert.ok(bowlCylinder, 'Bowl volume cylinder must be rendered');
+  assert.equal(bowlCylinder.h, 200, 'Bowl depth must match configured 200mm');
+  assert.ok(Math.abs(bowlCylinder.diam - 390) <= 2, `Bowl diameter must match configured 390mm (got ${bowlCylinder.diam})`);
 });
 
 

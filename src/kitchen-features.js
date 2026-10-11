@@ -31,11 +31,44 @@ export function isWallCabinet(c) {
   return false;
 }
 
+function hasDifferingLocalPlinths(node) {
+  if (!node) return false;
+  if (node.kind === 'section') {
+    return node.plinthHeight !== undefined && node.plinthHeight !== null;
+  }
+  if (Array.isArray(node.children)) {
+    return node.children.some(hasDifferingLocalPlinths);
+  }
+  return false;
+}
+
 /**
- * Group adjacent base cabinets into continuous plinth runs.
+ * Check if a cabinet is eligible for a continuous floor plinth.
+ * Eligible when:
+ * 1. Stands on the floor: Math.abs(number(c.y, 0)) <= 25
+ * 2. Has plinth height: number(c.plinth, 0) > 10
+ * 3. Side panels do NOT reach the floor: c.sidesToFloor !== true ("боковина не до пола")
+ * 4. Not an upper/wall cabinet or mezzanine: !isWallCabinet(c) && !c.parentId
+ * 5. Does not have differing local section plinths
+ */
+export function isFloorPlinthCabinet(c) {
+  if (!c || typeof c !== 'object') return false;
+  if (isWallCabinet(c) || c.parentId) return false;
+  if (Math.abs(number(c.y, 0)) > 25) return false;
+  if (number(c.plinth, 0) <= 10) return false;
+  if (c.sidesToFloor === true) return false;
+  if (c.layout && hasDifferingLocalPlinths(c.layout)) return false;
+  return true;
+}
+
+/** Standard maximum length of a single continuous plinth piece (мм) */
+export const MAX_PLINTH_PIECE_LENGTH = 2800;
+
+/**
+ * Group adjacent base and tall cabinets on legs into continuous plinth runs.
  */
 export function getPlinthRuns(project, { plinthSetback = 65, thickness = 18 } = {}) {
-  const cabinets = (project?.cabinets || []).filter(c => isBaseCabinet(c) && number(c.plinth, 0) > 10 && c.sidesToFloor !== true);
+  const cabinets = (project?.cabinets || []).filter(isFloorPlinthCabinet);
   if (!cabinets.length) return [];
 
   // Group by matching plinth height (within 5mm)
@@ -186,7 +219,7 @@ export function getPlinthRuns(project, { plinthSetback = 65, thickness = 18 } = 
  */
 export function renderUnifiedPlinths(box, rawBox, face, line, project, options = {}) {
   if (options.plinth === false || options.exploded) return;
-  const runs = getPlinthRuns(project);
+  const runs = getPlinthRuns(project).filter(r => r.cabinets.length > 1);
   if (!runs.length) return;
 
   const plinthColor = '#9fa9ad'; // Brushed aluminum / neutral kitchen plinth
@@ -200,41 +233,97 @@ export function renderUnifiedPlinths(box, rawBox, face, line, project, options =
     const y0 = 0, y1 = h;
 
     for (const wing of wings) {
-      const { minU, maxU, maxV, minV, cos, sin, hasCornerMin, hasCornerMax, cabinetIds } = wing;
+      const { minU, maxU, maxV, minV, cos, sin, hasCornerMin, hasCornerMax, cabinetIds, cabinets: wingCabinets } = wing;
       const wingCabId = cabinetIds[0] || primaryCabId;
       const frontV = maxV - plinthSetback;
       const rearV = frontV - plinthThickness;
-
-      // Front plinth board corners in XZ plane
-      const p00 = { x: minU * cos - rearV * sin, z: minU * sin + rearV * cos };
-      const p10 = { x: maxU * cos - rearV * sin, z: maxU * sin + rearV * cos };
-      const p11 = { x: maxU * cos - frontV * sin, z: maxU * sin + frontV * cos };
-      const p01 = { x: minU * cos - frontV * sin, z: minU * sin + frontV * cos };
-
       const extras = { component: 'unified-plinth', runId, noCutout: true };
 
-      // Front face
-      face([[p01.x, y0, p01.z], [p11.x, y0, p11.z], [p11.x, y1, p11.z], [p01.x, y1, p01.z]], plinthColor, [sin, 0, cos], wingCabId, extras);
-      // Top face
-      face([[p00.x, y1, p00.z], [p01.x, y1, p01.z], [p11.x, y1, p11.z], [p10.x, y1, p10.z]], plinthColor, [0, 1, 0], wingCabId, extras);
-      // Bottom face
-      face([[p00.x, y0, p00.z], [p10.x, y0, p10.z], [p11.x, y0, p11.z], [p01.x, y0, p01.z]], plinthColor, [0, -1, 0], wingCabId, extras);
+      // Calculate cabinet boundary seams along U for neat joint placement
+      const cabSpans = (wingCabinets || []).map(cab => {
+        let cMin = Infinity, cMax = -Infinity;
+        for (const pt of getCabinetCorners(cab)) {
+          const u = pt.x * cos + pt.z * sin;
+          cMin = Math.min(cMin, u);
+          cMax = Math.max(cMax, u);
+        }
+        return { minU: cMin, maxU: cMax };
+      }).sort((a, b) => a.minU - b.minU);
 
-      // Silicone floor seal strip line
-      line([p01.x, y0 + 1, p01.z], [p11.x, y0 + 1, p11.z], '#535d61', 1.5, wingCabId, { ...extras, component: 'plinth-seal' });
-      // Top highlight line
-      line([p01.x, y1, p01.z], [p11.x, y1, p11.z], '#c2ccd0', 1.1, wingCabId, { ...extras, component: 'plinth-highlight' });
+      const cabinetSeams = [];
+      for (let i = 0; i < cabSpans.length - 1; i++) {
+        const seamU = (cabSpans[i].maxU + cabSpans[i + 1].minU) / 2;
+        if (seamU > minU + 10 && seamU < maxU - 10) {
+          cabinetSeams.push(seamU);
+        }
+      }
+      cabinetSeams.sort((a, b) => a - b);
+
+      // Divide plinth run into pieces of at most MAX_PLINTH_PIECE_LENGTH (2800 mm)
+      const pieces = [];
+      let currentU = minU;
+      while (maxU - currentU > 0.1) {
+        const remaining = maxU - currentU;
+        if (remaining <= MAX_PLINTH_PIECE_LENGTH) {
+          pieces.push({ startU: currentU, endU: maxU });
+          break;
+        }
+        const maxReach = currentU + MAX_PLINTH_PIECE_LENGTH;
+        const validSeams = cabinetSeams.filter(s => s > currentU + 50 && s <= maxReach);
+        let nextU;
+        if (validSeams.length > 0) {
+          nextU = validSeams[validSeams.length - 1];
+        } else {
+          nextU = maxReach;
+        }
+        pieces.push({ startU: currentU, endU: nextU });
+        currentU = nextU;
+      }
+
+      // Render each plinth piece (max 2800 mm per piece)
+      for (const piece of pieces) {
+        const u0 = piece.startU, u1 = piece.endU;
+        const p00 = { x: u0 * cos - rearV * sin, z: u0 * sin + rearV * cos };
+        const p10 = { x: u1 * cos - rearV * sin, z: u1 * sin + rearV * cos };
+        const p11 = { x: u1 * cos - frontV * sin, z: u1 * sin + frontV * cos };
+        const p01 = { x: u0 * cos - frontV * sin, z: u0 * sin + frontV * cos };
+
+        // Front face
+        face([[p01.x, y0, p01.z], [p11.x, y0, p11.z], [p11.x, y1, p11.z], [p01.x, y1, p01.z]], plinthColor, [sin, 0, cos], wingCabId, extras);
+        // Top face
+        face([[p00.x, y1, p00.z], [p01.x, y1, p01.z], [p11.x, y1, p11.z], [p10.x, y1, p10.z]], plinthColor, [0, 1, 0], wingCabId, extras);
+        // Bottom face
+        face([[p00.x, y0, p00.z], [p10.x, y0, p10.z], [p11.x, y0, p11.z], [p01.x, y0, p01.z]], plinthColor, [0, -1, 0], wingCabId, extras);
+
+        // Silicone floor seal strip line
+        line([p01.x, y0 + 1, p01.z], [p11.x, y0 + 1, p11.z], '#535d61', 1.5, wingCabId, { ...extras, component: 'plinth-seal' });
+        // Top highlight line
+        line([p01.x, y1, p01.z], [p11.x, y1, p11.z], '#c2ccd0', 1.1, wingCabId, { ...extras, component: 'plinth-highlight' });
+      }
+
+      // Render vertical seams between plinth pieces
+      for (let i = 0; i < pieces.length - 1; i++) {
+        const seamU = pieces[i].endU;
+        const sFront = { x: seamU * cos - frontV * sin, z: seamU * sin + frontV * cos };
+        const sRear = { x: seamU * cos - rearV * sin, z: seamU * sin + rearV * cos };
+        line([sFront.x, y0, sFront.z], [sFront.x, y1, sFront.z], '#485256', 2, wingCabId, { ...extras, component: 'plinth-seam' });
+        line([sFront.x, y1, sFront.z], [sRear.x, y1, sRear.z], '#485256', 1.5, wingCabId, { ...extras, component: 'plinth-seam' });
+      }
 
       // Side return plinths at exposed ends (if not connected to a corner)
       if (!hasCornerMin) {
         const sideP0 = { x: minU * cos - (minV + 20) * sin, z: minU * sin + (minV + 20) * cos };
+        const p01 = { x: minU * cos - frontV * sin, z: minU * sin + frontV * cos };
         face([[sideP0.x, y0, sideP0.z], [p01.x, y0, p01.z], [p01.x, y1, p01.z], [sideP0.x, y1, sideP0.z]], plinthColor, [-cos, 0, -sin], wingCabId, extras);
         line([sideP0.x, y0 + 1, sideP0.z], [p01.x, y0 + 1, p01.z], '#535d61', 1.5, wingCabId, extras);
+        line([sideP0.x, y1, sideP0.z], [p01.x, y1, p01.z], '#c2ccd0', 1.1, wingCabId, extras);
       }
       if (!hasCornerMax) {
         const sideP1 = { x: maxU * cos - (minV + 20) * sin, z: maxU * sin + (minV + 20) * cos };
+        const p11 = { x: maxU * cos - frontV * sin, z: maxU * sin + frontV * cos };
         face([[p11.x, y0, p11.z], [sideP1.x, y0, sideP1.z], [sideP1.x, y1, sideP1.z], [p11.x, y1, p11.z]], plinthColor, [cos, 0, sin], wingCabId, extras);
         line([p11.x, y0 + 1, p11.z], [sideP1.x, y0 + 1, sideP1.z], '#535d61', 1.5, wingCabId, extras);
+        line([p11.x, y1, p11.z], [sideP1.x, y1, sideP1.z], '#c2ccd0', 1.1, wingCabId, extras);
       }
     }
   }

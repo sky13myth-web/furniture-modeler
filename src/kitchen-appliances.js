@@ -97,9 +97,10 @@ export const APPLIANCE_PRESETS = {
     width: 510,
     height: 180,
     depth: 510,
+    diameter: 510,
+    bowlDiameter: 410,
     builtin: true,
     sinkShape: 'round',
-    bowlDiameter: 410,
     clearances: { side: 30, top: 0, rear: 30 }
   },
   'sink-rectangular': {
@@ -416,35 +417,38 @@ export function renderKitchenAppliance({
     // ----------------------------------------------------
     // Sink outer circular rim sitting on countertop
     const topY = y + h;
-    const rOuter = Math.min(w, d) / 2 - 15;
-    const rInner = rOuter - 35;
+    const outerDiam = Math.min(w, d, Number(appliance.diameter || appliance.width || w));
+    const rOuter = outerDiam / 2 - 8;
+    const innerDiam = Math.min(outerDiam - 40, Number(appliance.bowlDiameter || (outerDiam - 100)));
+    const rInner = Math.max(80, innerDiam / 2);
+    const bowlDepth = Math.max(100, Math.min(300, Number(appliance.bowlDepth || appliance.height || h || 180)));
     const cx = x + w / 2;
     const cz = z + d / 2;
 
     // Outer rim profile
-    const outerRim = circle2D(cx, cz, rOuter, 32);
+    const outerRim = circle2D(cx, cz, rOuter, 36);
     for (let i = 0; i < outerRim.length; i++) {
       const p1 = outerRim[i], p2 = outerRim[(i + 1) % outerRim.length];
       line([p1[0], topY + 2, p1[1]], [p2[0], topY + 2, p2[1]], inoxBright, 2, cabinetId, detailExtras);
     }
 
     // Inner bowl rim
-    const innerRim = circle2D(cx, cz, rInner, 32);
+    const innerRim = circle2D(cx, cz, rInner, 36);
     for (let i = 0; i < innerRim.length; i++) {
       const p1 = innerRim[i], p2 = innerRim[(i + 1) % innerRim.length];
       line([p1[0], topY + 0.5, p1[1]], [p2[0], topY + 0.5, p2[1]], '#959fa3', 1.5, cabinetId, detailExtras);
     }
 
     // Sink bowl volume inside the carcass
-    cylinderY(cx, topY - 180, cz, 180, rInner * 2, '#484e52', cabinetId, extras);
+    cylinderY(cx, topY - bowlDepth, cz, bowlDepth, rInner * 2, '#484e52', cabinetId, extras);
 
     // Waste strainer basket at bowl bottom
-    cylinderY(cx, topY - 179, cz, 2, 85, inox, cabinetId, detailExtras);
-    cylinderY(cx, topY - 178, cz, 3, 30, '#2b3033', cabinetId, detailExtras);
+    cylinderY(cx, topY - bowlDepth + 1, cz, 2, 85, inox, cabinetId, detailExtras);
+    cylinderY(cx, topY - bowlDepth + 2, cz, 3, 30, '#2b3033', cabinetId, detailExtras);
 
     // Chrome Mixer Faucet (Смеситель) at the rear near wall
     const tapX = cx;
-    const tapZ = cz - rInner - 12;
+    const tapZ = Math.max(z + 20, cz - rInner - 14);
     const tapY = topY + 2;
     // Tap base collar
     cylinderY(tapX, tapY, tapZ, 12, 38, inoxBright, cabinetId, detailExtras);

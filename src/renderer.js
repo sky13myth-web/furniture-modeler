@@ -825,7 +825,7 @@ export function makeScene(project, options = {}, direction = null) {
       // feet remain only for uniform legacy carcasses; local bases may be at
       // different heights and must not receive invented full-height supports.
       const localBases = layout.sections.some(s => s.floorEligible && s.node.plinthHeight != null);
-      for (const [footX, footZ] of raw.sidesToFloor === true || localBases ? [] : [[35, 35], [w - 70, 35], [35, d - 75], [w - 70, d - 75]]) {
+      for (const [footX, footZ] of raw.sidesToFloor === true || localBases ? [] : [[50, 35], [w - 85, 35], [50, Math.max(35, d - 120)], [w - 85, Math.max(35, d - 120)]]) {
         if (portals.some(s => footX < s.x + s.width && footX + 35 > s.x)) continue;
         box(x + footX, y + 4, z + footZ, 35, Math.max(5, p - 4), 35, '#6e6b61', id, { component: 'leg' });
       }
