@@ -3,7 +3,8 @@
  * from the project; it never mutates the user's model.
  */
 
-import { getRoomOutline, polygonIsSimple, pointInPolygon, polygonContained, polygonBoundaryDistance, polygonsOverlap, polygonArea, roomBounds, wallLength, cabinetFootprint, getCabinetFootprint as localFootprint } from './room-geometry.js';
+import { getRoomOutline, polygonIsSimple, pointInPolygon, polygonContained, polygonBoundaryDistance, polygonsOverlap, polygonArea, roomBounds, wallLength, cabinetFootprint, getCabinetFootprint as localFootprint, getCabinetCutouts, getCabinetCutout } from './room-geometry.js';
+export { getCabinetCutouts, getCabinetCutout };
 import { validateLayoutSchema, validateDoorOpenings } from './project-io.js';
 import { ROOM_ELEMENT_KINDS, isObstacle, findObstacleConflicts } from './room-obstacles.js';
 import { MATERIAL_PRESETS, DEFAULT_MATERIAL_PRESETS, THIN_BACK_PRESET } from './standards.js';
@@ -238,9 +239,14 @@ export function getCabinetLayout(cabinet, project = { materials: [] }) {
       const bottom = insetFront ? sectionRect.y + gap : floorOpen ? sectionRect.y + gap : floorEligible ? bottomPanelY + gap : rect.y - thickness / 2 + gap / 2;
       const right = insetFront ? rect.x + rect.width - gap : Math.abs(rect.x + rect.width - width + thickness) < EPSILON ? width - gap : rect.x + rect.width + thickness / 2 - gap / 2;
       const top = insetFront ? sectionRect.y + sectionRect.height - gap : Math.abs(rect.y + rect.height - bodyHeight + thickness) < EPSILON ? bodyHeight - gap : rect.y + rect.height + thickness / 2 - gap / 2;
-      const cutout = cabinet.cutout;
-      const overlapsNotch = cutout && (cutout.corner === 'back-right' ? rect.x + rect.width > width - number(cutout.width) - thickness : rect.x < number(cutout.width) + thickness);
-      const notchRearOffset = overlapsNotch ? Math.max(0, number(cutout.depth)) : 0;
+      const cutouts = getCabinetCutouts(cabinet);
+      let notchRearOffset = 0;
+      for (const cut of cutouts) {
+        const overlaps = cut.corner === 'back-right'
+          ? rect.x + rect.width > width - number(cut.width) - thickness
+          : rect.x < number(cut.width) + thickness;
+        if (overlaps) notchRearOffset = Math.max(notchRearOffset, number(cut.depth));
+      }
       const backMode = cabinet.includeBack !== false ? 'global' : ['solid', 'panel'].includes(node.back) ? 'solid' : node.back === 'braces' ? 'braces' : 'none';
       const rearPanelThickness = backMode === 'global' || backMode === 'solid' ? rearStockThickness(cabinet, project) : 0;
       const rearInset = 0;
@@ -443,7 +449,7 @@ export function extendCabinetSide(cabinet, side, addedWidth = 300, project = { m
       nextWidth > 6000 || originalWidth - 2 * thickness < 50) return false;
   // Extending this edge would move its existing rear notch into the interior,
   // which cannot be represented by the supported rear L-corner shape.
-  if (cabinet.cutout?.corner === `back-${side}`) return false;
+  if (getCabinetCutout(cabinet, `back-${side}`)) return false;
   const previous = structuredClone(cabinet.layout ?? convertLegacyLayout(cabinet));
   const added = createSection('open');
   const sizes = [originalWidth - 2 * thickness, openingWidth];
@@ -1015,10 +1021,12 @@ export function generateParts(project) {
       });
     };
     if (width <= 0 || bodyHeight <= 0 || bodyDepth <= 0 || thickness <= 0) continue;
-    const cutout = cabinet.cutout;
-    const cutWidth = number(cutout?.width), cutDepth = number(cutout?.depth);
-    const hasCutout = cutWidth > 0 && cutDepth > 0;
-    const rightCutout = cutout?.corner === 'back-right';
+    const cutouts = getCabinetCutouts(cabinet);
+    const leftCut = cutouts.find(c => c.corner === 'back-left');
+    const rightCut = cutouts.find(c => c.corner === 'back-right');
+    const hasLeftCutout = Boolean(leftCut && number(leftCut.width) > 0 && number(leftCut.depth) > 0);
+    const hasRightCutout = Boolean(rightCut && number(rightCut.width) > 0 && number(rightCut.depth) > 0);
+    const hasCutout = hasLeftCutout || hasRightCutout;
     const layout = cabinet.layout ? getCabinetLayout(cabinet, project) : null;
     const floorSections = layout?.sections.filter(section => section.floorOpen) ?? [];
     const partitionIdentity = (partition, tree = cabinet.layout) => {
@@ -1027,31 +1035,59 @@ export function generateParts(project) {
       return { partitionParentId: partition.parentId, partitionBeforeChildId: partition.beforeChildId,
         partitionAfterChildId: parent?.children?.[index + 1]?.id ?? '' };
     };
+    const partitionNotchOffset = (partX, partWidth = thickness) => {
+      let offset = 0;
+      if (hasLeftCutout && partX < number(leftCut.width) + thickness) {
+        offset = Math.max(offset, number(leftCut.depth));
+      }
+      if (hasRightCutout && partX + partWidth > width - number(rightCut.width) - thickness) {
+        offset = Math.max(offset, number(rightCut.depth));
+      }
+      return offset;
+    };
     const horizontal = (name, x, z, panelWidth, panelDepth, y, sectionId, extra = {}) => {
       const { clipRearInset = 0, ...metadata } = extra;
-      const shapeCabinet = clipRearInset > 0 && cabinet.cutout ? { ...cabinet, cutout: { ...cabinet.cutout, depth: number(cabinet.cutout.depth) + clipRearInset } } : cabinet;
+      const shapeCabinet = clipRearInset > 0 && cabinet.cutout ? { ...cabinet, cutout: { ...cabinet.cutout, depth: number(cabinet.cutout.depth) + clipRearInset, leftDepth: number(cabinet.cutout.leftDepth ?? cabinet.cutout.depth) + clipRearInset, rightDepth: number(cabinet.cutout.rightDepth ?? cabinet.cutout.depth) + clipRearInset } } : cabinet;
       const shape = horizontalContour(shapeCabinet, x, z, panelWidth, panelDepth, thickness, back);
       addPart(name, shape.width, shape.height, thickness, cabinet.materialId, ['bottom'], { ...(sectionId ? { sectionId } : {}), ...(shape.outline ? { outline: shape.outline } : {}), position: { x: shape.x, y, z: shape.z }, orientation: 'horizontal', ...metadata });
     };
-    const leftDepth = hasCutout && !rightCutout ? bodyDepth - cutDepth : bodyDepth;
-    const rightDepth = hasCutout && rightCutout ? bodyDepth - cutDepth : bodyDepth;
+    const leftDepth = hasLeftCutout ? bodyDepth - number(leftCut.depth) : bodyDepth;
+    const rightDepth = hasRightCutout ? bodyDepth - number(rightCut.depth) : bodyDepth;
     const floorY = -number(cabinet.plinth) || 0;
     const lowerSide = match => cabinet.sidesToFloor === true ? floorY : Math.min(0, ...(layout?.sections ?? []).filter(section => section.floorEligible && match(section)).map(section => section.hasBottom ? section.bottomPanelY : section.y));
     const leftY = lowerSide(section => Math.abs(section.x - thickness) < EPSILON), rightY = lowerSide(section => Math.abs(section.x + section.width - width + thickness) < EPSILON);
-    addPart('Боковина левая', leftDepth, bodyHeight - leftY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: 0, y: leftY, z: hasCutout && !rightCutout ? cutDepth + back : back }, orientation: 'vertical-depth' });
-    addPart('Боковина правая', rightDepth, bodyHeight - rightY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: width - thickness, y: rightY, z: hasCutout && rightCutout ? cutDepth + back : back }, orientation: 'vertical-depth' });
+    addPart('Боковина левая', leftDepth, bodyHeight - leftY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: 0, y: leftY, z: hasLeftCutout ? number(leftCut.depth) + back : back }, orientation: 'vertical-depth' });
+    addPart('Боковина правая', rightDepth, bodyHeight - rightY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: width - thickness, y: rightY, z: hasRightCutout ? number(rightCut.depth) + back : back }, orientation: 'vertical-depth' });
     horizontal('Крышка', thickness, back, insideWidth, bodyDepth, bodyHeight - thickness);
     if (cabinet.includeBottom !== false || layout?.sections.some(section => section.hasBottom) || !layout && number(cabinet.plinth) > 0) {
       const intervals = retainedFloorIntervals(cabinet, layout, thickness);
       intervals.forEach((interval, index) => horizontal(intervals.length === 1 && !floorSections.length ? 'Дно корпуса' : `Дно корпуса · участок ${index + 1}`, interval.x, back, interval.width, bodyDepth, interval.y ?? 0, interval.sectionId, { role: 'bottom', component: 'bottom', bandingSectionIds: [...interval.sectionIds ?? []].sort() }));
     }
-    const returnY = lowerSide(section => section.x <= (rightCutout ? width - cutWidth : cutWidth) && section.x + section.width >= (rightCutout ? width - cutWidth : cutWidth));
-    if (hasCutout) addPart('Возвратная боковина выреза', Math.max(0, cutDepth - back), bodyHeight - returnY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: rightCutout ? width - cutWidth - thickness : cutWidth, y: returnY, z: back }, orientation: 'vertical-depth' });
+    if (hasLeftCutout) {
+      const cutWidth = number(leftCut.width), cutDepth = number(leftCut.depth);
+      const returnY = lowerSide(section => section.x <= cutWidth && section.x + section.width >= cutWidth);
+      addPart('Возвратная боковина выреза', Math.max(0, cutDepth - back), bodyHeight - returnY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: cutWidth, y: returnY, z: back }, orientation: 'vertical-depth' });
+    }
+    if (hasRightCutout) {
+      const cutWidth = number(rightCut.width), cutDepth = number(rightCut.depth);
+      const returnY = lowerSide(section => section.x <= width - cutWidth && section.x + section.width >= width - cutWidth);
+      addPart('Возвратная боковина выреза', Math.max(0, cutDepth - back), bodyHeight - returnY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: width - cutWidth - thickness, y: returnY, z: back }, orientation: 'vertical-depth' });
+    }
     const label = section => `Секция ${layout.sections.indexOf(section) + 1}${section.node.name ? ` · ${section.node.name}` : ''}`;
     if (back > 0 && cabinet.includeBack !== false) {
       const rearY = Math.min(0, ...(layout?.sections ?? []).filter(section => section.floorEligible).map(section => section.floorOpen ? section.y : section.bottomPanelY));
-      addPart('Задняя стенка', hasCutout ? width - cutWidth : width, bodyHeight - rearY, back, cabinet.backMaterialId, [], { role: 'back', component: 'back', bandingSegment: 'main', position: { x: hasCutout && !rightCutout ? cutWidth : 0, y: rearY, z: 0 }, orientation: 'vertical-width' });
-      if (hasCutout) addPart('Задняя стенка выреза', cutWidth + thickness, bodyHeight - rearY, back, cabinet.backMaterialId, [], { role: 'back', component: 'back', bandingSegment: 'notch', position: { x: rightCutout ? width - cutWidth - thickness : 0, y: rearY, z: cutDepth }, orientation: 'vertical-width' });
+      const lw = hasLeftCutout ? number(leftCut.width) : 0;
+      const rw = hasRightCutout ? number(rightCut.width) : 0;
+      const mainBackWidth = width - lw - rw;
+      if (mainBackWidth > 0) {
+        addPart('Задняя стенка', mainBackWidth, bodyHeight - rearY, back, cabinet.backMaterialId, [], { role: 'back', component: 'back', bandingSegment: 'main', position: { x: lw, y: rearY, z: 0 }, orientation: 'vertical-width' });
+      }
+      if (hasLeftCutout) {
+        addPart('Задняя стенка выреза', lw + thickness, bodyHeight - rearY, back, cabinet.backMaterialId, [], { role: 'back', component: 'back', bandingSegment: 'notch', position: { x: 0, y: rearY, z: number(leftCut.depth) }, orientation: 'vertical-width' });
+      }
+      if (hasRightCutout) {
+        addPart('Задняя стенка выреза', rw + thickness, bodyHeight - rearY, back, cabinet.backMaterialId, [], { role: 'back', component: 'back', bandingSegment: 'notch', position: { x: width - rw - thickness, y: rearY, z: number(rightCut.depth) }, orientation: 'vertical-width' });
+      }
     } else if (layout) {
       for (const panel of getSectionBackPanels(cabinet, project, layout)) {
         const section = panel.sectionIds.length === 1 ? layout.sections.find(section => section.id === panel.sectionIds[0]) : null;
@@ -1067,9 +1103,9 @@ export function generateParts(project) {
         const index = layout.partitions.filter(item => item.axis === partition.axis).indexOf(partition) + 1;
         if (partition.axis === 'horizontal') horizontal(`Горизонтальная перегородка ${index}`, partition.x, back, partition.width, partition.depth, partition.y, undefined, { partitionId: partition.id, ...partitionIdentity(partition) });
         else {
-          const notchAt = hasCutout && (rightCutout ? partition.x + partition.width > width - cutWidth - thickness : partition.x < cutWidth + thickness);
-          const start = notchAt ? back + cutDepth : back;
-          addPart(`Вертикальная перегородка ${index}`, partition.depth - (start - back), partition.height, thickness, cabinet.materialId, ['left'], { position: { x: partition.x, y: partition.y, z: start }, orientation: 'vertical-depth', partitionId: partition.id, ...partitionIdentity(partition) });
+          const notchDepth = partitionNotchOffset(partition.x, partition.width);
+          const start = back + notchDepth;
+          addPart(`Вертикальная перегородка ${index}`, partition.depth - notchDepth, partition.height, thickness, cabinet.materialId, ['left'], { position: { x: partition.x, y: partition.y, z: start }, orientation: 'vertical-depth', partitionId: partition.id, ...partitionIdentity(partition) });
         }
       }
       for (const section of layout.sections) {
@@ -1089,9 +1125,9 @@ export function generateParts(project) {
           // The rear return itself occupies one body-panel thickness inside
           // the nominal notch. Exact face contact is allowed; actual material
           // crossing that inner boundary requires a shortened divider.
-          const overlapsNotch = hasCutout && (rightCutout ? partition.x + partition.width > width - cutWidth - thickness : partition.x < cutWidth + thickness);
-          const start = back + outer.rearInset + (overlapsNotch ? cutDepth : 0);
-          addPart(`${label(outer)} · внутренняя вертикальная перегородка ${index}`, partition.depth - (start - back), partition.height, thickness, cabinet.materialId, ['left'], { ...extras, position: { x: partition.x, y: partition.y, z: start }, orientation: 'vertical-depth' });
+          const notchDepth = partitionNotchOffset(partition.x, partition.width);
+          const start = back + outer.rearInset + notchDepth;
+          addPart(`${label(outer)} · внутренняя вертикальная перегородка ${index}`, partition.depth - notchDepth, partition.height, thickness, cabinet.materialId, ['left'], { ...extras, position: { x: partition.x, y: partition.y, z: start }, orientation: 'vertical-depth' });
         }
       }
       for (const section of layout.internalSections) {
@@ -1111,7 +1147,8 @@ export function generateParts(project) {
     if (number(cabinet.plinth) > 10 || layout?.sections.some(section => section.floorEligible && section.effectivePlinth > 10)) {
       const gap = number(cabinet.gap, 2);
       const sources = layout ? layout.sections.filter(section => section.floorEligible && !section.floorOpen && section.effectivePlinth > 10).map(section => ({ x: section.frontX, width: section.frontWidth, y: section.effectivePlinth, sectionIds: [section.id] })) : [{ x: gap, width: width - 2 * gap, y: number(cabinet.plinth), sectionIds: [] }];
-      const plinthZ = Math.max(number(cabinet.depth) - 65, hasCutout ? cutDepth + back : 0);
+      const maxCutDepth = Math.max(hasLeftCutout ? number(leftCut.depth) : 0, hasRightCutout ? number(rightCut.depth) : 0);
+      const plinthZ = Math.max(number(cabinet.depth) - 65, hasCutout ? maxCutDepth + back : 0);
       const intervals = clipPlinthIntervals(mergeLevelIntervals(sources, gap + EPSILON), parts.slice(firstPart), floorY, plinthZ, thickness);
       intervals.forEach((interval, index) => {
         const ids = layout?.sections.filter(section => section.floorEligible && section.x < interval.x + interval.width - EPSILON && section.x + section.width > interval.x + EPSILON).map(section => section.id).sort() ?? [];
@@ -1355,12 +1392,26 @@ function retainedFloorIntervals(cabinet, layout, thickness) {
 }
 
 function sectionRearSegments(cabinet, section, thickness, back) {
-  if (!cabinet.cutout) return [{ x: section.x, width: section.width, z: back }];
-  const width = number(cabinet.width), cw = number(cabinet.cutout.width), cd = number(cabinet.cutout.depth);
+  const cutouts = getCabinetCutouts(cabinet);
+  if (!cutouts.length) return [{ x: section.x, width: section.width, z: back }];
+  const width = number(cabinet.width);
+  const leftCut = cutouts.find(c => c.corner === 'back-left');
+  const rightCut = cutouts.find(c => c.corner === 'back-right');
   const left = section.x, right = section.x + section.width;
-  const spans = cabinet.cutout.corner === 'back-right'
-    ? [[left, Math.min(right, width - cw - thickness), back], [Math.max(left, width - cw), right, cd + back]]
-    : [[Math.max(left, cw + thickness), right, back], [left, Math.min(right, cw), cd + back]];
+  const spans = [];
+  const mainLeft = leftCut ? Math.max(left, number(leftCut.width) + thickness) : left;
+  const mainRight = rightCut ? Math.min(right, width - number(rightCut.width) - thickness) : right;
+  if (mainRight > mainLeft) {
+    spans.push([mainLeft, mainRight, back]);
+  }
+  if (leftCut) {
+    const cw = number(leftCut.width), cd = number(leftCut.depth);
+    spans.push([left, Math.min(right, cw), cd + back]);
+  }
+  if (rightCut) {
+    const cw = number(rightCut.width), cd = number(rightCut.depth);
+    spans.push([Math.max(left, width - cw), right, cd + back]);
+  }
   return spans.filter(([a, b]) => b - a > EPSILON).map(([a, b, z]) => ({ x: a, width: b - a, z }));
 }
 
@@ -1377,7 +1428,10 @@ function sectionBackSourceId(cabinetId, panel) {
 export function getSectionBackPanels(cabinet, project = { materials: [] }, layout = getCabinetLayout(cabinet, project)) {
   if (cabinet.includeBack !== false) return [];
   const panels = [], thickness = layout.thickness, reservation = layout.rearReservation, width = number(cabinet.width);
-  const cutout = cabinet.cutout, cw = number(cutout?.width), cd = number(cutout?.depth), hasCutout = cw > 0 && cd > 0, right = cutout?.corner === 'back-right';
+  const cutouts = getCabinetCutouts(cabinet);
+  const leftCut = cutouts.find(c => c.corner === 'back-left');
+  const rightCut = cutouts.find(c => c.corner === 'back-right');
+  const hasCutout = cutouts.length > 0;
   const near = (a,b) => Math.abs(a - b) < EPSILON;
   for (const section of layout.sections.filter(section => section.backMode === 'solid')) {
     const y = section.floorEligible ? section.hasBottom ? section.bottomPanelY : section.y : section.y - thickness / 2;
@@ -1385,10 +1439,12 @@ export function getSectionBackPanels(cabinet, project = { materials: [] }, layou
     for (const segment of sectionRearSegments(cabinet, section, thickness, reservation)) {
       const bandingSegment = near(segment.z, reservation) ? 'main' : 'notch', end = segment.x + segment.width;
       const x = near(segment.x, thickness) ? 0
-        : hasCutout && (!right && bandingSegment === 'main' && near(segment.x, cw + thickness) || right && bandingSegment === 'notch' && near(segment.x, width - cw)) ? segment.x - thickness
+        : (leftCut && bandingSegment === 'main' && near(segment.x, number(leftCut.width) + thickness)) ? segment.x - thickness
+        : (rightCut && bandingSegment === 'notch' && near(segment.x, width - number(rightCut.width))) ? segment.x - thickness
         : segment.x - thickness / 2;
       const rightEdge = near(end, width - thickness) ? width
-        : hasCutout && (right && bandingSegment === 'main' && near(end, width - cw - thickness) || !right && bandingSegment === 'notch' && near(end, cw)) ? end + thickness
+        : (rightCut && bandingSegment === 'main' && near(end, width - number(rightCut.width) - thickness)) ? end + thickness
+        : (leftCut && bandingSegment === 'notch' && near(end, number(leftCut.width))) ? end + thickness
         : end + thickness / 2;
       if (rightEdge > x && top > y) panels.push({ x, y, z: segment.z - section.rearPanelThickness, width: rightEdge - x, height: top - y,
         thickness: section.rearPanelThickness, materialId: cabinet.backMaterialId, bandingSegment, sectionIds: [section.id] });
@@ -1423,16 +1479,32 @@ export function getSectionBackPanels(cabinet, project = { materials: [] }, layou
 function rearBracePanels(cabinet, project, layout = cabinet.layout ? getCabinetLayout(cabinet, project) : null) {
   const panels = [], thickness = bodyThickness(cabinet, project), width = number(cabinet.width), back = backThickness(cabinet, project);
   const braces = Array.isArray(cabinet.rearBraces) ? cabinet.rearBraces.slice(0, 20) : [];
+  const cutouts = getCabinetCutouts(cabinet);
+  const leftCut = cutouts.find(c => c.corner === 'back-left');
+  const rightCut = cutouts.find(c => c.corner === 'back-right');
+  const hasLeft = Boolean(leftCut && positive(leftCut.width) && positive(leftCut.depth));
+  const hasRight = Boolean(rightCut && positive(rightCut.width) && positive(rightCut.depth));
   for (const brace of braces) {
     if (!brace || !positive(brace.height)) continue;
     const materialId = brace.materialId ?? cabinet.materialId;
     const panelThickness = number(stockById(project, materialId)?.thickness, thickness);
     const common = { braceId: brace.id, braceBaseY: -number(cabinet.plinth), y: number(brace.y) - number(cabinet.plinth), height: number(brace.height), thickness: panelThickness, materialId };
-    if (!cabinet.cutout) panels.push({ ...common, bandingSegment: 'main', x: thickness, z: back, width: width - 2 * thickness });
-    else {
-      const cw = number(cabinet.cutout.width), cd = number(cabinet.cutout.depth), right = cabinet.cutout.corner === 'back-right';
-      panels.push({ ...common, bandingSegment: 'main', x: right ? thickness : cw + thickness, z: back, width: width - cw - 2 * thickness });
-      panels.push({ ...common, bandingSegment: 'notch', x: right ? width - cw : thickness, z: cd + back, width: cw - thickness });
+    if (!hasLeft && !hasRight) {
+      panels.push({ ...common, bandingSegment: 'main', x: thickness, z: back, width: width - 2 * thickness });
+    } else {
+      const lw = hasLeft ? number(leftCut.width) : 0;
+      const rw = hasRight ? number(rightCut.width) : 0;
+      const mainX = hasLeft ? lw + thickness : thickness;
+      const mainWidth = width - lw - rw - 2 * thickness;
+      if (mainWidth > 0) {
+        panels.push({ ...common, bandingSegment: 'main', x: mainX, z: back, width: mainWidth });
+      }
+      if (hasLeft) {
+        panels.push({ ...common, bandingSegment: 'notch', x: thickness, z: number(leftCut.depth) + back, width: lw - thickness });
+      }
+      if (hasRight) {
+        panels.push({ ...common, bandingSegment: 'notch', x: width - rw, z: number(rightCut.depth) + back, width: rw - thickness });
+      }
     }
   }
   for (const section of layout?.sections ?? []) {
@@ -1448,17 +1520,40 @@ function rearBracePanels(cabinet, project, layout = cabinet.layout ? getCabinetL
 }
 
 function horizontalContour(cabinet, x, z, width, height, thickness, back) {
-  const cutout = cabinet.cutout;
-  if (!cutout || !positive(cutout.width) || !positive(cutout.depth)) return { x, z, width, height };
-  const right = cutout.corner === 'back-right';
-  const notchWidth = Math.max(0, Math.min(width, right ? x + width - (number(cabinet.width) - number(cutout.width) - thickness) : number(cutout.width) + thickness - x));
-  const notchDepth = Math.max(0, Math.min(height, number(cutout.depth) + back - z));
-  if (notchWidth <= 0 || notchDepth <= 0) return { x, z, width, height };
-  if (notchWidth >= width - EPSILON) return { x, z: z + notchDepth, width, height: height - notchDepth };
-  if (notchDepth >= height - EPSILON) return { x: x + (right ? 0 : notchWidth), z, width: width - notchWidth, height };
-  const outline = right
-    ? [{ x: 0, y: 0 }, { x: width - notchWidth, y: 0 }, { x: width - notchWidth, y: notchDepth }, { x: width, y: notchDepth }, { x: width, y: height }, { x: 0, y: height }]
-    : [{ x: notchWidth, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }, { x: 0, y: notchDepth }, { x: notchWidth, y: notchDepth }];
+  const cutouts = getCabinetCutouts(cabinet);
+  if (!cutouts.length) return { x, z, width, height };
+  const leftCut = cutouts.find(c => c.corner === 'back-left');
+  const rightCut = cutouts.find(c => c.corner === 'back-right');
+  const cabWidth = number(cabinet.width);
+  const notchWidthLeft = leftCut ? Math.max(0, Math.min(width, number(leftCut.width) + thickness - x)) : 0;
+  const notchDepthLeft = leftCut ? Math.max(0, Math.min(height, number(leftCut.depth) + back - z)) : 0;
+  const notchWidthRight = rightCut ? Math.max(0, Math.min(width, x + width - (cabWidth - number(rightCut.width) - thickness))) : 0;
+  const notchDepthRight = rightCut ? Math.max(0, Math.min(height, number(rightCut.depth) + back - z)) : 0;
+  const hasLeft = notchWidthLeft > 0 && notchDepthLeft > 0;
+  const hasRight = notchWidthRight > 0 && notchDepthRight > 0;
+  if (!hasLeft && !hasRight) return { x, z, width, height };
+  if (hasLeft && !hasRight) {
+    if (notchWidthLeft >= width - EPSILON) return { x, z: z + notchDepthLeft, width, height: height - notchDepthLeft };
+    if (notchDepthLeft >= height - EPSILON) return { x: x + notchWidthLeft, z, width: width - notchWidthLeft, height };
+    const outline = [{ x: notchWidthLeft, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }, { x: 0, y: notchDepthLeft }, { x: notchWidthLeft, y: notchDepthLeft }];
+    return { x, z, width, height, outline };
+  }
+  if (!hasLeft && hasRight) {
+    if (notchWidthRight >= width - EPSILON) return { x, z: z + notchDepthRight, width, height: height - notchDepthRight };
+    if (notchDepthRight >= height - EPSILON) return { x, z, width: width - notchWidthRight, height };
+    const outline = [{ x: 0, y: 0 }, { x: width - notchWidthRight, y: 0 }, { x: width - notchWidthRight, y: notchDepthRight }, { x: width, y: notchDepthRight }, { x: width, y: height }, { x: 0, y: height }];
+    return { x, z, width, height, outline };
+  }
+  const outline = [
+    { x: notchWidthLeft, y: 0 },
+    { x: width - notchWidthRight, y: 0 },
+    { x: width - notchWidthRight, y: notchDepthRight },
+    { x: width, y: notchDepthRight },
+    { x: width, y: height },
+    { x: 0, y: height },
+    { x: 0, y: notchDepthLeft },
+    { x: notchWidthLeft, y: notchDepthLeft }
+  ];
   return { x, z, width, height, outline };
 }
 
@@ -1578,8 +1673,26 @@ export function validateProject(project) {
     if (number(cabinet.y) + number(cabinet.height) > number(room.height) + EPSILON || !placement.contained) error('мебель выходит за границы помещения с учётом толщины фасада, поворота и выреза.');
     if (placement.contained && placement.deficits.walls > EPSILON) warn(`до стены не хватает ${placement.deficits.walls} мм монтажного отступа (нужно ${placement.required.walls}, доступно ${round(placement.wallClearance)} мм).`);
     if (placement.ceilingClearance >= -EPSILON && placement.deficits.ceiling > EPSILON) warn(`до потолка не хватает ${placement.deficits.ceiling} мм монтажного отступа (нужно ${placement.required.ceiling}, доступно ${round(placement.ceilingClearance)} мм).`);
-    if (cabinet.cutout && (!['back-left', 'back-right'].includes(cabinet.cutout.corner) || !positive(cabinet.cutout.width) || !positive(cabinet.cutout.depth) || cabinet.cutout.width >= number(cabinet.width) - 2 * thickness || cabinet.cutout.depth >= number(cabinet.depth) - 2 * thickness)) error('вырез должен быть меньше корпуса с сохранением толщины боковин.');
-    if (cabinet.cutout && positive(cabinet.cutout.depth) && number(cabinet.cutout.depth) < backThickness(cabinet, project) - EPSILON) error('глубина выреза не может быть меньше зарезервированной толщины задника.');
+    if (cabinet.cutout) {
+      if (!['back-left', 'back-right', 'both'].includes(cabinet.cutout.corner)) {
+        error('выбран неизвестный угол выреза.');
+      } else if (cabinet.cutout.corner === 'both') {
+        const lw = cabinet.cutout.leftWidth ?? cabinet.cutout.width;
+        const ld = cabinet.cutout.leftDepth ?? cabinet.cutout.depth;
+        const rw = cabinet.cutout.rightWidth ?? cabinet.cutout.width;
+        const rd = cabinet.cutout.rightDepth ?? cabinet.cutout.depth;
+        if (!positive(lw) || !positive(ld) || !positive(rw) || !positive(rd) || lw + rw >= number(cabinet.width) - 2 * thickness || ld >= number(cabinet.depth) - 2 * thickness || rd >= number(cabinet.depth) - 2 * thickness) {
+          error('вырез должен быть меньше корпуса с сохранением толщины боковин.');
+        }
+      } else if (!positive(cabinet.cutout.width) || !positive(cabinet.cutout.depth) || cabinet.cutout.width >= number(cabinet.width) - 2 * thickness || cabinet.cutout.depth >= number(cabinet.depth) - 2 * thickness) {
+        error('вырез должен быть меньше корпуса с сохранением толщины боковин.');
+      }
+      for (const cut of getCabinetCutouts(cabinet)) {
+        if (positive(cut.depth) && number(cut.depth) < backThickness(cabinet, project) - EPSILON) {
+          error('глубина выреза не может быть меньше зарезервированной толщины задника.');
+        }
+      }
+    }
     const shelfAreaHeight = integer(cabinet.drawers) > 0 && integer(cabinet.doors) > 0 ? number(getFrontLayout(cabinet).find(front => front.kind === 'door')?.height) : bodyHeight;
     if (integer(cabinet.shelves) > 0 && (shelfAreaHeight - 2 * thickness) / (integer(cabinet.shelves) + 1) < 80) warn('между полками остаётся менее 80 мм; проверьте полезную высоту секции дверей.');
     if (!layout && integer(cabinet.shelves) > 0 && insideWidth > 1000) warn('пролёт полки больше 1000 мм; требуется проверить прогиб и предусмотреть перегородку или опоры.');

@@ -139,15 +139,59 @@ export function remapWindows(room, newOutline, openingsOrMetadata = {}, changeMe
   });
 }
 
-/** Carcass footprint in local coordinates, with an optional rear corner notch. */
+/** Normalize any single or dual cabinet rear cutouts into a uniform array. */
+export function getCabinetCutouts(cabinet) {
+  if (!cabinet) return [];
+  const c = cabinet.cutout;
+  if (!c) return [];
+  if (c.corner === 'both') {
+    const lw = positiveNumber(c.leftWidth ?? c.width, 0), ld = positiveNumber(c.leftDepth ?? c.depth, 0);
+    const rw = positiveNumber(c.rightWidth, 0), rd = positiveNumber(c.rightDepth, 0);
+    const result = [];
+    if (lw > 0 && ld > 0) result.push({ corner: 'back-left', width: lw, depth: ld });
+    if (rw > 0 && rd > 0) result.push({ corner: 'back-right', width: rw, depth: rd });
+    return result;
+  }
+  if (c.corner === 'back-left' || c.corner === 'back-right') {
+    const w = positiveNumber(c.width, 0), d = positiveNumber(c.depth, 0);
+    if (w > 0 && d > 0) return [{ corner: c.corner, width: w, depth: d }];
+  }
+  return [];
+}
+
+export function getCabinetCutout(cabinet, corner) {
+  return getCabinetCutouts(cabinet).find(c => c.corner === corner) ?? null;
+}
+
+/** Carcass footprint in local coordinates, with optional rear corner notches. */
 export function getCabinetFootprint(cabinet = {}) {
   const width = positiveNumber(cabinet.width, 0), depth = positiveNumber(cabinet.depth, 0);
   if (!width || !depth) return [];
-  const notch = cabinet.cutout;
-  if (notch && Number.isFinite(notch.width) && Number.isFinite(notch.depth) && notch.width > 0 && notch.depth > 0 && notch.width < width && notch.depth < depth) {
-    const w = notch.width, d = notch.depth;
-    if (notch.corner === 'back-left') return [{ x: w, z: 0 }, { x: width, z: 0 }, { x: width, z: depth }, { x: 0, z: depth }, { x: 0, z: d }, { x: w, z: d }];
-    if (notch.corner === 'back-right') return [{ x: 0, z: 0 }, { x: width - w, z: 0 }, { x: width - w, z: d }, { x: width, z: d }, { x: width, z: depth }, { x: 0, z: depth }];
+  const cutouts = getCabinetCutouts(cabinet);
+  const leftCut = cutouts.find(c => c.corner === 'back-left');
+  const rightCut = cutouts.find(c => c.corner === 'back-right');
+  const hasLeft = leftCut && leftCut.width > 0 && leftCut.depth > 0 && leftCut.width < width && leftCut.depth < depth;
+  const hasRight = rightCut && rightCut.width > 0 && rightCut.depth > 0 && rightCut.width < width && rightCut.depth < depth;
+  if (hasLeft && hasRight && leftCut.width + rightCut.width < width) {
+    const wl = leftCut.width, dl = leftCut.depth, wr = rightCut.width, dr = rightCut.depth;
+    return [
+      { x: wl, z: 0 },
+      { x: width - wr, z: 0 },
+      { x: width - wr, z: dr },
+      { x: width, z: dr },
+      { x: width, z: depth },
+      { x: 0, z: depth },
+      { x: 0, z: dl },
+      { x: wl, z: dl }
+    ];
+  }
+  if (hasLeft) {
+    const w = leftCut.width, d = leftCut.depth;
+    return [{ x: w, z: 0 }, { x: width, z: 0 }, { x: width, z: depth }, { x: 0, z: depth }, { x: 0, z: d }, { x: w, z: d }];
+  }
+  if (hasRight) {
+    const w = rightCut.width, d = rightCut.depth;
+    return [{ x: 0, z: 0 }, { x: width - w, z: 0 }, { x: width - w, z: d }, { x: width, z: d }, { x: width, z: depth }, { x: 0, z: depth }];
   }
   return [{ x: 0, z: 0 }, { x: width, z: 0 }, { x: width, z: depth }, { x: 0, z: depth }];
 }

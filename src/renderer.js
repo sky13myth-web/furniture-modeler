@@ -389,15 +389,33 @@ export function makeScene(project, options = {}, direction = null) {
     }
   };
   const box = (x, y, z, w, h, d, color, id, extras = {}) => {
-    const c = currentCabinet, notch = c?.cutout;
-    if (!notch || extras.noCutout || number(notch.width) <= 0 || number(notch.depth) <= 0) return rawBox(x, y, z, w, h, d, color, id, extras);
-    const nx = c.x + (notch.corner === 'back-right' ? c.width - number(notch.width) : 0), nz = c.z;
-    const ix = Math.max(x, nx), iz = Math.max(z, nz), iX = Math.min(x + w, nx + number(notch.width)), iZ = Math.min(z + d, nz + number(notch.depth));
-    if (ix >= iX || iz >= iZ) return rawBox(x, y, z, w, h, d, color, id, extras);
-    rawBox(x, y, z, ix - x, h, d, color, id, extras);
-    rawBox(iX, y, z, x + w - iX, h, d, color, id, extras);
-    rawBox(ix, y, z, iX - ix, h, iz - z, color, id, extras);
-    rawBox(ix, y, iZ, iX - ix, h, z + d - iZ, color, id, extras);
+    const c = currentCabinet;
+    const cutouts = extras.noCutout ? [] : (c ? engine.getCabinetCutouts(c) : []);
+    if (!cutouts.length) return rawBox(x, y, z, w, h, d, color, id, extras);
+
+    let pieces = [{ x, y, z, w, h, d }];
+    for (const notch of cutouts) {
+      const nw = number(notch.width), nd = number(notch.depth);
+      if (nw <= 0 || nd <= 0) continue;
+      const nx = c.x + (notch.corner === 'back-right' ? c.width - nw : 0), nz = c.z;
+      const nextPieces = [];
+      for (const p of pieces) {
+        const ix = Math.max(p.x, nx), iz = Math.max(p.z, nz);
+        const iX = Math.min(p.x + p.w, nx + nw), iZ = Math.min(p.z + p.d, nz + nd);
+        if (ix >= iX || iz >= iZ) {
+          nextPieces.push(p);
+          continue;
+        }
+        if (ix > p.x) nextPieces.push({ x: p.x, y: p.y, z: p.z, w: ix - p.x, h: p.h, d: p.d });
+        if (p.x + p.w > iX) nextPieces.push({ x: iX, y: p.y, z: p.z, w: p.x + p.w - iX, h: p.h, d: p.d });
+        if (iz > p.z) nextPieces.push({ x: ix, y: p.y, z: p.z, w: iX - ix, h: p.h, d: iz - p.z });
+        if (p.z + p.d > iZ) nextPieces.push({ x: ix, y: p.y, z: iZ, w: iX - ix, h: p.h, d: p.z + p.d - iZ });
+      }
+      pieces = nextPieces;
+    }
+    for (const p of pieces) {
+      rawBox(p.x, p.y, p.z, p.w, p.h, p.d, color, id, extras);
+    }
   };
   const productionPanel = (part, c) => {
     const position = part.position, pw = number(part.finishedWidth, part.width), ph = number(part.finishedHeight, part.height), pt = number(part.thickness);

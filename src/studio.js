@@ -271,7 +271,12 @@ function renderProperties(){
   }
   html+=disclosure('cabinet-materials','Материалы и отделка',`${selectMaterial('Корпус','materialId',c.materialId)}${selectMaterial('Фасады','frontMaterialId',c.frontMaterialId)}${selectMaterial('Короб ящика','drawerMaterialId',c.drawerMaterialId)}${selectMaterial('Дно ящика','drawerBottomMaterialId',c.drawerBottomMaterialId)}${selectMaterial('Задник','backMaterialId',c.backMaterialId)}<p class="hint">МДФ-задник крепится винтами. ДВП 3 мм — гвоздями без сверловки.</p><button class="text-button" data-action="materials">Изменить цвет или добавить материал</button>`);
   if(c.rearBraces?.length)html+=disclosure('rear-braces','Задние поперечины',`${c.rearBraces.map((b,i)=>`<div class="brace-row"><div class="row"><strong>Поперечина ${i+1}</strong><button class="icon-button" data-delete-brace="${esc(b.id)}" aria-label="Удалить поперечину ${i+1}">${icon('trash')}</button></div><div class="fields">${braceInput(b,'y','От низа шкафа')}${braceInput(b,'height','Высота планки')}</div><label class="field"><span>Материал</span><select data-brace="${esc(b.id)}" data-field="materialId">${materialOptions(b.materialId||c.materialId)}</select></label></div>`).join('')}`);
-    html+=disclosure('cabinet-shape','Форма и монтаж',`<label class="field"><span>Форма корпуса</span><select data-scope="cabinet" data-field="cutout-corner" ${isMezzanine?'disabled':''}><option value="none" ${!c.cutout?'selected':''}>Прямой</option><option value="back-left" ${c.cutout?.corner==='back-left'?'selected':''}>Вырез сзади слева</option><option value="back-right" ${c.cutout?.corner==='back-right'?'selected':''}>Вырез сзади справа</option></select></label>${c.cutout?`<div class="fields">${input('Ширина выреза','cutout-width',c.cutout.width,{min:10,max:c.width-60,disabled:isMezzanine})}${input('Глубина выреза','cutout-depth',c.cutout.depth,{min:10,max:c.depth-60,disabled:isMezzanine})}</div><p class="hint">${isMezzanine?'Вырез привязан к основному шкафу.':'Вырез проходит на всю высоту. Контуры плит передаются в деталировку.'}</p>`:''}<label class="field"><span>Навеска фасадов шкафа</span><select data-scope="cabinet" data-field="frontMount"><option value="overlay" ${c.frontMount!=='inset'?'selected':''}>Наружу (накладные)</option><option value="inset" ${c.frontMount==='inset'?'selected':''}>Внутрь (вкладные)</option></select></label>${input('Зазор фасадов','gap',c.gap,{max:10,step:.1})}${input('Кромка','edgeBand',c.edgeBand,{max:3,step:.1})}${input('Зазор направляющей / сторона','drawerSlideGap',c.drawerSlideGap,{max:40,step:.1})}`);
+    const cutoutInputs = !c.cutout ? '' : c.cutout.corner === 'both' ? `
+<div class="fields">${input('Ширина выреза слева','cutout-leftWidth',c.cutout.leftWidth??c.cutout.width,{min:10,max:c.width-60,disabled:isMezzanine})}${input('Глубина выреза слева','cutout-leftDepth',c.cutout.leftDepth??c.cutout.depth,{min:10,max:c.depth-60,disabled:isMezzanine})}</div>
+<div class="fields">${input('Ширина выреза справа','cutout-rightWidth',c.cutout.rightWidth??c.cutout.width,{min:10,max:c.width-60,disabled:isMezzanine})}${input('Глубина выреза справа','cutout-rightDepth',c.cutout.rightDepth??c.cutout.depth,{min:10,max:c.depth-60,disabled:isMezzanine})}</div>
+<p class="hint">${isMezzanine?'Вырезы привязаны к основному шкафу.':'Вырезы проходят на всю высоту. Контуры плит передаются в деталировку.'}</p>`
+: `<div class="fields">${input('Ширина выреза','cutout-width',c.cutout.width,{min:10,max:c.width-60,disabled:isMezzanine})}${input('Глубина выреза','cutout-depth',c.cutout.depth,{min:10,max:c.depth-60,disabled:isMezzanine})}</div><p class="hint">${isMezzanine?'Вырез привязан к основному шкафу.':'Вырез проходит на всю высоту. Контуры плит передаются в деталировку.'}</p>`;
+    html+=disclosure('cabinet-shape','Форма и монтаж',`<label class="field"><span>Форма корпуса</span><select data-scope="cabinet" data-field="cutout-corner" ${isMezzanine?'disabled':''}><option value="none" ${!c.cutout?'selected':''}>Прямой</option><option value="back-left" ${c.cutout?.corner==='back-left'?'selected':''}>Вырез сзади слева</option><option value="back-right" ${c.cutout?.corner==='back-right'?'selected':''}>Вырез сзади справа</option><option value="both" ${c.cutout?.corner==='both'?'selected':''}>Вырезы с двух сторон</option></select></label>${cutoutInputs}<label class="field"><span>Навеска фасадов шкафа</span><select data-scope="cabinet" data-field="frontMount"><option value="overlay" ${c.frontMount!=='inset'?'selected':''}>Наружу (накладные)</option><option value="inset" ${c.frontMount==='inset'?'selected':''}>Внутрь (вкладные)</option></select></label>${input('Зазор фасадов','gap',c.gap,{max:10,step:.1})}${input('Кромка','edgeBand',c.edgeBand,{max:3,step:.1})}${input('Зазор направляющей / сторона','drawerSlideGap',c.drawerSlideGap,{max:40,step:.1})}`);
  }else if(mode==='room'){
   const outline=getRoomOutline(project.room);selectedWall=Math.min(selectedWall,outline.length-1);
   const w=selectedOpening();if(roomFocus==='window'&&!w)roomFocus='wall';
@@ -333,12 +338,63 @@ function obstaclePanel(w){
 }
 function obstacleCutoutMarkup(c){
  const conflicts=findObstacleConflicts(project).filter(x=>x.cabinet.id===c.id);if(!conflicts.length)return '';
- const fit=conflicts.find(x=>x.suggestion);
- return `<div class="obstacle-conflicts"><strong>${conflicts.some(x=>x.obstacle.kind==='pipe')?'Шкаф упирается в трубу':'Шкаф упирается в короб'}</strong>${fit?`<small>${fit.suggestion.corner==='back-left'?'Вырез сзади слева':'Вырез сзади справа'} · ${fmt(fit.suggestion.width)} × ${fmt(fit.suggestion.depth)} мм</small>`:'<small>Сдвиньте шкаф или уменьшите его глубину.</small>'}</div>${fit?`<button class="button full" data-action="fit-obstacle-cutout">Сделать вырез под препятствие</button>`:''}`;
+ const suggestions=conflicts.map(x=>x.suggestion).filter(Boolean);
+ const leftSugg=suggestions.find(s=>s.corner==='back-left');
+ const rightSugg=suggestions.find(s=>s.corner==='back-right');
+ const cur=c.cutout;
+ const hasLeft=cur?.corner==='back-left'||cur?.corner==='both';
+ const hasRight=cur?.corner==='back-right'||cur?.corner==='both';
+ const willHaveBoth=(leftSugg&&rightSugg)||(leftSugg&&hasRight)||(rightSugg&&hasLeft);
+
+ let details='';
+ if(willHaveBoth){
+  const lw=leftSugg?.width||cur?.leftWidth||cur?.width||0;
+  const ld=leftSugg?.depth||cur?.leftDepth||cur?.depth||0;
+  const rw=rightSugg?.width||cur?.rightWidth||cur?.width||0;
+  const rd=rightSugg?.depth||cur?.rightDepth||cur?.depth||0;
+  details=`<small>Вырезы с двух сторон: слева ${fmt(lw)} × ${fmt(ld)} мм, справа ${fmt(rw)} × ${fmt(rd)} мм</small>`;
+ } else if(suggestions.length){
+  const s=suggestions[0];
+  details=`<small>${s.corner==='back-left'?'Вырез сзади слева':'Вырез сзади справа'} · ${fmt(s.width)} × ${fmt(s.depth)} мм</small>`;
+ } else {
+  details='<small>Сдвиньте шкаф или уменьшите его глубину.</small>';
+ }
+
+ const btnText=willHaveBoth?(cur&&cur.corner!=='both'?'Добавить вырез со второй стороны':'Сделать вырезы с двух сторон'):'Сделать вырез под препятствие';
+
+ return `<div class="obstacle-conflicts"><strong>${conflicts.some(x=>x.obstacle.kind==='pipe')?'Шкаф упирается в трубу':'Шкаф упирается в короб'}</strong>${details}</div>${suggestions.length?`<button class="button full" data-action="fit-obstacle-cutout">${btnText}</button>`:''}`;
 }
 function fitObstacleCutout(c){
- const conflict=findObstacleConflicts(project).find(x=>x.cabinet.id===c.id&&x.suggestion);if(!conflict){toast('Вырез не требуется или невозможен');return;}
- change(()=>{const s=conflict.suggestion,cur=c.cutout;c.cutout=cur&&cur.corner===s.corner?{corner:s.corner,width:Math.max(cur.width,s.width),depth:Math.max(cur.depth,s.depth)}:{...s};for(const m of project.cabinets)if(m.parentId===c.id)m.cutout=clone(c.cutout);});
+ const conflicts=findObstacleConflicts(project).filter(x=>x.cabinet.id===c.id);
+ const suggestions=conflicts.map(x=>x.suggestion).filter(Boolean);
+ if(!suggestions.length){toast('Вырез не требуется или невозможен');return;}
+ change(()=>{
+  let left=null,right=null;
+  const cur=c.cutout;
+  if(cur){
+   if(cur.corner==='back-left')left={width:cur.width,depth:cur.depth};
+   else if(cur.corner==='back-right')right={width:cur.width,depth:cur.depth};
+   else if(cur.corner==='both'){
+    left={width:cur.leftWidth??cur.width,depth:cur.leftDepth??cur.depth};
+    right={width:cur.rightWidth??cur.width,depth:cur.rightDepth??cur.depth};
+   }
+  }
+  for(const s of suggestions){
+   if(s.corner==='back-left'){
+    left=left?{width:Math.max(left.width,s.width),depth:Math.max(left.depth,s.depth)}:{...s};
+   } else if(s.corner==='back-right'){
+    right=right?{width:Math.max(right.width,s.width),depth:Math.max(right.depth,s.depth)}:{...s};
+   }
+  }
+  if(left&&right){
+   c.cutout={corner:'both',leftWidth:left.width,leftDepth:left.depth,rightWidth:right.width,rightDepth:right.depth,width:left.width,depth:left.depth};
+  } else if(left){
+   c.cutout={corner:'back-left',width:left.width,depth:left.depth};
+  } else if(right){
+   c.cutout={corner:'back-right',width:right.width,depth:right.depth};
+  }
+  for(const m of project.cabinets)if(m.parentId===c.id)m.cutout=clone(c.cutout);
+ });
 }
 function addObstacle(kind){
  if(project.room.windows.length>=30){toast('В проекте уже 30 проёмов');return;}
@@ -435,8 +491,24 @@ document.addEventListener('change',e=>{
    if(c.parentId&&['width','depth','plinth','sidesToFloor','x','y','z','rotation'].includes(field)){toast(translateText('Антресоль привязана к основному шкафу. Перемещайте основной шкаф.',interfaceLanguage));return false;}
    if(c.parentId&&field.startsWith('cutout-')){return false;}
    if(mode==='room'&&['width','depth'].includes(field))return applyCabinetResult(c,resizeCabinetOnPlan(c,{[field]:value},project));
-   if(field==='cutout-corner'){c.cutout=value==='none'?undefined:{corner:value,width:c.cutout?.width||150,depth:c.cutout?.depth||150};}
-   else if(field.startsWith('cutout-'))c.cutout[field.slice(7)]=value;
+   if(field==='cutout-corner'){
+     if(value==='none')c.cutout=undefined;
+     else if(value==='both'){
+       const curW=c.cutout?.width||150,curD=c.cutout?.depth||150;
+       c.cutout={corner:'both',leftWidth:c.cutout?.leftWidth??curW,leftDepth:c.cutout?.leftDepth??curD,rightWidth:c.cutout?.rightWidth??curW,rightDepth:c.cutout?.rightDepth??curD,width:c.cutout?.leftWidth??curW,depth:c.cutout?.leftDepth??curD};
+     } else {
+       const curW=(value==='back-left'?c.cutout?.leftWidth:c.cutout?.rightWidth)??c.cutout?.width??150;
+       const curD=(value==='back-left'?c.cutout?.leftDepth:c.cutout?.rightDepth)??c.cutout?.depth??150;
+       c.cutout={corner:value,width:curW,depth:curD};
+     }
+   }
+   else if(field.startsWith('cutout-')){
+     const prop=field.slice(7);
+     if(c.cutout){
+       c.cutout[prop]=value;
+       if(c.cutout.corner==='both'&&(prop==='leftWidth'||prop==='leftDepth'))c.cutout[prop==='leftWidth'?'width':'depth']=value;
+     }
+   }
    else if(field==='rotation')setCabinetRotation(c,value);
     else if(field==='blindSide'){c.blindSide=value;c.doorOpening=value==='left'?'right':'left';const targetNode=s?.node??(c.layout?.kind==='section'?c.layout:c.layout?.children?.[0]);if(targetNode){targetNode.doors=1;targetNode.doorOpenings=[c.doorOpening];}}
     else if(field==='doorOpening'){c.doorOpening=value;const targetNode=s?.node??(c.layout?.kind==='section'?c.layout:c.layout?.children?.[0]);if(targetNode){targetNode.doors=1;targetNode.doorOpenings=[value];}}

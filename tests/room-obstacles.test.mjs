@@ -9,7 +9,7 @@ import {
   setPipeOrientation,
   isObstacle
 } from '../src/room-obstacles.js';
-import { createDefaultProject, createSection, validateProject } from '../src/engine.js';
+import { createDefaultProject, createSection, validateProject, generateParts, getCabinetCutouts } from '../src/engine.js';
 import { checkImport } from '../src/project-io.js';
 import { FurnitureViewport, makeScene } from '../src/renderer.js';
 
@@ -224,3 +224,101 @@ test('twin doors mounted on a shared partition open outwards without intersectin
     viewport.destroy();
   }
 });
+
+test('cabinet with obstacles on both sides supports dual rear corner cutouts', () => {
+  const project = createDefaultProject('ru');
+  const cabinet = project.cabinets[0];
+  cabinet.width = 1200;
+  cabinet.depth = 600;
+  cabinet.x = 200;
+  cabinet.z = 10;
+  cabinet.y = 0;
+  cabinet.rotation = 0;
+
+  // Obstacle on left (wall 0, offset near 200..250)
+  const pipeLeft = normalizeObstacle({
+    id: 'pipe-left',
+    kind: 'pipe',
+    wallIndex: 0,
+    offset: 220,
+    width: 32,
+    height: 2700,
+    sill: 0,
+    diameter: 32,
+    standoff: 20,
+    orientation: 'vertical'
+  });
+  // Obstacle on right (wall 0, offset near 1250)
+  const boxRight = createObstacle('box', { id: 'box-right', wallIndex: 0, wallLength: 3000, roomHeight: 2700 });
+  boxRight.offset = 1250;
+  boxRight.width = 140;
+  boxRight.depth = 120;
+  boxRight.sill = 0;
+  boxRight.height = 2700;
+
+  project.room.windows = [pipeLeft, boxRight];
+
+  // Both obstacles collide with cabinet
+  const conflicts = findObstacleConflicts(project);
+  assert.equal(conflicts.length, 2);
+
+  const leftConflict = conflicts.find(c => c.obstacle.id === 'pipe-left');
+  const rightConflict = conflicts.find(c => c.obstacle.id === 'box-right');
+  assert.ok(leftConflict?.suggestion);
+  assert.ok(rightConflict?.suggestion);
+  assert.equal(leftConflict.suggestion.corner, 'back-left');
+  assert.equal(rightConflict.suggestion.corner, 'back-right');
+
+  // Set dual cutout
+  cabinet.cutout = {
+    corner: 'both',
+    leftWidth: leftConflict.suggestion.width,
+    leftDepth: leftConflict.suggestion.depth,
+    rightWidth: rightConflict.suggestion.width,
+    rightDepth: rightConflict.suggestion.depth,
+    width: leftConflict.suggestion.width,
+    depth: leftConflict.suggestion.depth
+  };
+
+  // Verify cutouts getter
+  const cutouts = getCabinetCutouts(cabinet);
+  assert.equal(cutouts.length, 2);
+  assert.equal(cutouts[0].corner, 'back-left');
+  assert.equal(cutouts[1].corner, 'back-right');
+
+  // Verify conflicts resolved
+  const resolvedConflicts = findObstacleConflicts(project);
+  assert.equal(resolvedConflicts.length, 0);
+
+  // Validation passes
+  assert.deepEqual(validateProject(project), []);
+
+  // Parts generation
+  const parts = generateParts(project);
+  // Both sides shortened
+  const leftSide = parts.find(p => p.name === 'Боковина левая');
+  const rightSide = parts.find(p => p.name === 'Боковина правая');
+  assert.ok(leftSide.width < 600 - 3);
+  assert.ok(rightSide.width < 600 - 3);
+
+  // Return sides on both corners
+  const returnSides = parts.filter(p => p.name === 'Возвратная боковина выреза');
+  assert.equal(returnSides.length, 2);
+  assert.equal(returnSides[0].position.x, cabinet.cutout.leftWidth);
+  assert.equal(returnSides[1].position.x, cabinet.width - cabinet.cutout.rightWidth - 18);
+
+  // Back panels: central back + 2 notch backs
+  const backMain = parts.find(p => p.name === 'Задняя стенка');
+  const backNotches = parts.filter(p => p.name === 'Задняя стенка выреза');
+  assert.ok(backMain);
+  assert.equal(backNotches.length, 2);
+
+  // Top cover has 8 outline vertices
+  const top = parts.find(p => p.name === 'Крышка');
+  assert.ok(top.outline);
+  assert.equal(top.outline.length, 8);
+
+  // Check import validation passes
+  assert.ok(checkImport(project));
+});
+

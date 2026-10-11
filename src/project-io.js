@@ -267,10 +267,22 @@ export function checkImport(project) {
     if (cabinet.rotation !== undefined && (typeof cabinet.rotation !== 'number' || !Number.isFinite(cabinet.rotation) || Math.abs(cabinet.rotation) > 180)) fail('Модуль: поворот должен быть от −180 до 180 градусов.');
     if (cabinet.cutout !== undefined && cabinet.cutout !== null) {
       record(cabinet.cutout, 'вырез');
-      if (!['back-left', 'back-right'].includes(cabinet.cutout.corner)) fail('Модуль: неизвестный угол выреза.');
-      finite(cabinet.cutout.width, 'Вырез: ширина', 6000, true);
-      finite(cabinet.cutout.depth, 'Вырез: глубина', 3000, true);
-      if (cabinet.cutout.width >= cabinet.width || cabinet.cutout.depth >= cabinet.depth) fail('Вырез должен быть меньше габаритов корпуса.');
+      if (!['back-left', 'back-right', 'both'].includes(cabinet.cutout.corner)) fail('Модуль: неизвестный угол выреза.');
+      if (cabinet.cutout.corner === 'both') {
+        const lw = cabinet.cutout.leftWidth ?? cabinet.cutout.width;
+        const ld = cabinet.cutout.leftDepth ?? cabinet.cutout.depth;
+        const rw = cabinet.cutout.rightWidth ?? cabinet.cutout.width;
+        const rd = cabinet.cutout.rightDepth ?? cabinet.cutout.depth;
+        finite(lw, 'Вырез слева: ширина', 6000, true);
+        finite(ld, 'Вырез слева: глубина', 3000, true);
+        finite(rw, 'Вырез справа: ширина', 6000, true);
+        finite(rd, 'Вырез справа: глубина', 3000, true);
+        if (lw + rw >= cabinet.width || ld >= cabinet.depth || rd >= cabinet.depth) fail('Вырез должен быть меньше габаритов корпуса.');
+      } else {
+        finite(cabinet.cutout.width, 'Вырез: ширина', 6000, true);
+        finite(cabinet.cutout.depth, 'Вырез: глубина', 3000, true);
+        if (cabinet.cutout.width >= cabinet.width || cabinet.cutout.depth >= cabinet.depth) fail('Вырез должен быть меньше габаритов корпуса.');
+      }
     }
     if (cabinet.parentId !== undefined && cabinet.parentId !== null) text(cabinet.parentId, 'Модуль: родительский шкаф');
     if (cabinet.cooktop !== undefined && cabinet.cooktop !== null) {
