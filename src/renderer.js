@@ -473,10 +473,13 @@ export function makeScene(project, options = {}, direction = null) {
           const hasLeftHinges = sectionDoors.some(d => d.opening === 'left' || (d.opening !== 'right' && d.opening !== 'up' && d.index % 2 === 0));
           const hasRightHinges = sectionDoors.some(d => d.opening === 'right' || (d.opening !== 'left' && d.opening !== 'up' && d.index % 2 === 1));
 
-          // Hinge arm protrusion into carcass opening is 26-28mm. The spacer panel provides clearance for drawer runners.
-          const hingeProtrusion = Math.max(28, number(outerSection.node.internalDrawerHingeGap, 28));
-          const leftHinge = hasLeftHinges && Math.abs(hostSection.x - outerSection.x) < EPSILON ? hingeProtrusion : 0;
-          const rightHinge = hasRightHinges && Math.abs(hostSection.x + hostSection.width - outerSection.x - outerSection.width) < EPSILON ? hingeProtrusion : 0;
+          // Clearance for internal drawers behind doors (hinge protrusion & runner mounting base):
+          // In standard cabinetmaking (Blum CLIP top / Hettich Sensys), standard 110° overlay hinges
+          // protrude 28-32mm into the carcass opening with mounting plate on System 32 (37mm from front edge).
+          // False walls (доборы) are assembled from standard sheet material (18mm or 16mm LDSP) as a double layer (2 x t = 36mm).
+          const refDrawer = sectionDrawers[0];
+          const leftHinge = refDrawer ? Math.max(0, Math.round(refDrawer.box.x - hostSection.x - 13)) : 0;
+          const rightHinge = refDrawer ? Math.max(0, Math.round(hostSection.x + hostSection.width - (refDrawer.box.x + refDrawer.box.width + 13))) : 0;
 
           if (leftHinge > 0 || rightHinge > 0) {
             const minDrawerY = Math.min(...sectionDrawers.map(d => d.y));
@@ -484,14 +487,59 @@ export function makeScene(project, options = {}, direction = null) {
             const spacerY = bodyY + Math.min(hostSection.y, minDrawerY);
             const spacerHeight = Math.min(hostSection.height, Math.round(maxDrawerY - Math.min(hostSection.y, minDrawerY) + 12));
 
-            // The spacer panel sits behind the front 44mm hinge mounting plate, providing the solid runner mounting base up to the hinge zone.
+            // The spacer panel sits behind the front 44mm hinge mounting plate (System 32: 37mm hole centreline),
+            // leaving room for the hinge plate while providing a solid runner mounting base up to the hinge zone.
             const spacerDepth = Math.max(10, Math.round(hostSection.usableDepth - 44));
             const spacerZ = bodyZ + hostSection.rearOffset;
+
+            // Render a real multi-panel assembly from sheet material of thickness t (e.g. 18mm):
+            // Layer 1 (wall-mounted layer): thickness t, screwed to cabinet carcass side.
+            // Layer 2 (runner mounting layer): thickness Math.max(1, totalW - t), screwed to layer 1.
+            const renderCompoundSpacer = (startX, totalW, isLeft) => {
+              if (totalW <= 0.5) return;
+              const layer1W = Math.min(t, totalW);
+              const layer2W = Math.max(0, totalW - layer1W);
+
+              // Layer 1 (adjacent to carcass side)
+              const x1 = isLeft ? startX : startX + totalW - layer1W;
+              box(x1, spacerY, spacerZ, layer1W, spacerHeight, spacerDepth, c.bodyColor, id, {
+                component: 'internal-drawer-spacer',
+                spacerLayer: 1,
+                sectionId: outerSection.id,
+                noCutout: true
+              });
+
+              // Layer 2 (internal layer for mounting drawer runners)
+              if (layer2W > 0.5) {
+                const x2 = isLeft ? startX + layer1W : startX;
+                box(x2, spacerY, spacerZ, layer2W, spacerHeight, spacerDepth, c.bodyColor, id, {
+                  component: 'internal-drawer-spacer',
+                  spacerLayer: 2,
+                  sectionId: outerSection.id,
+                  noCutout: true
+                });
+
+                // Visible seam / joint line between the two panels on the front edge and top edge
+                const seamX = isLeft ? startX + layer1W : startX + layer2W;
+                const seamZ = spacerZ + spacerDepth;
+                line([seamX, spacerY, seamZ], [seamX, spacerY + spacerHeight, seamZ], '#555f5d', 1.1, id, {
+                  component: 'internal-drawer-spacer-seam',
+                  sectionId: outerSection.id,
+                  noCutout: true
+                });
+                line([seamX, spacerY + spacerHeight, spacerZ], [seamX, spacerY + spacerHeight, seamZ], '#555f5d', 0.8, id, {
+                  component: 'internal-drawer-spacer-seam',
+                  sectionId: outerSection.id,
+                  noCutout: true
+                });
+              }
+            };
+
             if (leftHinge > 0) {
-              box(x + hostSection.x, spacerY, spacerZ, leftHinge, spacerHeight, spacerDepth, c.bodyColor, id, { component: 'internal-drawer-spacer', sectionId: outerSection.id, noCutout: true });
+              renderCompoundSpacer(x + hostSection.x, leftHinge, true);
             }
             if (rightHinge > 0) {
-              box(x + hostSection.x + hostSection.width - rightHinge, spacerY, spacerZ, rightHinge, spacerHeight, spacerDepth, c.bodyColor, id, { component: 'internal-drawer-spacer', sectionId: outerSection.id, noCutout: true });
+              renderCompoundSpacer(x + hostSection.x + hostSection.width - rightHinge, rightHinge, false);
             }
           }
         }
@@ -509,14 +557,10 @@ export function makeScene(project, options = {}, direction = null) {
       const ibx = x + ibox.x, iby = bodyY + ibox.y, ibz = bodyZ + ibox.z + slide;
       const outerSection = layout.sections.find(s => s.id === internal.sectionId);
       const hostSection = internal.interiorSectionId ? layout.internalSections?.find(s => s.id === internal.interiorSectionId) : outerSection;
-      const sectionDoors = fronts.filter(f => f.sectionId === outerSection?.id && f.kind === 'door');
-      const hasLeftHinges = sectionDoors.some(d => d.opening === 'left' || (d.opening !== 'right' && d.opening !== 'up' && d.index % 2 === 0));
-      const hasRightHinges = sectionDoors.some(d => d.opening === 'right' || (d.opening !== 'left' && d.opening !== 'up' && d.index % 2 === 1));
-      const hingeProtrusion = Math.max(28, number(outerSection?.node?.internalDrawerHingeGap, 28));
-      const leftHinge = hasLeftHinges && hostSection && outerSection && Math.abs(hostSection.x - outerSection.x) < EPSILON ? hingeProtrusion : 0;
-      const rightHinge = hasRightHinges && hostSection && outerSection && Math.abs(hostSection.x + hostSection.width - outerSection.x - outerSection.width) < EPSILON ? hingeProtrusion : 0;
-      const leftMountX = x + (hostSection?.x ?? internal.box.x - 13) + leftHinge;
-      const rightMountX = x + (hostSection?.x ?? 0) + (hostSection?.width ?? w - 2 * t) - rightHinge;
+      const leftHinge = hostSection ? Math.max(0, Math.round(ibox.x - hostSection.x - 13)) : 0;
+      const rightHinge = hostSection ? Math.max(0, Math.round(hostSection.x + hostSection.width - (ibox.x + ibox.width + 13))) : 0;
+      const leftMountX = x + (hostSection?.x ?? (ibox.x - 13)) + leftHinge;
+      const rightMountX = x + (hostSection?.x ?? 0) + (hostSection?.width ?? (w - 2 * t)) - rightHinge;
       renderDrawerRunners(ibx, iby, ibz, ibox.width, ibox.height, ibox.depth, slide, leftMountX, rightMountX, { sectionId: internal.sectionId, internalDrawerIndex: internal.index });
     }
     for (const s of layout.sections) {
