@@ -22,7 +22,7 @@ function sanitizeName(str) {
   return String(str || 'item').replace(/[^a-zA-Z0-9_\u0400-\u04FF-]/g, '_').slice(0, 40);
 }
 
-function triangulateFace(points) {
+export function triangulateFace(points) {
   if (points.length < 3) return [];
   if (points.length === 3) return [[0, 1, 2]];
 

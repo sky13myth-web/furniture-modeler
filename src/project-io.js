@@ -221,6 +221,9 @@ export function checkImport(project) {
     record(project.room.installationClearance, 'монтажные отступы комнаты');
     for (const key of ['walls', 'ceiling']) finite(project.room.installationClearance[key], `Монтажный отступ комнаты: ${key}`, 1000);
   }
+  for (const key of ['wallColor', 'ceilingColor']) {
+    if (project.room[key] !== undefined && !/^#[0-9a-f]{6}$/i.test(String(project.room[key]))) fail(`Помещение: цвет ${key === 'wallColor' ? 'стен' : 'потолка'} должен быть в формате #RRGGBB.`);
+  }
   if (project.room.outline !== undefined) {
     collection(project.room.outline, 'Контур комнаты', 40);
     if (project.room.outline.length < 3) fail('Контур комнаты: требуется хотя бы 3 вершины.');

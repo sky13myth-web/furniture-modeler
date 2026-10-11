@@ -1,5 +1,14 @@
 import { makeScene } from './renderer.js';
 import { pointInPolygon } from './room-geometry.js';
+import { triangulateFace } from './room-obj.js';
+
+/** Render quality presets: shadow resolution, PCF taps and supersampling. */
+export const RENDER_QUALITY = {
+  low:    { label: 'Низкое',  shadowSize: 1024, sunShadows: false, overheadSamples: 8,  sunSamples: 6,  pixelRatio: 1 },
+  medium: { label: 'Среднее', shadowSize: 2048, sunShadows: true,  overheadSamples: 12, sunSamples: 10, pixelRatio: 1.5 },
+  high:   { label: 'Высокое', shadowSize: 2048, sunShadows: true,  overheadSamples: 16, sunSamples: 16, pixelRatio: 2 },
+  ultra:  { label: 'Ультра',  shadowSize: 4096, sunShadows: true,  overheadSamples: 24, sunSamples: 24, pixelRatio: 3 },
+};
 
 function hexToRgb(hex) {
   if (!hex || typeof hex !== 'string') return [0.8, 0.8, 0.8];
@@ -221,6 +230,8 @@ uniform vec3 uSunDir;
 uniform float uSunShadowTexel;
 uniform bool uUseSunShadows;
 uniform float uRoughnessOverride;
+uniform int uOverheadSamples;
+uniform int uSunSamples;
 
 const float PI = 3.14159265;
 
@@ -244,15 +255,17 @@ float shadowVisibility(vec3 worldPos, vec3 norm, float radiusTexels) {
   float current = p.z - 0.0008;
   float rot = hash12(gl_FragCoord.xy) * 6.2831853;
   float lit = 0.0;
-  for (int i = 0; i < 16; i++) {
+  float n = float(uOverheadSamples);
+  for (int i = 0; i < 24; i++) {
+    if (i >= uOverheadSamples) break;
     float fi = float(i);
-    float r = sqrt((fi + 0.5) / 16.0) * radiusTexels;
+    float r = sqrt((fi + 0.5) / n) * radiusTexels;
     float a = fi * 2.39996323 + rot;
     vec2 off = vec2(cos(a), sin(a)) * r * uShadowTexel;
     float d = unpackDepth(texture2D(uShadowMap, p.xy + off));
     lit += (current <= d) ? 1.0 : 0.0;
   }
-  return lit / 16.0;
+  return lit / n;
 }
 
 // Directional sun / key-light shadow with rotated Poisson PCF (soft penumbra).
@@ -267,15 +280,17 @@ float sunShadow(vec3 worldPos, vec3 norm) {
   float current = p.z - 0.0012;
   float rot = hash12(gl_FragCoord.yx + 17.0) * 6.2831853;
   float lit = 0.0;
-  for (int i = 0; i < 12; i++) {
+  float n = float(uSunSamples);
+  for (int i = 0; i < 24; i++) {
+    if (i >= uSunSamples) break;
     float fi = float(i);
-    float r = sqrt((fi + 0.5) / 12.0) * 2.6;
+    float r = sqrt((fi + 0.5) / n) * 2.6;
     float a = fi * 2.39996323 + rot;
     vec2 off = vec2(cos(a), sin(a)) * r * uSunShadowTexel;
     float d = unpackDepth(texture2D(uSunShadowMap, p.xy + off));
     lit += (current <= d) ? 1.0 : 0.0;
   }
-  return lit / 12.0;
+  return lit / n;
 }
 
 float distributionGGX(float NdH, float a) {
@@ -396,7 +411,10 @@ void main() {
   float ao = mix(mix(0.70, 1.0, vis), mix(0.26, 1.0, vis), upFacing);
   float vertical = 1.0 - abs(norm.y);
   ao *= mix(1.0, mix(0.66, 1.0, smoothstep(0.0, 320.0, vPosition.y)), vertical * (isWall ? 1.0 : 0.55));
-  if (isWall) ao *= mix(0.80, 1.0, smoothstep(0.0, 260.0, uRoomHeight - vPosition.y));
+  if (isWall) ao *= mix(1.0, mix(0.80, 1.0, smoothstep(0.0, 260.0, uRoomHeight - vPosition.y)), vertical);
+  // Ceiling receives light bounced off floor and walls rather than the downlight
+  bool isCeiling = isWall && norm.y < -0.5 && vPosition.y > uRoomHeight - 5.0;
+  if (isCeiling) ambient = mix(ambient, skyCol, 0.55) * (evening ? 1.45 : 1.25);
 
   float NdV = max(dot(norm, viewDir), 1e-3);
   float alpha = roughness * roughness;
@@ -565,6 +583,8 @@ export class RoomWebGLRenderer {
     this.wallMode = 'cutaway'; // 'cutaway' | 'all'
     this.lightingMode = 'evening'; // 'day' | 'evening'
     this.cameraPreset = 'corner-1';
+    this.quality = 'high';
+    this.showCeiling = true;
 
     // Camera parameters
     this.target = [2000, 1000, 1500];
@@ -633,6 +653,8 @@ export class RoomWebGLRenderer {
         sunShadowTexel: gl.getUniformLocation(this.mainProgram, 'uSunShadowTexel'),
         useSunShadows: gl.getUniformLocation(this.mainProgram, 'uUseSunShadows'),
         roughnessOverride: gl.getUniformLocation(this.mainProgram, 'uRoughnessOverride'),
+        overheadSamples: gl.getUniformLocation(this.mainProgram, 'uOverheadSamples'),
+        sunSamples: gl.getUniformLocation(this.mainProgram, 'uSunSamples'),
       };
       this.anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic') || null;
       this.maxAnisotropy = this.anisotropy ? Math.min(8, gl.getParameter(this.anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1) : 1;
@@ -768,17 +790,54 @@ export class RoomWebGLRenderer {
     return { texture, rb, fbo };
   }
 
+  getQualitySettings() {
+    return RENDER_QUALITY[this.quality] || RENDER_QUALITY.high;
+  }
+
   initShadowFBO() {
-    this.shadowSize = 2048;
+    const q = this.getQualitySettings();
+    let size = q.shadowSize;
+    const maxSize = this.gl.getParameter?.(this.gl.MAX_TEXTURE_SIZE);
+    if (Number.isFinite(maxSize) && maxSize > 0) size = Math.min(size, maxSize);
+    this.shadowSize = size;
     const overhead = this.createDepthTarget(this.shadowSize);
     this.shadowTexture = overhead.texture;
     this.shadowDepthRB = overhead.rb;
     this.shadowFBO = overhead.fbo;
-    this.sunShadowSize = 2048;
+    this.sunShadowSize = size;
     const sun = this.createDepthTarget(this.sunShadowSize);
     this.sunShadowTexture = sun.texture;
     this.sunShadowDepthRB = sun.rb;
     this.sunShadowFBO = sun.fbo;
+  }
+
+  releaseShadowFBO() {
+    const gl = this.gl;
+    if (!gl) return;
+    for (const k of ['shadowFBO', 'sunShadowFBO']) if (this[k]) gl.deleteFramebuffer(this[k]);
+    for (const k of ['shadowTexture', 'sunShadowTexture']) if (this[k]) gl.deleteTexture(this[k]);
+    for (const k of ['shadowDepthRB', 'sunShadowDepthRB']) if (this[k]) gl.deleteRenderbuffer(this[k]);
+    this.shadowFBO = this.sunShadowFBO = this.shadowTexture = this.sunShadowTexture = this.shadowDepthRB = this.sunShadowDepthRB = null;
+  }
+
+  /** 'low' | 'medium' | 'high' | 'ultra' */
+  setQuality(name) {
+    if (!RENDER_QUALITY[name]) return this.quality;
+    const prevSize = this.getQualitySettings().shadowSize;
+    this.quality = name;
+    if (this.gl && this.getQualitySettings().shadowSize !== prevSize) {
+      this.releaseShadowFBO();
+      this.initShadowFBO();
+    }
+    this.resize();
+    return this.quality;
+  }
+
+  setShowCeiling(value) {
+    this.showCeiling = value === undefined ? !this.showCeiling : Boolean(value);
+    this.buildGeometry();
+    this.render();
+    return this.showCeiling;
   }
 
   getSunDirection() {
@@ -1007,6 +1066,8 @@ export class RoomWebGLRenderer {
     }
 
     const faces = scene.faces || [];
+    const room = this.project.room || {};
+    const wallRgb = /^#[0-9a-f]{6}$/i.test(room.wallColor || '') ? hexToRgb(room.wallColor) : null;
 
     const casterFloats = [];
     const opaqueGroups = new Map();
@@ -1025,6 +1086,10 @@ export class RoomWebGLRenderer {
       const pushV = p => {
         targetArray.push(p[0], p[1], p[2], normal[0], normal[1], normal[2], colorRGBA[0], colorRGBA[1], colorRGBA[2], colorRGBA[3], materialId);
       };
+      if (points.length > 4) {
+        for (const [a, b, c] of triangulateFace(points)) { pushV(points[a]); pushV(points[b]); pushV(points[c]); }
+        return;
+      }
       for (let i = 1; i < points.length - 1; i++) {
         pushV(points[0]); pushV(points[i]); pushV(points[i + 1]);
       }
@@ -1107,11 +1172,16 @@ export class RoomWebGLRenderer {
       // Skip empty door openings so the door opening is an open portal
       if (f.door) continue;
 
-      const rgb = hexToRgb(f.rawColor || f.color);
+      let rgb = hexToRgb(f.rawColor || f.color);
       const isTransparent = f.doorLeaf || (f.opacity !== undefined && f.opacity < 0.9);
       const alpha = isTransparent ? (f.opacity ?? 0.85) : 1.0;
-      const rgba = [rgb[0], rgb[1], rgb[2], alpha];
       const materialId = f.room && !f.obstacle ? (f.floor ? MATERIAL.floor : MATERIAL.wall) : MATERIAL.furniture;
+      if (materialId === MATERIAL.wall && wallRgb && !isTransparent) {
+        // Keep the slight tone difference between wall orientations / reveals
+        const shade = (rgb[0] + rgb[1] + rgb[2]) / 3 / 0.93;
+        rgb = wallRgb.map(v => Math.min(1, v * shade));
+      }
+      const rgba = [rgb[0], rgb[1], rgb[2], alpha];
 
       // Only furniture and obstacles cast into the overhead shadow / occlusion map.
       const isFurnitureCaster = (!f.room || f.obstacle) && !isTransparent;
@@ -1126,6 +1196,14 @@ export class RoomWebGLRenderer {
         const texUrl = (materialId === MATERIAL.furniture) ? (resolveFaceTexture(f, this.project) || '') : '';
         pushPoly(getOpaqueGroup(texUrl), f.points, norm, rgba, materialId);
       }
+    }
+
+    // Ceiling slab: only from below, so top / bird's-eye views stay open
+    const roomH = room.height || 2700;
+    if (this.showCeiling && eye[1] < roomH - 20) {
+      const outline = room.outline?.length >= 3 ? room.outline : [{ x: 0, z: 0 }, { x: room.width || 4000, z: 0 }, { x: room.width || 4000, z: room.depth || 3000 }, { x: 0, z: room.depth || 3000 }];
+      const ceilRgb = /^#[0-9a-f]{6}$/i.test(room.ceilingColor || '') ? hexToRgb(room.ceilingColor) : [0.96, 0.955, 0.94];
+      pushPoly(getOpaqueGroup(''), outline.map(p => [p.x, roomH, p.z]), [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
     }
 
     // Round ceiling luminaire: emissive diffuser with a satin trim ring
@@ -1194,7 +1272,9 @@ export class RoomWebGLRenderer {
   resize() {
     if (!this.canvas) return;
     const rect = this.canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const q = this.getQualitySettings();
+    const device = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const dpr = this.quality === 'ultra' ? Math.min(q.pixelRatio, Math.max(device, 1) * 1.5) : Math.min(device, q.pixelRatio);
     const w = Math.max(100, Math.floor((rect.width || this.canvas.clientWidth || 800) * dpr));
     const h = Math.max(100, Math.floor((rect.height || this.canvas.clientHeight || 600) * dpr));
     if (this.canvas.width !== w || this.canvas.height !== h) {
@@ -1255,7 +1335,7 @@ export class RoomWebGLRenderer {
 
     // 1b. Directional sun / key light depth pass (furniture casters only)
     const sunLightSpace = this.computeSunLightSpaceMatrix();
-    if (this.sunShadowFBO) {
+    if (this.sunShadowFBO && this.getQualitySettings().sunShadows) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.sunShadowFBO);
       gl.viewport(0, 0, this.sunShadowSize, this.sunShadowSize);
       gl.clearColor(1.0, 1.0, 1.0, 1.0);
@@ -1329,7 +1409,10 @@ export class RoomWebGLRenderer {
     gl.uniformMatrix4fv(this.mainUniforms.sunLightSpace, false, sunLightSpace);
     gl.uniform3fv(this.mainUniforms.sunDir, this.getSunDirection());
     gl.uniform1f(this.mainUniforms.sunShadowTexel, 1 / (this.sunShadowSize || 2048));
-    gl.uniform1i(this.mainUniforms.useSunShadows, this.sunShadowFBO ? 1 : 0);
+    const quality = this.getQualitySettings();
+    gl.uniform1i(this.mainUniforms.useSunShadows, this.sunShadowFBO && quality.sunShadows ? 1 : 0);
+    gl.uniform1i(this.mainUniforms.overheadSamples, quality.overheadSamples);
+    gl.uniform1i(this.mainUniforms.sunSamples, quality.sunSamples);
     gl.uniform1f(this.mainUniforms.roughnessOverride, -1);
 
     const hasMaterial = this.mainAttribs.material >= 0;

@@ -269,3 +269,7 @@
   font-size: 13px;
 }
 
+
+/* Render toolbar colour pickers */
+.render-color{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:0 6px;border:1px solid var(--line,#d6d9d3);border-radius:6px;height:32px;background:var(--surface,#fff)}
+.render-color input[type=color]{width:26px;height:22px;padding:0;border:none;background:none;cursor:pointer}
