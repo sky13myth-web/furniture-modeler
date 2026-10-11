@@ -398,7 +398,7 @@ void main() {
   }
 
   // Hemispheric ambient (sky / bounced floor light)
-  vec3 skyCol = evening ? vec3(0.34, 0.32, 0.30) : vec3(0.46, 0.50, 0.56);
+  vec3 skyCol = evening ? vec3(0.34, 0.32, 0.30) : vec3(0.53, 0.575, 0.64);
   vec3 groundCol = evening ? vec3(0.17, 0.145, 0.12) : vec3(0.27, 0.25, 0.22);
   vec3 ambient = mix(groundCol, skyCol, norm.y * 0.5 + 0.5);
 
@@ -840,10 +840,28 @@ export class RoomWebGLRenderer {
     return this.showCeiling;
   }
 
+  /** Daylight sun from azimuth (0° = +Z, 90° = +X, clockwise on plan) and elevation above the horizon. */
   getSunDirection() {
-    const d = this.lightingMode === 'day' ? [0.55, 0.82, -0.42] : [0.35, 0.85, 0.4];
-    const l = Math.hypot(...d);
-    return d.map(v => v / l);
+    if (this.lightingMode !== 'day') {
+      const d = [0.35, 0.85, 0.4], l = Math.hypot(...d);
+      return d.map(v => v / l);
+    }
+    const az = (Number.isFinite(this.sunAzimuth) ? this.sunAzimuth : 127) * Math.PI / 180;
+    const el = Math.max(5, Math.min(85, Number.isFinite(this.sunElevation) ? this.sunElevation : 50)) * Math.PI / 180;
+    return [Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)];
+  }
+
+  setSunAngles({ azimuth, elevation } = {}) {
+    if (Number.isFinite(azimuth)) this.sunAzimuth = ((azimuth % 360) + 360) % 360;
+    if (Number.isFinite(elevation)) this.sunElevation = Math.max(5, Math.min(85, elevation));
+    this.render();
+    return { azimuth: this.sunAzimuth, elevation: this.sunElevation };
+  }
+
+  setWallShadows(value) {
+    this.wallShadows = value === undefined ? this.wallShadows === false : Boolean(value);
+    this.render();
+    return this.wallShadows;
   }
 
   computeSunLightSpaceMatrix() {
@@ -1070,6 +1088,7 @@ export class RoomWebGLRenderer {
     const wallRgb = /^#[0-9a-f]{6}$/i.test(room.wallColor || '') ? hexToRgb(room.wallColor) : null;
 
     const casterFloats = [];
+    const wallCasterFloats = [];
     const opaqueGroups = new Map();
     const getOpaqueGroup = url => {
       const k = url || '';
@@ -1188,6 +1207,9 @@ export class RoomWebGLRenderer {
       if (isFurnitureCaster) {
         pushPoly(casterFloats, f.points, norm, rgba, materialId);
         if (f.stroke !== 'transparent') pushEdges(f.points, rgb);
+      } else if (materialId === MATERIAL.wall && !isTransparent && !(norm[1] > 0.5 && Math.max(...f.points.map(p => p[1])) < 5)) {
+        // Walls block the sun: daylight enters only through windows and door openings
+        pushPoly(wallCasterFloats, f.points, norm, rgba, materialId);
       }
 
       if (isTransparent) {
@@ -1203,7 +1225,9 @@ export class RoomWebGLRenderer {
     if (this.showCeiling && eye[1] < roomH - 20) {
       const outline = room.outline?.length >= 3 ? room.outline : [{ x: 0, z: 0 }, { x: room.width || 4000, z: 0 }, { x: room.width || 4000, z: room.depth || 3000 }, { x: 0, z: room.depth || 3000 }];
       const ceilRgb = /^#[0-9a-f]{6}$/i.test(room.ceilingColor || '') ? hexToRgb(room.ceilingColor) : [0.96, 0.955, 0.94];
-      pushPoly(getOpaqueGroup(''), outline.map(p => [p.x, roomH, p.z]), [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
+      const ceilingPoints = outline.map(p => [p.x, roomH, p.z]);
+      pushPoly(getOpaqueGroup(''), ceilingPoints, [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
+      pushPoly(wallCasterFloats, ceilingPoints, [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
     }
 
     // Round ceiling luminaire: emissive diffuser with a satin trim ring
@@ -1233,9 +1257,12 @@ export class RoomWebGLRenderer {
     }
 
     // Pack single unified VBO:
-    // [0 .. casterFloats] -> used for shadow map depth pass
-    // [casterFloats .. allOpaqueFloats] -> used for opaque pass
+    // [0 .. furniture casters] -> overhead occlusion map
+    // [0 .. furniture + wall/ceiling casters] -> sun shadow map
+    // [casters .. allOpaqueFloats] -> used for opaque pass
     // [allOpaqueFloats .. transparentFloats] -> used for transparent pass
+    const furnitureCasterCount = casterFloats.length / FLOATS;
+    for (let i = 0; i < wallCasterFloats.length; i++) casterFloats.push(wallCasterFloats[i]);
     const opaqueBatches = [];
     const allOpaqueFloats = [];
     let currentBatchOffset = casterFloats.length / FLOATS;
@@ -1249,7 +1276,8 @@ export class RoomWebGLRenderer {
       }
     }
     this.opaqueBatches = opaqueBatches;
-    this.casterVertexCount = casterFloats.length / FLOATS;
+    this.casterVertexCount = furnitureCasterCount;
+    this.sunCasterVertexCount = casterFloats.length / FLOATS;
     this.opaqueOffset = casterFloats.length / FLOATS;
     this.opaqueVertexCount = allOpaqueFloats.length / FLOATS;
     this.transparentOffset = (casterFloats.length + allOpaqueFloats.length) / FLOATS;
@@ -1333,20 +1361,24 @@ export class RoomWebGLRenderer {
       gl.disableVertexAttribArray(this.shadowAttribs.position);
     }
 
-    // 1b. Directional sun / key light depth pass (furniture casters only)
+    // 1b. Directional sun / key light depth pass. In daylight walls and ceiling
+    // also cast, so sun patches enter only through windows and open doors.
     const sunLightSpace = this.computeSunLightSpaceMatrix();
+    const sunCasterCount = this.lightingMode === 'day' && this.wallShadows !== false
+      ? (this.sunCasterVertexCount || this.casterVertexCount)
+      : this.casterVertexCount;
     if (this.sunShadowFBO && this.getQualitySettings().sunShadows) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, this.sunShadowFBO);
       gl.viewport(0, 0, this.sunShadowSize, this.sunShadowSize);
       gl.clearColor(1.0, 1.0, 1.0, 1.0);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      if (this.casterVertexCount > 0) {
+      if (sunCasterCount > 0) {
         gl.useProgram(this.shadowProgram);
         gl.uniformMatrix4fv(this.shadowUniforms.lightSpace, false, sunLightSpace);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
         gl.enableVertexAttribArray(this.shadowAttribs.position);
         gl.vertexAttribPointer(this.shadowAttribs.position, 3, gl.FLOAT, false, stride, 0);
-        gl.drawArrays(gl.TRIANGLES, 0, this.casterVertexCount);
+        gl.drawArrays(gl.TRIANGLES, 0, sunCasterCount);
         gl.disableVertexAttribArray(this.shadowAttribs.position);
       }
     }
