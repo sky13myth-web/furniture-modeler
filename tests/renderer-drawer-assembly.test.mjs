@@ -185,3 +185,26 @@ test('external drawers render exactly five positioned production panels inside t
     assert.deepEqual(project, before);
   }
 });
+
+test('internal drawer false wall (spacer) stops behind hinge mounting plate zone with 70mm front setback without collision', () => {
+  const project = createDefaultProject('ru'), cabinet = project.cabinets[0];
+  Object.assign(cabinet, { width: 900, height: 2100, depth: 580, x: 100, y: 40, z: 250, rotation: 0, plinth: 100,
+    layout: { ...createSection('doors'), id: 'tall-doors', doors: 1, doorOpenings: ['left'], internalDrawerCount: 3 } });
+  const viewport = viewportFor(project);
+  try {
+    viewport.setOptions({ doorsOpen: true, hinges: true });
+    const spacerFaces = viewport.hits.filter(face => face.component === 'internal-drawer-spacer');
+    assert.ok(spacerFaces.length > 0, 'spacer panels are rendered');
+    const spacerZ = spacerFaces.flatMap(face => face.points.map(p => p[2]));
+    const spacerMaxZ = Math.max(...spacerZ);
+    const carcassFrontZ = cabinet.z + cabinet.depth;
+    close(spacerMaxZ, carcassFrontZ - 70, 'spacer panel has a 70mm setback from carcass front edge');
+
+    const hingeFaces = viewport.hits.filter(face => face.component === 'hinge');
+    assert.ok(hingeFaces.length > 0, 'hinges are rendered');
+    const hingeMinZ = Math.min(...hingeFaces.flatMap(face => face.points.map(p => p[2])));
+    assert.ok(spacerMaxZ < hingeMinZ, `spacer front (${spacerMaxZ}) must stop behind hinge rear (${hingeMinZ}) without collision`);
+    assert.ok(hingeMinZ - spacerMaxZ >= 10, 'at least 10mm clearance between spacer and hinge');
+  } finally { viewport.destroy(); }
+});
+

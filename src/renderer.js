@@ -625,9 +625,9 @@ export function makeScene(project, options = {}, direction = null) {
             const spacerY = bodyY + Math.min(hostSection.y, minDrawerY);
             const spacerHeight = Math.min(hostSection.height, Math.round(maxDrawerY - Math.min(hostSection.y, minDrawerY) + 12));
 
-            // The spacer panel sits behind the front 44mm hinge mounting plate (System 32: 37mm hole centreline),
-            // leaving room for the hinge plate while providing a solid runner mounting base up to the hinge zone.
-            const spacerDepth = Math.max(10, Math.round(hostSection.usableDepth - 44));
+            // The spacer panel sits behind the front hinge mounting zone (System 32: 37mm hole centreline, plate wings and arm reaching 59mm),
+            // indented 70mm from the carcass front edge to leave unobstructed clearance for hinge mounting plates, screws, and clip-on latches.
+            const spacerDepth = Math.max(10, Math.round(hostSection.usableDepth - 70));
             const spacerZ = bodyZ + hostSection.rearOffset;
 
             // Render a real multi-panel assembly from sheet material of thickness t (e.g. 18mm):
