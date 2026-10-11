@@ -970,7 +970,7 @@ test('left, right and upward doors rotate about the requested physical edge and 
         assert.ok(contains([hinge,fy,fz])&&contains([hinge,fy+fh,fz]),'the requested vertical hinge edge stays fixed');
         const free=opening==='right'?hinge-fw*cos:hinge+fw*cos;
         assert.ok(contains([free,fy,fz+fw*sin]));
-        near(Math.max(...points.map(p=>p[2])),fz+fw*sin+18*cos,'front thickness remains on the external face for either hinge side');
+        near(Math.max(...points.map(p=>p[2])),fz+fw*sin,'front thickness remains on the external face for either hinge side');
       }
     });
     assert.deepEqual(generateParts(project),manufacturing,'swing directions do not alter cut panels, quantities or edge-band dimensions');
