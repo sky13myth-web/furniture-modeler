@@ -105,3 +105,14 @@ test('validateProject successfully validates corner-base, corner-wall, and corne
   assert.equal(errors.length, 0, 'There should be zero validation errors for corner cabinet types');
 });
 
+test('checkImport validates project schema with corner cabinets without errors', async () => {
+  const { checkImport } = await import('../src/project-io.js');
+  const project = createDefaultProject();
+  project.cabinets.push(createCabinet('corner-base', project, { id: 'c-base', x: 200, z: 200 }));
+  project.cabinets.push(createCabinet('corner-wall', project, { id: 'c-wall', x: 200, z: 200 }));
+  project.cabinets.push(createCabinet('corner-tall', project, { id: 'c-tall', x: 1400, z: 200 }));
+
+  assert.doesNotThrow(() => checkImport(project), 'checkImport should not throw for corner cabinets');
+});
+
+

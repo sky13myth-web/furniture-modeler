@@ -187,7 +187,7 @@ export function checkImport(project) {
     record(cabinet, 'модуль');
     uniqueId(cabinet.id, cabinetIds, 'Модуль');
     text(cabinet.name, 'Название модуля');
-    if (!['base', 'wall', 'tall'].includes(cabinet.type)) fail('Модуль: неизвестный тип.');
+    if (!['base', 'wall', 'tall', 'corner-base', 'corner-wall', 'corner-tall'].includes(cabinet.type)) fail('Модуль: неизвестный тип.');
     finite(cabinet.width, 'Модуль: ширина', 6000, true);
     finite(cabinet.height, 'Модуль: высота', 6000, true);
     finite(cabinet.depth, 'Модуль: глубина', 3000, true);
@@ -215,6 +215,13 @@ export function checkImport(project) {
     if (cabinet.includeBack !== undefined) boolean(cabinet.includeBack, 'Модуль: задняя стенка');
     if (cabinet.includeBottom !== undefined) boolean(cabinet.includeBottom, 'Модуль: нижняя панель');
     if (cabinet.sidesToFloor !== undefined) boolean(cabinet.sidesToFloor, 'Модуль: боковины до пола');
+    if (cabinet.countertop !== undefined) boolean(cabinet.countertop, 'Модуль: столешница');
+    if (cabinet.worktopThickness !== undefined) finite(cabinet.worktopThickness, 'Модуль: толщина столешницы', 100, true);
+    if (cabinet.cornerType !== undefined) text(cabinet.cornerType, 'Модуль: тип угла');
+    if (cabinet.blindSide !== undefined) {
+      if (!['left', 'right'].includes(cabinet.blindSide)) fail('Модуль: неизвестная сторона глухого угла.');
+    }
+    if (cabinet.blindWidth !== undefined) finite(cabinet.blindWidth, 'Модуль: ширина глухой планки', 6000, true);
     if (cabinet.openingMechanism !== undefined && !['handle', 'push'].includes(cabinet.openingMechanism)) fail('Механизм открывания должен быть handle или push.');
     if (cabinet.rearBraces !== undefined) {
       validateRearBraces(cabinet.rearBraces, { label: 'Задние перемычки', itemLabel: 'Задняя перемычка', positionLabel: 'Перемычка: от низа шкафа', materialIds, limit: 20 });
