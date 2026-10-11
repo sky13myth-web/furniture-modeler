@@ -39,7 +39,7 @@ const positive = value => Number.isFinite(Number(value)) && Number(value) > 0;
 const positiveNumber = (value, fallback = 0) => { const n = number(value, fallback); return n > 0 ? n : fallback; };
 const uid = prefix => `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`}`;
 const round = value => Math.round(value * 1000) / 1000;
-const doorOpening = (owner, index) => ['left', 'right', 'up'].includes(owner.doorOpenings?.[index]) ? owner.doorOpenings[index] : index % 2 === 1 ? 'right' : 'left';
+const doorOpening = (owner, index) => ['left', 'right', 'up'].includes(owner.doorOpenings?.[index]) ? owner.doorOpenings[index] : (index === 0 && ['left', 'right', 'up'].includes(owner.doorOpening)) ? owner.doorOpening : index % 2 === 1 ? 'right' : 'left';
 const openingMechanism = owner => owner?.openingMechanism === 'push' ? 'push' : 'handle';
 const stockById = (project, id) => (project.materials ?? []).find(material => material.id === id);
 const bodyThickness = (cabinet, project) => number(stockById(project, cabinet.materialId)?.thickness, 18);
@@ -230,7 +230,10 @@ export function getCabinetLayout(cabinet, project = { materials: [] }) {
       const actualY = floorOpen ? -number(cabinet.plinth) : floorEligible ? bottomPanelY + (hasBottom ? thickness : 0) : rect.y;
       const floorExtra = rect.y - actualY;
       const sectionRect = { ...rect, y: actualY || 0, height: rect.height + floorExtra };
-      const insetFront = depth < bodyDepth - EPSILON;
+      const frontStock = stockById(project, cabinet.frontMaterialId ?? cabinet.materialId);
+      const frontThickness = number(frontStock?.thickness, thickness);
+      const isInsetExplicit = node.frontMount === 'inset' || (cabinet.frontMount === 'inset' && node.frontMount !== 'overlay');
+      const insetFront = isInsetExplicit || (node.frontMount !== 'overlay' && depth < bodyDepth - EPSILON);
       const left = insetFront ? rect.x + gap : Math.abs(rect.x - thickness) < EPSILON ? gap : rect.x - thickness / 2 + gap / 2;
       const bottom = insetFront ? sectionRect.y + gap : floorOpen ? sectionRect.y + gap : floorEligible ? bottomPanelY + gap : rect.y - thickness / 2 + gap / 2;
       const right = insetFront ? rect.x + rect.width - gap : Math.abs(rect.x + rect.width - width + thickness) < EPSILON ? width - gap : rect.x + rect.width + thickness / 2 - gap / 2;
@@ -242,7 +245,8 @@ export function getCabinetLayout(cabinet, project = { materials: [] }) {
       const rearPanelThickness = backMode === 'global' || backMode === 'solid' ? rearStockThickness(cabinet, project) : 0;
       const rearInset = 0;
       const rearOffset = notchRearOffset + rearInset;
-      sections.push({ id: node.id, node, ...sectionRect, floorEligible, floorOpen, floorExtra, effectivePlinth, bottomPanelY, hasBottom, backMode, rearPanelThickness, rearInset, notchRearOffset, rearOffset, rearPanelZ: rearReservation - rearPanelThickness + notchRearOffset, usableDepth: Math.max(0, depth - rearOffset), frontMount: insetFront ? 'inset' : 'overlay', frontX: left, frontY: bottom, frontWidth: right - left, frontHeight: top - bottom });
+      const frontZDepth = insetFront && node.depth == null ? Math.max(0, depth - frontThickness) : depth;
+      sections.push({ id: node.id, node, ...sectionRect, floorEligible, floorOpen, floorExtra, effectivePlinth, bottomPanelY, hasBottom, backMode, rearPanelThickness, rearInset, notchRearOffset, rearOffset, rearPanelZ: rearReservation - rearPanelThickness + notchRearOffset, usableDepth: Math.max(0, (isInsetExplicit && node.depth == null ? depth - frontThickness : depth) - rearOffset), frontMount: insetFront ? 'inset' : 'overlay', frontX: left, frontY: bottom, frontWidth: right - left, frontHeight: top - bottom, frontDepth: frontZDepth });
       return;
     }
     const horizontal = node.axis === 'horizontal';
@@ -691,7 +695,7 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   const preset = { ...basePreset };
   // Library presets can affect dimensions before automatic placement. IDs and
   // coordinates are generated here, so a preset cannot discard a safe position.
-  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation', 'countertop', 'cornerType', 'blindSide', 'blindWidth', 'worktopThickness', 'doorOpening']) {
+  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation', 'countertop', 'cornerType', 'blindSide', 'blindWidth', 'worktopThickness', 'doorOpening', 'frontMount']) {
     if (overrides[key] !== undefined) preset[key] = overrides[key];
   }
   const roomAllowance = getRoomInstallationClearance(project.room);
@@ -870,12 +874,13 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
   if (cabinet.layout) {
     const fronts = [];
     for (const section of getCabinetLayout(cabinet, project).sections) {
-      const { node, frontX: x, frontY: y, frontWidth: width, frontHeight: height, depth, frontMount, id: sectionId } = section;
+      const { node, frontX: x, frontY: y, frontWidth: width, frontHeight: height, depth, frontMount, frontDepth, id: sectionId } = section;
       const gap = Math.max(0, number(cabinet.gap, 2));
+      const frontZ = frontDepth ?? depth;
       if (node.front === 'doors') {
         const count = Math.max(1, integer(node.doors, 2));
         const doorWidth = (width - (count - 1) * gap) / count;
-        for (let index = 0; index < count; index++) fronts.push({ kind: 'door', index, sectionId, frontMount, opening: doorOpening(node, index), openingMechanism: openingMechanism(node), x: x + index * (doorWidth + gap), y, width: round(doorWidth), height: round(height), depth });
+        for (let index = 0; index < count; index++) fronts.push({ kind: 'door', index, sectionId, frontMount, opening: doorOpening(node, index), openingMechanism: openingMechanism(node), x: x + index * (doorWidth + gap), y, width: round(doorWidth), height: round(height), depth: frontZ });
       } else if (node.front === 'drawers') {
         const count = Math.max(1, integer(node.drawers, 2));
         const available = height - (count - 1) * gap;
@@ -885,7 +890,7 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
         weights.forEach((weight, index) => {
           const drawerHeight = available * weight / sum;
           cursor -= drawerHeight;
-          fronts.push({ kind: 'drawer', index, sectionId, frontMount, openingMechanism: openingMechanism(node), x, y: round(cursor), width: round(width), height: round(drawerHeight), depth });
+          fronts.push({ kind: 'drawer', index, sectionId, frontMount, openingMechanism: openingMechanism(node), x, y: round(cursor), width: round(width), height: round(drawerHeight), depth: frontZ });
           cursor -= gap;
         });
       }

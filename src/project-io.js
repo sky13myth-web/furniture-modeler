@@ -95,6 +95,8 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
       }
       if (node.front === 'doors' && node.doors === 0 || node.front === 'drawers' && node.drawers === 0) fail('Секция: число используемых фасадов должно быть больше нуля.');
       validateDoorOpenings(node.doorOpenings, node.doors ?? 2);
+      if (node.doorOpening !== undefined && !['left', 'right', 'up'].includes(node.doorOpening)) fail('Секция: направление открывания должно быть left, right или up.');
+      if (node.frontMount !== undefined && !['overlay', 'inset'].includes(node.frontMount)) fail('Секция: тип навески фасадов должен быть overlay или inset.');
       if (node.internalDrawerCount !== undefined && (!Number.isInteger(node.internalDrawerCount) || node.internalDrawerCount < 0 || node.internalDrawerCount > 12)) fail('Внутренние ящики: число должно быть целым от 0 до 12.');
       if (node.internalDrawerCount > 0 && !['doors', 'open'].includes(node.front)) fail('Внутренние ящики размещаются в открытой секции или секции с дверями.');
       if (node.internalDrawerHingeGap !== undefined) finite(node.internalDrawerHingeGap, 'Отступ внутренних ящиков от петель', 200);
@@ -234,6 +236,8 @@ export function checkImport(project) {
     if (!cabinet.layout || cabinet.doors !== undefined) {
       validateDoorOpenings(cabinet.doorOpenings, cabinet.doors ?? 0);
     }
+    if (cabinet.doorOpening !== undefined && !['left', 'right', 'up'].includes(cabinet.doorOpening)) fail('Модуль: направление открывания должно быть left, right или up.');
+    if (cabinet.frontMount !== undefined && !['overlay', 'inset'].includes(cabinet.frontMount)) fail('Модуль: тип навески фасадов должен быть overlay или inset.');
     for (const [key, limit, label] of [['plinth', 6000, 'высота цоколя'], ['gap', 10, 'зазор фасадов'], ['drawerSlideGap', 40, 'зазор направляющей'], ['edgeBand', 3, 'толщина кромки']]) finite(cabinet[key], `Модуль: ${label}`, limit);
     validatePartEdgeBandingOverrides(cabinet.partEdgeBanding);
     for (const [key, label] of [['backThickness', 'толщина задней стенки'], ['drawerBottomThickness', 'толщина дна ящика']]) finite(cabinet[key], `Модуль: ${label}`, 60, true);

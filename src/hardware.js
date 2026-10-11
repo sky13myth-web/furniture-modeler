@@ -72,9 +72,10 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
     else {
       const override = explicitHinges(node.hingesPerDoor) ? node.hingesPerDoor : explicitHinges(cabinet.hingesPerDoor) ? cabinet.hingesPerDoor : null;
       const shared = isDoorOnSharedPartition(front, allFronts, layout, cabinet.width);
+      const isInset = front.frontMount === 'inset';
       add('hinge', override ?? defaultHingesPerDoor(front.height), source, {
         ...metadata,
-        hingeType: shared ? 'half-overlay' : 'full-overlay',
+        hingeType: isInset ? 'inset' : (shared ? 'half-overlay' : 'full-overlay'),
         sharedPartition: shared,
         planned: override === null
       });

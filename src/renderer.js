@@ -350,7 +350,7 @@ export function makeScene(project, options = {}, direction = null) {
    * - arm clipped to the plate; half-overlay (shared partition) arms carry the
    *   9 mm crank so two doors can share one 16–18 mm partition.
    */
-  const concealedHinge = ({ W, rightHinge, inner, station, stationY, a, fz, opened, halfOverlay }, extras) => {
+  const concealedHinge = ({ W, rightHinge, inner, station, stationY, a, fz, opened, halfOverlay, inset }, extras) => {
     const side = rightHinge ? 1 : -1, into = -side; // `into` points from the panel into the opening
     const xr = (o0, o1) => [inner + into * o0, inner + into * o1].sort((p, q) => p - q);
     const boxAt = (o0, o1, y0, y1, z0, z1, color, part) => { const [xa, xb] = xr(o0, o1); rawBox(xa, y0, z0, xb - xa, y1 - y0, z1 - z0, color, sid(), { ...extras, hingePart: part }); };
@@ -371,7 +371,10 @@ export function makeScene(project, options = {}, direction = null) {
     boxAt(2, 17, stationY - 8, stationY + 8, zp - 22, armFront, steel, 'arm');
     for (const z of [zp - 10, armFront - 12]) { const [xa, xb] = xr(17, 18.5); cylinderX(xa, stationY, z, xb - xa, 6.5, dark, sid(), { ...extras, hingePart: 'arm-cam' }); }
     let noseOffset = 9.5;
-    if (halfOverlay) {
+    if (inset) {
+      boxAt(14, 28, stationY - 7, stationY + 7, armFront - 16, armFront, '#c5ced2', 'arm-crank');
+      noseOffset = 21.5;
+    } else if (halfOverlay) {
       // 9 mm crank: the arm nose steps into the opening.
       boxAt(15, 26, stationY - 7, stationY + 7, armFront - 14, armFront, '#c5ced2', 'arm-crank');
       noseOffset = 18.5;
@@ -858,9 +861,10 @@ export function makeScene(project, options = {}, direction = null) {
       // space when opened.
       const sideHung = f.kind === 'door' && (opening === 'left' || opening === 'right');
       const sharedPartitionHinge = sideHung ? isDoorOnSharedPartition(f, fronts, layout, w) : false;
+      const isInset = f.frontMount === 'inset';
       const closedW = (a, b, n) => [fx + a, fy + b, fz + n];
       const doorAngle = 85 * Math.PI / 180, doorCos = Math.cos(doorAngle), doorSin = Math.sin(doorAngle);
-      const hingePlaneX = opening === 'right' ? (sharedPartitionHinge ? fx + fw : wallRight) : (sharedPartitionHinge ? fx : wallLeft);
+      const hingePlaneX = opening === 'right' ? (sharedPartitionHinge || isInset ? fx + fw : wallRight) : (sharedPartitionHinge || isInset ? fx : wallLeft);
       const doorW = !options.doorsOpen || !sideHung ? closedW
         : opening === 'right' ? (a, b, n) => [hingePlaneX - (fw - a) * doorCos - (frontT - n) * doorSin, fy + b, fz + (fw - a) * doorSin - (frontT - n) * doorCos]
         : (a, b, n) => [hingePlaneX + a * doorCos + (frontT - n) * doorSin, fy + b, fz + a * doorSin - (frontT - n) * doorCos];
@@ -870,7 +874,7 @@ export function makeScene(project, options = {}, direction = null) {
         const hingeSymbols = createDoorHingeSymbols({ width: fw, height: fh, thickness: frontT, opening, opened: Boolean(options.doorsOpen), count });
         for (const hinge of hingeSymbols) {
           const world = p => [fx + p[0], fy + p[1], fz + p[2]];
-          const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, hingeType: sharedPartitionHinge ? 'half-overlay' : 'full-overlay', sharedPartition: sharedPartitionHinge, schematic: true, stroke: '#53605e' };
+          const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, hingeType: isInset ? 'inset' : (sharedPartitionHinge ? 'half-overlay' : 'full-overlay'), sharedPartition: sharedPartitionHinge, schematic: true, stroke: '#53605e' };
           const station = hinge.cup[1] !== undefined ? hinge.cup[1] : fh / 2, stationY = fy + station;
           if (topHinge) {
             face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
@@ -878,7 +882,7 @@ export function makeScene(project, options = {}, direction = null) {
             rawBox(hx - 14, wallTop - t, fz - 44, 28, 4, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
             rawBox(hx - 7.5, wallTop - t - 10, fz - 32, 15, 12, 34, '#c5ced2', id, { ...extras, hingePart: 'arm' });
           } else {
-            concealedHinge({ W: doorW, rightHinge, inner: rightHinge ? wallRight - t : wallLeft + t, station, stationY, a: rightHinge ? fw - 22.5 : 22.5, fz, opened: Boolean(options.doorsOpen), halfOverlay: sharedPartitionHinge }, extras);
+            concealedHinge({ W: doorW, rightHinge, inner: rightHinge ? wallRight - t : wallLeft + t, station, stationY, a: rightHinge ? fw - 22.5 : 22.5, fz, opened: Boolean(options.doorsOpen), halfOverlay: sharedPartitionHinge, inset: isInset }, extras);
           }
 
           // Lines for 2D schematic mode compatibility
