@@ -977,6 +977,14 @@ X / Z, мм|X / Z, mm|X / Z, mm
 Презентация|Sunum|Presentation
 Презентация проекта|Proje sunumu|Project presentation
 Сохранить буклет HTML|Sunum HTML dosyasını kaydet|Save presentation HTML
+Угловая тумба|Köşe alt dolabı|Corner base cabinet
+Угловой навесной шкаф|Köşe üst dolabı|Corner wall cabinet
+Угловой шкаф|Köşe dolabı|Corner cabinet
+Фальш-панель угловая|Köşe kör panel|Corner blind panel
+Угловая опорная планка|Köşe destek çıtası|Corner support slat
+Единая столешница (кухня)|Birleşik tezgah (mutfak)|Unified countertop (kitchen)
+Сторона глухого угла|Kör köşe yönü|Blind corner side
+Ширина глухой планки|Kör panel genişliği|Blind panel width
 `);
 
 let phrasePattern;
@@ -1014,6 +1022,7 @@ export function translateText(value, language = 'ru') {
 const generatedNames = {
   project: 'Новый проект', defaultProject: 'Шкаф · İstanbul', cabinet: 'Шкаф',
   base: 'Новая тумба', wall: 'Новый навесной шкаф', tall: 'Новый пенал',
+  cornerBase: 'Угловая тумба', cornerWall: 'Угловой навесной шкаф', cornerTall: 'Угловой шкаф',
   defaultCabinet: 'Шкаф с ящиками в середине', material: 'Новый МДФ',
   thinBack: 'ДВП · задник · 3 мм', thinBackType: 'ДВП',
   upperSection: 'Верхняя секция', drawerSection: 'Ящики в середине', lowerSection: 'Нижняя секция',

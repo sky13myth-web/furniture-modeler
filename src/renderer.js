@@ -7,6 +7,7 @@ import { generateCostHTML as renderCostSummary } from './pricing.js';
 import { productionPartCode } from './production-id.js';
 import { contourMarkerRegions } from './contour-markers.js';
 import { getDocumentInfo, printDocumentText, documentMetadataLine } from './print-document.js';
+import { renderUnifiedCountertops, isBaseCabinet } from './countertop.js';
 const { getFrontLayout } = engine;
 
 const VIEWS = {
@@ -783,15 +784,16 @@ export function makeScene(project, options = {}, direction = null) {
         const rightHinge = opening==='right', topHinge=opening==='up';
         const handleX = rightHinge ? fx + 26 : fx + fw - 34;
         const handleExtras={component:'door-handle',handle:true,sectionId:f.sectionId,frontIndex:f.index,doorOpening:opening};
-        if(f.openingMechanism==='push')continue;
+        if(f.openingMechanism==='push' || f.kind === 'blind-panel')continue;
         if(topHinge){
           const handleW=Math.min(160,fw*.38);
           box(fx+(fw-handleW)/2,fy+26,fz+frontT+7,handleW,7,9,'#6a655b',id,handleExtras);
         } else box(handleX, fy + fh * .43, fz + frontT + 7, 7, Math.min(160, fh * .25), 9, '#6a655b', id, handleExtras);
       }
     }
-    if (raw.countertop || raw.worktop) box(x - 4, y + h, z - 2, w + 8, number(raw.worktopThickness, 28), d + 30, '#ece6d8', id);
   }
+  currentCabinet = null;
+  renderUnifiedCountertops(box, rawBox, face, line, project, options);
   return { faces, lines, shadows, labels };
 }
 

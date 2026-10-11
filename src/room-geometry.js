@@ -354,6 +354,32 @@ export function snapCabinetToNeighbour(cabinet, existingCabinets = [], threshold
         rotation: rotA
       };
     }
+
+    // Candidate 3: L-Corner on other's right side (perpendicular +90°)
+    const candCornerRightX = oX + wA * cosA - dA * sinA;
+    const candCornerRightZ = oZ + wA * sinA + dA * cosA;
+    const distCornerRight = Math.hypot(curX - candCornerRightX, curZ - candCornerRightZ);
+    if (distCornerRight <= minDistance) {
+      minDistance = distCornerRight;
+      best = {
+        x: cleanZero(candCornerRightX),
+        z: cleanZero(candCornerRightZ),
+        rotation: cleanZero((rotA + 90) % 360)
+      };
+    }
+
+    // Candidate 4: L-Corner on other's left side (perpendicular -90°)
+    const candCornerLeftX = oX - (dA + wB) * sinA;
+    const candCornerLeftZ = oZ + (dA + wB) * cosA;
+    const distCornerLeft = Math.hypot(curX - candCornerLeftX, curZ - candCornerLeftZ);
+    if (distCornerLeft <= minDistance) {
+      minDistance = distCornerLeft;
+      best = {
+        x: cleanZero(candCornerLeftX),
+        z: cleanZero(candCornerLeftZ),
+        rotation: cleanZero((rotA - 90 + 360) % 360)
+      };
+    }
   }
 
   if (best) {

@@ -35,6 +35,7 @@ const number = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(
 // Invalid imported counts must not turn into an unbounded generation loop.
 const integer = (value, fallback = 0) => Math.min(40, Math.max(0, Math.floor(number(value, fallback))));
 const positive = value => Number.isFinite(Number(value)) && Number(value) > 0;
+const positiveNumber = (value, fallback = 0) => { const n = number(value, fallback); return n > 0 ? n : fallback; };
 const uid = prefix => `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`}`;
 const round = value => Math.round(value * 1000) / 1000;
 const doorOpening = (owner, index) => ['left', 'right', 'up'].includes(owner.doorOpenings?.[index]) ? owner.doorOpenings[index] : index % 2 === 1 ? 'right' : 'left';
@@ -676,17 +677,20 @@ export function createDefaultProject(language = 'tr') {
 }
 
 export function createCabinet(type = 'base', project = createDefaultProject(), overrides = {}) {
-  const supportedType = ['base', 'wall', 'tall'].includes(type) ? type : 'base';
+  const supportedType = ['base', 'wall', 'tall', 'corner-base', 'corner-wall', 'corner-tall'].includes(type) ? type : 'base';
   const namingLanguage = ['ru', 'tr', 'en'].includes(project.namingLanguage) ? project.namingLanguage : 'ru';
   const basePreset = {
-    base: { name: defaultName('base', namingLanguage), width: 800, height: 860, depth: 580, y: 0, plinth: 100, shelves: 1 },
+    base: { name: defaultName('base', namingLanguage), width: 800, height: 860, depth: 580, y: 0, plinth: 100, shelves: 1, countertop: true },
     wall: { name: defaultName('wall', namingLanguage), width: 800, height: 720, depth: 340, y: 1510, plinth: 0, shelves: 2 },
-    tall: { name: defaultName('tall', namingLanguage), width: 600, height: 2200, depth: 580, y: 0, plinth: 100, shelves: 5 }
+    tall: { name: defaultName('tall', namingLanguage), width: 600, height: 2200, depth: 580, y: 0, plinth: 100, shelves: 5 },
+    'corner-base': { name: defaultName('cornerBase', namingLanguage), width: 1000, height: 860, depth: 580, y: 0, plinth: 100, shelves: 1, countertop: true, cornerType: 'blind', blindSide: 'right', blindWidth: 600 },
+    'corner-wall': { name: defaultName('cornerWall', namingLanguage), width: 600, height: 720, depth: 340, y: 1510, plinth: 0, shelves: 2, cornerType: 'blind', blindSide: 'right', blindWidth: 340 },
+    'corner-tall': { name: defaultName('cornerTall', namingLanguage), width: 1000, height: 2200, depth: 580, y: 0, plinth: 100, shelves: 5, cornerType: 'blind', blindSide: 'right', blindWidth: 600 }
   }[supportedType];
   const preset = { ...basePreset };
   // Library presets can affect dimensions before automatic placement. IDs and
   // coordinates are generated here, so a preset cannot discard a safe position.
-  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation']) {
+  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation', 'countertop', 'cornerType', 'blindSide', 'blindWidth', 'worktopThickness']) {
     if (overrides[key] !== undefined) preset[key] = overrides[key];
   }
   const roomAllowance = getRoomInstallationClearance(project.room);
@@ -702,7 +706,8 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   const drawerBottomMaterialId = exactThickness(6) ?? exactThickness(8) ?? backMaterialId;
   const existing = project.cabinets ?? [];
   const cabinet = {
-    id: uid('cabinet'), type: supportedType, doors: 2, drawers: 0, gap: 2, ...preset,
+    id: uid('cabinet'), type: supportedType, doors: preset.cornerType === 'blind' ? 1 : 2, drawers: 0, gap: 2, ...preset,
+    countertop: preset.countertop, cornerType: preset.cornerType, blindSide: preset.blindSide, blindWidth: preset.blindWidth,
     materialId: material?.id ?? '', frontMaterialId: material?.id ?? '', backMaterialId: backMaterialId ?? '',
     drawerMaterialId: drawerMaterialId ?? '', drawerBottomMaterialId: drawerBottomMaterialId ?? '',
     backThickness: number(stockById(project, backMaterialId)?.thickness, 8), drawerSlideGap: 13, drawerBottomThickness: number(stockById(project, drawerBottomMaterialId)?.thickness, 8), edgeBand: 1, rotation: preset.rotation ?? 0, includeBack: preset.includeBack ?? true, includeBottom: preset.includeBottom ?? true, sidesToFloor: preset.sidesToFloor ?? true, rearBraces: []
@@ -733,12 +738,53 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
     }
     if (found) break;
   }
-  cabinet.layout = { ...createSection(integer(cabinet.drawers) > 0 ? 'drawers' : integer(cabinet.doors) > 0 ? 'doors' : 'open'), doors: integer(cabinet.doors) || 2, drawers: integer(cabinet.drawers) || 2, shelves: integer(cabinet.drawers) > 0 ? 0 : integer(cabinet.shelves) };
+  if (overrides.x !== undefined) position.x = overrides.x;
+  if (overrides.z !== undefined) position.z = overrides.z;
+  cabinet.layout = { ...createSection(integer(cabinet.drawers) > 0 ? 'drawers' : integer(cabinet.doors) > 0 ? 'doors' : 'open'), doors: preset.cornerType === 'blind' ? 1 : integer(cabinet.doors) || 2, drawers: integer(cabinet.drawers) || 2, shelves: integer(cabinet.drawers) > 0 ? 0 : integer(cabinet.shelves) };
   return { ...cabinet, ...position };
 }
 
 /** Front coordinates are relative to the body, above the plinth. */
 export function getFrontLayout(cabinet, project = { materials: [] }) {
+  const isBlindCorner = cabinet.cornerType === 'blind' || String(cabinet.type).startsWith('corner');
+  if (isBlindCorner) {
+    const width = number(cabinet.width);
+    const height = number(cabinet.height) - number(cabinet.plinth);
+    const gap = Math.max(0, number(cabinet.gap, 2));
+    const blindSide = cabinet.blindSide === 'left' ? 'left' : 'right';
+    const defaultBlindW = cabinet.type === 'corner-wall' ? 340 : 600;
+    const rawBlindW = Math.max(100, Math.min(width - 200, positiveNumber(cabinet.blindWidth, defaultBlindW)));
+    const doorW = width - rawBlindW;
+    const doorH = height - 2 * gap;
+    const depth = number(cabinet.depth) - getCabinetRearReservation(cabinet, project);
+    const result = [];
+    const secId = cabinet.layout?.id ?? 'section-1';
+    const node = cabinet.layout?.sections?.[0]?.node ?? cabinet;
+    if (blindSide === 'right') {
+      result.push({
+        kind: 'door', index: 0, sectionId: secId,
+        opening: 'left', openingMechanism: openingMechanism(node),
+        x: gap, y: gap, width: round(doorW - gap * 1.5), height: round(doorH), depth
+      });
+      result.push({
+        kind: 'blind-panel', index: 1, sectionId: secId,
+        openingMechanism: 'none',
+        x: round(doorW + gap * 0.5), y: gap, width: round(rawBlindW - gap * 1.5), height: round(doorH), depth
+      });
+    } else {
+      result.push({
+        kind: 'blind-panel', index: 0, sectionId: secId,
+        openingMechanism: 'none',
+        x: gap, y: gap, width: round(rawBlindW - gap * 1.5), height: round(doorH), depth
+      });
+      result.push({
+        kind: 'door', index: 1, sectionId: secId,
+        opening: 'right', openingMechanism: openingMechanism(node),
+        x: round(rawBlindW + gap * 0.5), y: gap, width: round(doorW - gap * 1.5), height: round(doorH), depth
+      });
+    }
+    return result;
+  }
   if (cabinet.layout) {
     const fronts = [];
     for (const section of getCabinetLayout(cabinet, project).sections) {
@@ -1001,7 +1047,7 @@ export function generateParts(project) {
       const extras = section ? { sectionId: section.id } : {};
       const frontStock = stockById(project, cabinet.frontMaterialId ?? cabinet.materialId);
       const frontThickness = number(frontStock?.thickness, thickness);
-      const frontLabel = front.kind === 'door' ? `Дверь ${front.index + 1}` : `Фасад ящика ${front.index + 1}`;
+      const frontLabel = front.kind === 'blind-panel' ? 'Фальш-панель угловая' : front.kind === 'door' ? (prefix ? `Дверь ${front.index + 1}` : (front.index > 0 ? `Дверь ${front.index + 1}` : 'Дверь 1')) : `Фасад ящика ${front.index + 1}`;
       addPart(prefix + frontLabel, front.width, front.height, frontThickness, cabinet.frontMaterialId ?? cabinet.materialId, ['top', 'bottom', 'left', 'right'], { ...extras, position: { x: front.x, y: front.y, z: back + (front.depth ?? bodyDepth) }, orientation: 'vertical-width' });
       if (front.kind !== 'drawer') continue;
       const box = externalDrawers.find(drawer => drawer.index === front.index && drawer.sectionId === front.sectionId).box;
@@ -1015,6 +1061,17 @@ export function generateParts(project) {
       addPart(`${prefix}Ящик ${front.index + 1} · передняя стенка`, outerWidth - 2 * drawerPanelThickness, boxHeight, drawerPanelThickness, drawerMaterialId, ['top'], { ...boxExtras, position: { x: box.x + drawerPanelThickness, y: box.y + drawerBottom, z: box.z + outerDepth - drawerPanelThickness }, orientation: 'vertical-width' });
       addPart(`${prefix}Ящик ${front.index + 1} · задняя стенка`, outerWidth - 2 * drawerPanelThickness, boxHeight, drawerPanelThickness, drawerMaterialId, ['top'], { ...boxExtras, position: { x: box.x + drawerPanelThickness, y: box.y + drawerBottom, z: box.z }, orientation: 'vertical-width' });
       addPart(`${prefix}Ящик ${front.index + 1} · дно`, outerWidth, outerDepth, drawerBottom, bottomMaterialId, [], { ...boxExtras, position: { x: box.x, y: box.y, z: box.z }, orientation: 'horizontal' });
+    }
+    if (cabinet.cornerType === 'blind' || String(cabinet.type).startsWith('corner')) {
+      const blindSide = cabinet.blindSide === 'left' ? 'left' : 'right';
+      const defaultBlindW = cabinet.type === 'corner-wall' ? 340 : 600;
+      const rawBlindW = Math.max(100, Math.min(width - 200, positiveNumber(cabinet.blindWidth, defaultBlindW)));
+      const braceX = blindSide === 'right' ? width - rawBlindW : rawBlindW - thickness;
+      addPart('Угловая опорная планка', thickness, layout.bodyHeight - 2 * thickness, 100, cabinet.materialId, ['top', 'bottom', 'left', 'right'], {
+        role: 'corner-post', component: 'corner-post',
+        position: { x: braceX, y: thickness, z: bodyDepth - 100 },
+        orientation: 'vertical-depth'
+      });
     }
     for (const front of getInternalDrawerLayout(cabinet, project)) {
       const section = layout.sections.find(item => item.id === front.sectionId), box = front.box;
