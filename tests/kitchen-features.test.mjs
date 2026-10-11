@@ -271,6 +271,12 @@ test('sink is mounted on countertop above section with bowl dipping into carcass
   assert.ok(sinkMaxY > 888, `Faucet/rim must extend above countertop (got max Y ${sinkMaxY})`);
   // Bowl must dip into carcass under countertop (< 888mm, down to around 888 - 190 = 698mm)
   assert.ok(sinkMinY < 800, `Bowl must dip into cabinet carcass below countertop (got min Y ${sinkMinY})`);
+
+  // Verify faucet base is at the rear (near the wall, small Z) rather than at the front edge
+  const highFaces = sinkFaces.filter(f => f.points.some(p => p[1] > 895));
+  assert.ok(highFaces.length > 0, 'Faucet faces must exist');
+  const minFaucetZ = Math.min(...highFaces.flatMap(f => f.points.map(p => p[2])));
+  assert.ok(minFaucetZ < 200, `Faucet must be mounted at rear near wall (got min Z ${minFaucetZ})`);
 });
 
 test('built-in hood is mounted into wall cabinet from the bottom', async () => {

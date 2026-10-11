@@ -265,11 +265,12 @@ export function renderKitchenAppliance({
     line([x, y + plateH, z + d], [x, y + plateH, z], '#4a5054', 1.2, cabinetId, detailExtras);
 
     // 4 Cooking zones (burners / induction crosshairs)
+    // Z-axis: z is rear (wall side), z + d is front (cook standing side)
     const burners = [
-      { cx: x + w * 0.28, cz: z + d * 0.32, r: 80, dual: true },   // Front-left (large dual)
-      { cx: x + w * 0.26, cz: z + d * 0.74, r: 65, dual: false },  // Rear-left (medium)
-      { cx: x + w * 0.74, cz: z + d * 0.72, r: 75, dual: true },   // Rear-right (large)
-      { cx: x + w * 0.74, cz: z + d * 0.34, r: 55, dual: false }   // Front-right (simmer)
+      { cx: x + w * 0.28, cz: z + d - 145, r: 80, dual: true },   // Front-left (large dual zone near front)
+      { cx: x + w * 0.26, cz: z + 130, r: 65, dual: false },       // Rear-left (medium zone near wall)
+      { cx: x + w * 0.74, cz: z + 140, r: 75, dual: true },        // Rear-right (large zone near wall)
+      { cx: x + w * 0.74, cz: z + d - 140, r: 55, dual: false }    // Front-right (simmer zone near front)
     ];
 
     for (const b of burners) {
@@ -292,17 +293,17 @@ export function renderKitchenAppliance({
       line([b.cx, topY, b.cz - 10], [b.cx, topY, b.cz + 10], '#8a9499', 1.5, cabinetId, detailExtras);
     }
 
-    // Touch control panel at front-center
+    // Touch control panel along front edge (closest to cook)
     const touchTop = y + plateH + 0.4;
-    const tcX = x + w / 2, tcZ = z + 35;
+    const tcX = x + w / 2, tcZ = z + d - 28;
     // Power symbol circle
-    const powerPts = circle2D(tcX - 50, tcZ, 8, 12);
+    const powerPts = circle2D(tcX - 55, tcZ, 7, 12);
     for (let i = 0; i < powerPts.length; i++) {
       const p1 = powerPts[i], p2 = powerPts[(i + 1) % powerPts.length];
       line([p1[0], touchTop, p1[1]], [p2[0], touchTop, p2[1]], ledRed, 1.8, cabinetId, detailExtras);
     }
     // Slider / step indicators
-    line([tcX - 25, touchTop, tcZ], [tcX + 45, touchTop, tcZ], '#909ba0', 2, cabinetId, detailExtras);
+    line([tcX - 30, touchTop, tcZ], [tcX + 45, touchTop, tcZ], '#909ba0', 2, cabinetId, detailExtras);
     line([tcX + 20, touchTop, tcZ - 4], [tcX + 20, touchTop, tcZ + 4], ledRed, 2.5, cabinetId, detailExtras);
   } else if (type === 'microwave') {
     // ----------------------------------------------------
@@ -452,23 +453,25 @@ export function renderKitchenAppliance({
     cylinderY(cx, topY - 179, cz, 2, 85, inox, cabinetId, detailExtras);
     cylinderY(cx, topY - 178, cz, 3, 30, '#2b3033', cabinetId, detailExtras);
 
-    // Chrome Mixer Faucet (Смеситель) at the rear
-    const tapX = cx, tapZ = cz + rOuter - 15, tapY = topY + 2;
+    // Chrome Mixer Faucet (Смеситель) at the rear near wall
+    const tapX = cx;
+    const tapZ = cz - rInner - 12;
+    const tapY = topY + 2;
     // Tap base collar
     cylinderY(tapX, tapY, tapZ, 12, 38, inoxBright, cabinetId, detailExtras);
     // Vertical tap stem
     cylinderY(tapX, tapY + 12, tapZ, 140, 24, inoxBright, cabinetId, detailExtras);
-    // High-arc gooseneck spout curving forward into bowl
+    // High-arc gooseneck spout curving forward (+Z) into bowl towards cook
     const spoutTopY = tapY + 152;
     cylinderX(tapX, spoutTopY, tapZ, 8, 22, inoxBright, cabinetId, detailExtras);
-    line([tapX, spoutTopY, tapZ], [tapX, spoutTopY + 45, tapZ - 40], inoxBright, 6, cabinetId, detailExtras);
-    line([tapX, spoutTopY + 45, tapZ - 40], [tapX, spoutTopY + 30, tapZ - 100], inoxBright, 6, cabinetId, detailExtras);
-    line([tapX, spoutTopY + 30, tapZ - 100], [tapX, spoutTopY - 15, tapZ - 120], inoxBright, 6, cabinetId, detailExtras);
+    line([tapX, spoutTopY, tapZ], [tapX, spoutTopY + 45, tapZ + 40], inoxBright, 6, cabinetId, detailExtras);
+    line([tapX, spoutTopY + 45, tapZ + 40], [tapX, spoutTopY + 30, tapZ + 95], inoxBright, 6, cabinetId, detailExtras);
+    line([tapX, spoutTopY + 30, tapZ + 95], [tapX, spoutTopY - 15, tapZ + 115], inoxBright, 6, cabinetId, detailExtras);
     // Aerator tip
-    cylinderY(tapX, spoutTopY - 25, tapZ - 120, 10, 18, '#33373a', cabinetId, detailExtras);
+    cylinderY(tapX, spoutTopY - 25, tapZ + 115, 10, 18, '#33373a', cabinetId, detailExtras);
 
     // Single lever handle on side
-    line([tapX + 12, tapY + 40, tapZ], [tapX + 45, tapY + 70, tapZ], inoxBright, 4.5, cabinetId, detailExtras);
+    line([tapX + 12, tapY + 40, tapZ], [tapX + 45, tapY + 65, tapZ + 25], inoxBright, 4.5, cabinetId, detailExtras);
   } else if (type === 'sink-rectangular') {
     // ----------------------------------------------------
     // Rectangular Sink with Custom Dimensions (Раковина прямоугольная)
@@ -489,13 +492,14 @@ export function renderKitchenAppliance({
     const bowlMargin = 35;
     const defaultBowlW = hasDrainer ? Math.min(w * 0.52, w - 240) : w - 2 * bowlMargin;
     const bowlW = Math.max(250, Math.min(w - 2 * bowlMargin, Number(appliance.bowlWidth || defaultBowlW)));
-    const bowlD = Math.max(250, Math.min(d - 2 * bowlMargin, Number(appliance.bowlDepth || (d - 2 * bowlMargin))));
+    const bowlD = Math.max(250, Math.min(d - 90, Number(appliance.bowlDepth || (d - 90))));
     const bowlH = Math.max(120, Math.min(240, Number(appliance.bowlHeight || 190)));
 
     const bowlX = hasDrainer
       ? (isDrainerRight ? x + bowlMargin : x + w - bowlMargin - bowlW)
       : x + (w - bowlW) / 2;
-    const bowlZ = z + (d - bowlD) / 2;
+    // Bowl positioned to leave rear faucet deck between z and z + 62
+    const bowlZ = z + 62;
 
     // Bowl cavity down into cabinet
     box(bowlX, topY - bowlH, bowlZ, bowlW, bowlH, bowlD, '#484f54', cabinetId, extras);
@@ -519,19 +523,19 @@ export function renderKitchenAppliance({
       }
     }
 
-    // Faucet behind the bowl
+    // Faucet mounted on rear deck behind the bowl (near the wall, z side)
     const tapX = bowlX + bowlW / 2;
-    const tapZ = z + d - 32;
+    const tapZ = z + 32;
     const tapY = topY + 2.5;
 
     cylinderY(tapX, tapY, tapZ, 12, 38, inoxBright, cabinetId, detailExtras);
     cylinderY(tapX, tapY + 12, tapZ, 150, 24, inoxBright, cabinetId, detailExtras);
     const spoutTopY = tapY + 162;
-    line([tapX, spoutTopY, tapZ], [tapX, spoutTopY + 50, tapZ - 45], inoxBright, 6, cabinetId, detailExtras);
-    line([tapX, spoutTopY + 50, tapZ - 45], [tapX, spoutTopY + 35, tapZ - 110], inoxBright, 6, cabinetId, detailExtras);
-    line([tapX, spoutTopY + 35, tapZ - 110], [tapX, spoutTopY - 20, tapZ - 130], inoxBright, 6, cabinetId, detailExtras);
-    cylinderY(tapX, spoutTopY - 30, tapZ - 130, 10, 18, '#33373a', cabinetId, detailExtras);
-    line([tapX + 12, tapY + 45, tapZ], [tapX + 48, tapY + 75, tapZ], inoxBright, 4.5, cabinetId, detailExtras);
+    line([tapX, spoutTopY, tapZ], [tapX, spoutTopY + 50, tapZ + 45], inoxBright, 6, cabinetId, detailExtras);
+    line([tapX, spoutTopY + 50, tapZ + 45], [tapX, spoutTopY + 35, tapZ + 105], inoxBright, 6, cabinetId, detailExtras);
+    line([tapX, spoutTopY + 35, tapZ + 105], [tapX, spoutTopY - 20, tapZ + 125], inoxBright, 6, cabinetId, detailExtras);
+    cylinderY(tapX, spoutTopY - 30, tapZ + 125, 10, 18, '#33373a', cabinetId, detailExtras);
+    line([tapX + 12, tapY + 45, tapZ], [tapX + 48, tapY + 70, tapZ + 25], inoxBright, 4.5, cabinetId, detailExtras);
   } else if (type === 'hood-builtin') {
     // ----------------------------------------------------
     // Built-in Range Hood (Встраиваемая вытяжка)
