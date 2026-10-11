@@ -764,12 +764,14 @@ export function makeScene(project, options = {}, direction = null) {
       // space when opened.
       const sideHung = f.kind === 'door' && (opening === 'left' || opening === 'right');
       const sharedPartitionHinge = sideHung ? isDoorOnSharedPartition(f, fronts, layout, w) : false;
-      const hingePlaneX = opening === 'right' ? (sharedPartitionHinge ? fx + fw : wallRight) : (sharedPartitionHinge ? fx : wallLeft);
       const closedW = (a, b, n) => [fx + a, fy + b, fz + n];
       const doorAngle = 85 * Math.PI / 180, doorCos = Math.cos(doorAngle), doorSin = Math.sin(doorAngle);
+      const hingePlaneX = opening === 'right'
+        ? (sharedPartitionHinge ? fx + fw - frontT * doorSin : wallRight)
+        : (sharedPartitionHinge ? fx + frontT * doorSin : wallLeft);
       const doorW = !options.doorsOpen || !sideHung ? closedW
-        : opening === 'right' ? (a, b, n) => [hingePlaneX - (fw - a) * doorCos - n * doorSin, fy + b, fz + (fw - a) * doorSin + n * doorCos]
-        : (a, b, n) => [hingePlaneX + a * doorCos + n * doorSin, fy + b, fz + a * doorSin + n * doorCos];
+        : opening === 'right' ? (a, b, n) => [hingePlaneX - (fw - a) * doorCos + n * doorSin, fy + b, fz + (fw - a) * doorSin + n * doorCos]
+        : (a, b, n) => [hingePlaneX + a * doorCos - n * doorSin, fy + b, fz + a * doorSin + n * doorCos];
       if (f.kind === 'door' && showHinges && !options.interior) {
         const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? (f.hingesPerDoor || (fh >= 2000 ? 5 : fh >= 1600 ? 4 : fh >= 900 ? 3 : 2));
         const rightHinge = opening === 'right', topHinge = opening === 'up';
