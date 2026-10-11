@@ -52,6 +52,17 @@ const builtInNames = [
   ['appliance','Сушильная машина','Kurutma makinesi','Dryer'],
   ['appliance','Бойлер','Boyler','Boiler'],
   ['appliance','Своё оборудование','Özel cihaz','Custom appliance'],
+  ['appliance','Духовой шкаф','Ankastre fırın','Built-in oven'],
+  ['appliance','Варочная панель','Ocak','Cooktop'],
+  ['appliance','Микроволновая печь','Mikrodalga fırın','Microwave oven'],
+  ['appliance','Встраиваемый холодильник','Ankastre buzdolabı','Built-in refrigerator'],
+  ['appliance','Отдельностоящий холодильник','Solo buzdolabı','Freestanding refrigerator'],
+  ['appliance','Встраиваемая посудомоечная машина','Ankastre bulaşık makinesi','Built-in dishwasher'],
+  ['appliance','Отдельностоящая посудомоечная машина','Solo bulaşık makinesi','Freestanding dishwasher'],
+  ['appliance','Раковина круглая','Yuvarlak evye','Round sink'],
+  ['appliance','Раковина прямоугольная','Dikdörtgen evye','Rectangular sink'],
+  ['appliance','Встраиваемая вытяжка','Ankastre davlumbaz','Built-in range hood'],
+  ['appliance','Настенная вытяжка','Duvar tipi davlumbaz','Wall chimney hood'],
   ['material','Новый МДФ','Yeni MDF','New MDF'],
 ].map(([kind,ru,tr,en]) => ({ kind, aliases:new Set([ru,tr,en,defaultName(ru,'tr'),defaultName(ru,'en')]), localized:{ru,tr:defaultName(ru,'tr'),en:defaultName(ru,'en')} }));
 

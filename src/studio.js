@@ -1,4 +1,5 @@
 import {createDefaultProject,createCabinet,duplicateCabinet,createSection,convertLegacyLayout,getCabinetLayout,getSectionMountingAxes,getFrontLayout,getInternalDrawerLayout,getApplianceFit,getRodLayout,findFreeRodPosition,findLayoutNode,splitSection,removeSection,deleteMaterial,getMaterialUsage,extendCabinetSide,canPlaceCabinet,canEditCabinetPlacement,syncMezzanines,getPartEdgeBanding,getEdgeBandingSummary,generateParts,optimizeCutting,validateProject} from './engine.js';
+import {getApplianceDefaultDimensions,getApplianceGapDefaults,APPLIANCE_PRESETS} from './kitchen-appliances.js';
 import {constrainCabinetEdit,resizeApplianceSection,resizeApplianceDivider,setApplianceSectionDepth,resizeConstrainedInteriorSection,resizeConstrainedInteriorDivider} from './appliance-constraints.js';
 import {resizeCabinetOnPlan} from './cabinet-plan-resize.js';
 import {getInteriorLayout,createInteriorFromSection,findInteriorNode,splitInteriorSection,removeInteriorSection} from './cabinet-interior.js';
@@ -812,16 +813,49 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();return
 calculate();render();
 if(restored)toast('Ваш проект открыт в редакторе секций');
 
-const applianceGapDefaults=type=>type==='washer'?{side:25,top:25,rear:50}:type==='dryer'?{side:30,top:25,rear:50}:{side:0,top:0,rear:0};
+const APPLIANCE_CHOICES = [
+  ['oven', 'Духовой шкаф'],
+  ['cooktop', 'Варочная панель / плита'],
+  ['microwave', 'Микроволновая печь'],
+  ['fridge-builtin', 'Холодильник (встраиваемый)'],
+  ['fridge-freestanding', 'Холодильник (отдельностоящий)'],
+  ['dishwasher-builtin', 'Посудомоечная машина (встраиваемая)'],
+  ['dishwasher-freestanding', 'Посудомоечная машина (отдельностоящая)'],
+  ['sink-round', 'Раковина (круглая)'],
+  ['sink-rectangular', 'Раковина (прямоугольная)'],
+  ['hood-builtin', 'Вытяжка (встраиваемая)'],
+  ['hood-wall', 'Вытяжка (настенная)'],
+  ['washer', 'Стиральная машина'],
+  ['dryer', 'Сушильная машина'],
+  ['boiler', 'Бойлер'],
+  ['custom', 'Своё оборудование']
+];
+
 function applianceDialog(){
  const section=selectedSection();if(!section)return;
  const c=selectedCabinet(),g=getCabinetLayout(c,project),atFloor=section.floorEligible;
  const a=section.node.appliance||{type:'washer',label:translateText('Стиральная машина',interfaceLanguage),width:600,height:850,depth:600};
- const gaps={...applianceGapDefaults(a.type),...a.clearances};
- const enabled=a.useClearances??(!section.node.appliance&&['washer','dryer'].includes(a.type));
- modal('Открытая ниша для техники',`<form id="appliance-form"><label class="field"><span>Что размещаем</span><select name="type">${[['washer','Стиральная машина'],['dryer','Сушильная машина'],['boiler','Бойлер'],['custom','Своё оборудование']].map(([v,t])=>`<option value="${v}" ${a.type===v?'selected':''}>${t}</option>`).join('')}</select></label><label class="field"><span>Название</span><input name="label" value="${esc(a.label)}" maxlength="100" required></label><div class="fields three">${['width','height','depth'].map((k,i)=>`<label class="field"><span>${['Ширина','Высота','Глубина'][i]} техники, мм</span><input name="${k}" type="number" value="${a[k]}" min="10" max="6000" required></label>`).join('')}</div>${atFloor?`<label class="check-row"><input name="onFloor" type="checkbox" ${!section.node.appliance||section.node.floor==='open'?'checked':''}>Стоит на полу — убрать дно и цоколь этой секции</label>`:''}<label class="check-row"><input name="useClearances" type="checkbox" ${enabled?'checked':''}>Учитывать монтажные зазоры и отступ от стены</label><div id="appliance-gap-fields" class="fields three">${[['side','С каждой стороны'],['top','Сверху'],['rear','Сзади: трубы и кабели']].map(([key,label])=>`<label class="field"><span>${label}, мм</span><input name="gap-${key}" type="number" min="0" max="1000" value="${gaps[key]}" required></label>`).join('')}</div><p class="hint">Начальные значения для планирования. Требования конкретной модели из её инструкции имеют приоритет. Глубину техники указывайте полностью, включая выступающие части.</p><div id="appliance-fit" class="appliance-fit" role="status" aria-live="polite"></div><details><summary>Откуда взяты зазоры</summary><p class="hint"><a href="https://www.samsung.com/ca/home-appliances/buying-guide/what-size-washing-machine-do-i-need/" target="_blank" rel="noopener">Samsung: размещение стиральных и сушильных машин</a>; <a href="https://download.beko.com/Download.UsageManualsBeko/AE/en_US_2960310556_EN.pdf" target="_blank" rel="noopener">Beko: пример инструкции сушильной машины</a>. Для сушилки начальный боковой запас увеличен до 30 мм. Эти параметры не являются универсальной нормой для любой техники. Для колонны нужен совместимый монтажный комплект, вентиляция и доступ спереди проверяются по инструкции.</p></details><button class="button primary full">Поместить в секцию</button></form>`);
+ const gaps={...getApplianceGapDefaults(a.type),...a.clearances};
+ const enabled=a.useClearances??(!section.node.appliance&&['washer','dryer','fridge-builtin','fridge-freestanding'].includes(a.type));
+ modal('Открытая ниша для техники',`<form id="appliance-form"><label class="field"><span>Что размещаем</span><select name="type">${APPLIANCE_CHOICES.map(([v,t])=>`<option value="${v}" ${a.type===v?'selected':''}>${t}</option>`).join('')}</select></label><label class="field"><span>Название</span><input name="label" value="${esc(a.label)}" maxlength="100" required></label><div class="fields three">${['width','height','depth'].map((k,i)=>`<label class="field"><span>${['Ширина','Высота','Глубина'][i]} техники, мм</span><input name="${k}" type="number" value="${a[k]}" min="10" max="6000" required></label>`).join('')}</div><div id="sink-rect-fields" class="fields" ${a.type==='sink-rectangular'?'':'hidden'}><label class="field"><span>Ширина чаши, мм</span><input name="bowlWidth" type="number" min="100" max="2000" value="${a.bowlWidth||400}"></label><label class="field"><span>Глубина чаши, мм</span><input name="bowlDepth" type="number" min="100" max="1000" value="${a.bowlDepth||400}"></label><label class="check-row"><input name="hasDrainer" type="checkbox" ${a.hasDrainer!==false?'checked':''}>Крыло для сушки</label><label class="field"><span>Сторона крыла</span><select name="drainerSide"><option value="right" ${a.drainerSide!=='left'?'selected':''}>Крыло справа</option><option value="left" ${a.drainerSide==='left'?'selected':''}>Крыло слева</option></select></label></div>${atFloor?`<label class="check-row"><input name="onFloor" type="checkbox" ${!section.node.appliance||section.node.floor==='open'?'checked':''}>Стоит на полу — убрать дно и цоколь этой секции</label>`:''}<label class="check-row"><input name="useClearances" type="checkbox" ${enabled?'checked':''}>Учитывать монтажные зазоры и отступ от стены</label><div id="appliance-gap-fields" class="fields three">${[['side','С каждой стороны'],['top','Сверху'],['rear','Сзади: трубы и кабели']].map(([key,label])=>`<label class="field"><span>${label}, мм</span><input name="gap-${key}" type="number" min="0" max="1000" value="${gaps[key]}" required></label>`).join('')}</div><p class="hint">Начальные значения для планирования. Требования конкретной модели из её инструкции имеют приоритет. Глубину техники указывайте полностью, включая выступающие части.</p><div id="appliance-fit" class="appliance-fit" role="status" aria-live="polite"></div><details><summary>Откуда взяты зазоры</summary><p class="hint"><a href="https://www.samsung.com/ca/home-appliances/buying-guide/what-size-washing-machine-do-i-need/" target="_blank" rel="noopener">Samsung: размещение стиральных и сушильных машин</a>; <a href="https://download.beko.com/Download.UsageManualsBeko/AE/en_US_2960310556_EN.pdf" target="_blank" rel="noopener">Beko: пример инструкции сушильной машины</a>. Для сушилки начальный боковой запас увеличен до 30 мм. Эти параметры не являются универсальной нормой для любой техники. Для колонны нужен совместимый монтажный комплект, вентиляция и доступ спереди проверяются по инструкции.</p></details><button class="button primary full">Поместить в секцию</button></form>`);
  const form=$('#appliance-form');
- const read=()=>({type:form.elements.type.value,label:form.elements.label.value.trim(),width:form.elements.width.valueAsNumber,height:form.elements.height.valueAsNumber,depth:form.elements.depth.valueAsNumber,useClearances:form.elements.useClearances.checked,clearances:Object.fromEntries(['side','top','rear'].map(k=>{const v=form.elements[`gap-${k}`].valueAsNumber;return [k,Number.isFinite(v)&&v>=0&&v<=1000?v:gaps[k]];}))});
+ const read=()=>({
+  type:form.elements.type.value,
+  label:form.elements.label.value.trim(),
+  width:form.elements.width.valueAsNumber,
+  height:form.elements.height.valueAsNumber,
+  depth:form.elements.depth.valueAsNumber,
+  useClearances:form.elements.useClearances.checked,
+  clearances:Object.fromEntries(['side','top','rear'].map(k=>{const v=form.elements[`gap-${k}`].valueAsNumber;return [k,Number.isFinite(v)&&v>=0&&v<=1000?v:gaps[k]];})),
+  ...(form.elements.type.value==='sink-rectangular'?{
+    sinkShape:'rectangular',
+    bowlWidth:Number(form.elements.bowlWidth?.value||400),
+    bowlDepth:Number(form.elements.bowlDepth?.value||400),
+    hasDrainer:form.elements.hasDrainer?.checked??true,
+    drainerSide:form.elements.drainerSide?.value||'right'
+  }:{}),
+  ...(form.elements.type.value==='sink-round'?{sinkShape:'round',bowlDiameter:Math.min(form.elements.width.valueAsNumber,form.elements.depth.valueAsNumber)-80}:{})
+ });
  const preview=()=>{
   $('#appliance-gap-fields').hidden=!form.elements.useClearances.checked;
   for(const k of ['side','top','rear'])form.elements[`gap-${k}`].disabled=!form.elements.useClearances.checked;
@@ -836,7 +870,19 @@ function applianceDialog(){
   $('#appliance-fit').innerHTML=`<strong>Нужна ниша: ${fmt(fit.required.width,1)} × ${fmt(fit.required.height,1)} × ${fmt(fit.required.depth,1)} мм</strong><small>Доступно: ${fmt(fit.available.width,1)} × ${fmt(fit.available.height,1)} × ${fmt(fit.available.depth,1)} мм</small>${failed.length?failed.map(k=>`<p>Не помещается по ${labels[k]}: не хватает ${fmt(fit.deficits[k],1)} мм.</p>`).join(''):'<p>Техника помещается с указанными зазорами.</p>'}`;
  };
  form.addEventListener('input',preview);
- form.elements.type.onchange=()=>{form.elements.label.value=form.elements.type.selectedOptions[0].textContent;const defaults=applianceGapDefaults(form.elements.type.value);for(const k of ['side','top','rear'])form.elements[`gap-${k}`].value=defaults[k];form.elements.useClearances.checked=['washer','dryer'].includes(form.elements.type.value);preview();};
+ form.elements.type.onchange=()=>{
+  const t=form.elements.type.value;
+  form.elements.label.value=form.elements.type.selectedOptions[0].textContent;
+  const defaults=getApplianceDefaultDimensions(t);
+  form.elements.width.value=defaults.width;
+  form.elements.height.value=defaults.height;
+  form.elements.depth.value=defaults.depth;
+  const g=getApplianceGapDefaults(t);
+  for(const k of ['side','top','rear'])form.elements[`gap-${k}`].value=g[k];
+  form.elements.useClearances.checked=['washer','dryer','fridge-builtin','fridge-freestanding'].includes(t);
+  const sinkFields=$('#sink-rect-fields');if(sinkFields)sinkFields.hidden=t!=='sink-rectangular';
+  preview();
+ };
  form.onsubmit=e=>{e.preventDefault();const appliance=read();if(!form.reportValidity())return;const saved=change(()=>{const s=editableSection();s.node.appliance=appliance;s.node.front='open';s.node.shelves=0;s.node.back='none';delete s.node.pullOutShelf;delete s.node.internalDrawerCount;delete s.node.interiorLayout;delete s.node.hingesPerDoor;delete s.node.rods;if(!getFrontLayout(c,project).some(front=>front.kind==='door'))delete c.hingesPerDoor;if(atFloor)s.node.floor=form.elements.onFloor.checked?'open':'inherit';});if(saved)closeModal();};
  preview();
 }

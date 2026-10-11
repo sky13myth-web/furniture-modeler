@@ -1044,6 +1044,35 @@ X / Z, мм|X / Z, mm|X / Z, mm
 1 глухая планка + 1 распашная дверь|1 kör panel + 1 menteşeli kapak|1 blind panel + 1 hinged door
 Фурнитура двери|Kapak aksesuarları|Door hardware
 К глухой стороне под прямым углом примыкает соседний модуль.|Kör tarafa dik açıyla bitişik bir modül bağlanır.|An adjoining module attaches at a right angle to the blind side.
+Духовой шкаф|Ankastre fırın|Built-in oven
+Варочная панель|Ocak|Cooktop
+Варочная панель / плита|Ocak|Cooktop / hob
+Микроволновая печь|Mikrodalga fırın|Microwave oven
+Встраиваемый холодильник|Ankastre buzdolabı|Built-in refrigerator
+Холодильник (встраиваемый)|Ankastre buzdolabı|Refrigerator (built-in)
+Отдельностоящий холодильник|Solo buzdolabı|Freestanding refrigerator
+Холодильник (отдельностоящий)|Solo buzdolabı|Refrigerator (freestanding)
+Встраиваемая посудомоечная машина|Ankastre bulaşık makinesi|Built-in dishwasher
+Посудомоечная машина (встраиваемая)|Ankastre bulaşık makinesi|Dishwasher (built-in)
+Отдельностоящая посудомоечная машина|Solo bulaşık makinesi|Freestanding dishwasher
+Посудомоечная машина (отдельностоящая)|Solo bulaşık makinesi|Dishwasher (freestanding)
+Раковина круглая|Yuvarlak evye|Round sink
+Раковина (круглая)|Yuvarlak evye|Sink (round)
+Раковина прямоугольная|Dikdörtgen evye|Rectangular sink
+Раковина (прямоугольная)|Dikdörtgen evye|Sink (rectangular)
+Встраиваемая вытяжка|Ankastre davlumbaz|Built-in range hood
+Вытяжка (встраиваемая)|Ankastre davlumbaz|Range hood (built-in)
+Настенная вытяжка|Duvar tipi davlumbaz|Wall chimney hood
+Вытяжка (настенная)|Duvar tipi davlumbaz|Range hood (wall)
+Ширина чаши|Hazne genişliği|Bowl width
+Глубина чаши|Hazne derinliği|Bowl depth
+Крыло для сушки|Damlalık|Drainer board
+Сторона крыла|Damlalık yönü|Drainer side
+Общий цоколь для кухонных шкафов|Birleşik mutfak süpürgeliği|Continuous kitchen plinth
+ЛЕД подсветка|LED aydınlatma|LED lighting
+Фальш-панели для скрытия стыков подвесных шкафов|Üst dolap alt kapama paneli|Wall cabinet bottom finish panels
+Крыло справа|Damlalık sağda|Drainer on right
+Крыло слева|Damlalık solda|Drainer on left
 `);
 
 let phrasePattern;
@@ -1086,6 +1115,11 @@ const generatedNames = {
   thinBack: 'ДВП · задник · 3 мм', thinBackType: 'ДВП',
   upperSection: 'Верхняя секция', drawerSection: 'Ящики в середине', lowerSection: 'Нижняя секция',
   washer: 'Стиральная машина', dryer: 'Сушильная машина', boiler: 'Бойлер', customAppliance: 'Своё оборудование', copy: 'копия',
+  oven: 'Духовой шкаф', cooktop: 'Варочная панель', microwave: 'Микроволновая печь',
+  fridgeBuiltin: 'Встраиваемый холодильник', fridgeFreestanding: 'Отдельностоящий холодильник',
+  dishwasherBuiltin: 'Встраиваемая посудомоечная машина', dishwasherFreestanding: 'Отдельностоящая посудомоечная машина',
+  sinkRound: 'Раковина круглая', sinkRectangular: 'Раковина прямоугольная',
+  hoodBuiltin: 'Встраиваемая вытяжка', hoodWall: 'Настенная вытяжка',
 };
 
 /** Generate a NEW object's name; never apply this to existing user names.

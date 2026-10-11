@@ -8,6 +8,8 @@ import { productionPartCode } from './production-id.js';
 import { contourMarkerRegions } from './contour-markers.js';
 import { getDocumentInfo, printDocumentText, documentMetadataLine } from './print-document.js';
 import { renderUnifiedCountertops, isBaseCabinet } from './countertop.js';
+import { renderKitchenAppliance, APPLIANCE_PRESETS } from './kitchen-appliances.js';
+import { renderUnifiedPlinths, renderUnifiedWallBottomPanels, renderUnifiedLEDLighting, getPlinthRuns } from './kitchen-features.js';
 import { roomObstacles, roomOpenings, obstacleGeometry } from './room-obstacles.js';
 const { getFrontLayout } = engine;
 
@@ -244,6 +246,8 @@ export function layoutApplianceCallouts(annotations, { width, height, modelWidth
 export function makeScene(project, options = {}, direction = null) {
   if(options.exploded)return makeExplodedScene(project,options,direction);
   const faces = [], lines = [], shadows = [], labels = [];
+  const plinthRuns = getPlinthRuns(project);
+  const multiPlinthCabIds = new Set(plinthRuns.filter(r => r.cabinets.length > 1).flatMap(r => r.cabinets.map(c => c.id)));
   let currentCabinet = null, currentLayout = null;
   const face = (points, color, normal, id = null, extras = {}) => {
     if (currentCabinet) {
@@ -273,6 +277,13 @@ export function makeScene(project, options = {}, direction = null) {
     const metadata={...extras,stroke:'transparent'};
     face(ring.map(([px,py])=>[px,py,z]),color,[0,0,-1],id,metadata);face(ring.map(([px,py])=>[px,py,z+length]),color,[0,0,1],id,metadata);
     ring.forEach(([px,py],index)=>{const [qx,qy]=ring[(index+1)%count],angle=(index+.5)*Math.PI*2/count;face([[px,py,z],[qx,qy,z],[qx,qy,z+length],[px,py,z+length]],color,[Math.cos(angle),Math.sin(angle),0],id,metadata);});
+  };
+  const cylinderY=(x,y,z,height,diameter,color,id,extras={})=>{
+    if(height<=0||diameter<=0)return;
+    const radius=diameter/2,count=16,ring=Array.from({length:count},(_,index)=>[x+radius*Math.cos(index*Math.PI*2/count),z+radius*Math.sin(index*Math.PI*2/count)]);
+    const metadata={...extras,stroke:'transparent'};
+    face(ring.map(([px,pz])=>[px,y,pz]),color,[0,-1,0],id,metadata);face(ring.map(([px,pz])=>[px,y+height,pz]),color,[0,1,0],id,metadata);
+    ring.forEach(([px,pz],index)=>{const [qx,qz]=ring[(index+1)%count],angle=(index+.5)*Math.PI*2/count;face([[px,y,pz],[qx,y,qz],[qx,y+height,qz],[px,y+height,pz]],color,[Math.cos(angle),0,Math.sin(angle)],id,metadata);});
   };
   // Cylinder between two arbitrary points (pipes, hinge cups, handle bars).
   const cylinderAxis = (p0, p1, radius, color, extras = {}, id = null, count = 18) => {
@@ -393,6 +404,7 @@ export function makeScene(project, options = {}, direction = null) {
     // Position every shelf from its manufacturing part. Invalid legacy
     // drawer-only cabinets still omit shelves, as there is no shelf opening.
     if (component === 'shelf' && (section?.node.front === 'drawers' || !c.layout && number(c.drawers) > 0 && number(c.doors) <= 0)) return;
+    if ((component === 'plinth' || part.role === 'plinth') && multiPlinthCabIds.has(c.id)) return;
     const extras = { component, sectionId: part.sectionId, interiorSectionId:part.interiorSectionId, parentSectionId:part.parentSectionId, partId: part.id, braceId: part.braceId, drawerIndex:part.drawerIndex, internalDrawerIndex:part.internalDrawerIndex, noCutout: true };
     const internal=component.startsWith('internal-drawer')?engine.getInternalDrawerLayout(c,project).find(drawer=>drawer.sectionId===part.sectionId&&drawer.index===part.internalDrawerIndex):null;
     const external=part.component==='external-drawer-box'?engine.getExternalDrawerLayout?.(c,project).find(drawer=>drawer.sectionId===part.sectionId&&drawer.index===part.drawerIndex):null;
@@ -706,15 +718,13 @@ export function makeScene(project, options = {}, direction = null) {
       if (!appliance) continue;
       const aw = Math.max(1, number(appliance.width, 600)), ah = Math.max(1, number(appliance.height, 850)), ad = Math.max(1, number(appliance.depth, 550));
       const ax = x + s.x + (s.width - aw) / 2, ay = bodyY + s.y, az = bodyZ + number(s.rearOffset) + Math.max(0, number(s.usableDepth, s.depth) - ad);
-      const extras = { component: 'appliance', sectionId: s.id, noCutout: true };
-      box(ax, ay, az, aw, ah, ad, '#d8dddb', id, extras);
-      const detailExtras = { ...extras, component: 'appliance-detail' };
-      if (['washer', 'dryer'].includes(appliance.type)) {
-        const radius = Math.min(aw, ah) * .28, cx = ax + aw / 2, cy = ay + ah * .44;
-        const circle = Array.from({ length: 32 }, (_, i) => [cx + radius * Math.cos(i * Math.PI / 16), cy + radius * Math.sin(i * Math.PI / 16), az + ad + 1]);
-        face(circle, '#697a7a', [0, 0, 1], id, detailExtras);
-        box(ax + aw * .1, ay + ah * .83, az + ad + .1, aw * .8, ah * .075, .2, '#b7c2be', id, detailExtras);
-      } else if (appliance.type === 'boiler') box(ax + aw * .25, ay + ah * .08, az + ad + .1, aw * .5, ah * .07, .2, '#a9b6b0', id, detailExtras);
+      renderKitchenAppliance({
+        appliance,
+        bounds: { x: ax, y: ay, z: az, width: aw, height: ah, depth: ad },
+        cabinetId: id,
+        sectionId: s.id,
+        renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+      });
       const applianceBounds = corners({ min: [ax, ay, az], max: [ax + aw, ay + ah, az + ad] }).map(p => rotateCabinetPoint(c, p));
       const anchorFaces = [
         [[ax + aw / 2, ay + ah / 2, az + ad], [0, 0, 1]],
@@ -723,7 +733,30 @@ export function makeScene(project, options = {}, direction = null) {
         [[ax + aw, ay + ah / 2, az + ad / 2], [1, 0, 0]],
         [[ax + aw / 2, ay + ah, az + ad / 2], [0, 1, 0]],
       ].map(([p, normal]) => ({ point: rotateCabinetPoint(c, p), normal: rotateCabinetNormal(c, normal) }));
-      labels.push({ point: rotateCabinetPoint(c, [ax + aw / 2, ay + ah + 28, az + ad]), anchorFaces, applianceBounds, text: `${appliance.label || ({ washer: 'Стиральная машина', dryer: 'Сушильная машина', boiler: 'Бойлер' }[appliance.type] || 'Оборудование')} · ${mm(aw)} × ${mm(ah)} × ${mm(ad)} мм`, id, appliance, section: s });
+      const typeLabel = APPLIANCE_PRESETS[appliance.type]?.name || ({ washer: 'Стиральная машина', dryer: 'Сушильная машина', boiler: 'Бойлер' }[appliance.type] || 'Оборудование');
+      labels.push({ point: rotateCabinetPoint(c, [ax + aw / 2, ay + ah + 28, az + ad]), anchorFaces, applianceBounds, text: `${appliance.label || typeLabel} · ${mm(aw)} × ${mm(ah)} × ${mm(ad)} мм`, id, appliance, section: s });
+    }
+    if (c.cooktop) {
+      const cw = Math.max(1, number(c.cooktop.width, 590)), ch = 45, cd = Math.max(1, number(c.cooktop.depth, 520));
+      const cx = x + (w - cw) / 2, cy = bodyY + bodyH + (c.countertop ? 38 : 0), cz = bodyZ + (bodyD - cd) / 2;
+      renderKitchenAppliance({
+        appliance: { type: 'cooktop', ...c.cooktop },
+        bounds: { x: cx, y: cy, z: cz, width: cw, height: ch, depth: cd },
+        cabinetId: id,
+        sectionId: null,
+        renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+      });
+    }
+    if (c.sink) {
+      const sw = Math.max(1, number(c.sink.width, 780)), sh = 190, sd = Math.max(1, number(c.sink.depth, 500));
+      const sx = x + (w - sw) / 2, sy = bodyY + bodyH + (c.countertop ? 38 : 0) - sh, sz = bodyZ + (bodyD - sd) / 2;
+      renderKitchenAppliance({
+        appliance: { type: c.sink.sinkShape === 'round' ? 'sink-round' : 'sink-rectangular', ...c.sink },
+        bounds: { x: sx, y: sy, z: sz, width: sw, height: sh, depth: sd },
+        cabinetId: id,
+        sectionId: null,
+        renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+      });
     }
     if (p > 0) {
       const portals = layout.sections.filter(s => s.floorOpen || (s.node.floor === 'open' && s.y <= 0));
@@ -868,6 +901,9 @@ export function makeScene(project, options = {}, direction = null) {
   }
   currentCabinet = null;
   renderUnifiedCountertops(box, rawBox, face, line, project, options);
+  renderUnifiedPlinths(box, rawBox, face, line, project, options);
+  renderUnifiedWallBottomPanels(box, rawBox, face, line, project, options);
+  renderUnifiedLEDLighting(box, rawBox, face, line, project, options);
   return { faces, lines, shadows, labels };
 }
 
