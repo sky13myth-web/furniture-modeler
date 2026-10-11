@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDefaultProject, createCabinet, duplicateCabinet, generateParts, getFrontLayout, getInternalDrawerLayout, getCabinetLayout, getSectionMountingAxes, getCabinetFootprint, createSection, convertLegacyLayout, findLayoutNode, splitSection, mergeSection, resizeSection, resizeDivider, resizeSectionAdjacent, removeSection, extendCabinetSide, getPartEdgeBanding, getEdgeBandingSummary, getApplianceClearances, getApplianceFit, getRoomInstallationClearance, validateCabinetPlacement, canPlaceCabinet, canEditCabinetPlacement, validateProject, optimizeCutting, getProjectStats } from '../src/engine.js';
+import { createDefaultProject, createCabinet, duplicateCabinet, generateParts, getFrontLayout, getInternalDrawerLayout, getCabinetLayout, getSectionMountingAxes, getCabinetFootprint, createSection, convertLegacyLayout, findLayoutNode, splitSection, mergeSection, resizeSection, resizeDivider, resizeSectionAdjacent, removeSection, extendCabinetSide, getPartEdgeBanding, getEdgeBandingSummary, getApplianceClearances, getApplianceFit, getRoomInstallationClearance, validateCabinetPlacement, canPlaceCabinet, canEditCabinetPlacement, validateProject, optimizeCutting, getProjectStats, getMaterialUsage, deleteMaterial } from '../src/engine.js';
+import { makeScene } from '../src/renderer.js';
 
 const cabinetProject = overrides => {
   const project = createDefaultProject();
@@ -1253,3 +1254,126 @@ test('duplicateCabinet produces valid clones with unique IDs, intelligent side-b
   const fullProject = { ...project, cabinets: Array(150).fill(original) };
   assert.throws(() => duplicateCabinet(original, fullProject), /150/);
 });
+
+test('cabinet and sections support multiple front materials for doors and drawers', () => {
+  const project = createDefaultProject();
+  project.materials.push(
+    { id: 'mdf_dark', name: 'МДФ Графит', thickness: 19, color: '#333333', sheetWidth: 2800, sheetHeight: 2070 },
+    { id: 'mdf_wood', name: 'МДФ Дуб', thickness: 18, color: '#a07040', sheetWidth: 2800, sheetHeight: 2070 }
+  );
+
+  // 1. Cabinet with layout having 2 sections:
+  // Section 'sec_doors' has 2 doors: door 0 is mdf_dark, door 1 is mdf_wood
+  // Section 'sec_drawers' has 3 drawers: default mdf_wood, drawer 1 is mdf_dark
+  const cab = createCabinet('base', project, { width: 1200, height: 860, depth: 560 });
+  cab.shelves = 0;
+  cab.layout = {
+    kind: 'split',
+    id: 'split_1',
+    axis: 'vertical',
+    sizes: [ 600, 600 ],
+    children: [
+      {
+        kind: 'section',
+        id: 'sec_doors',
+        front: 'doors',
+        doors: 2,
+        shelves: 0,
+        frontMaterialId: 'mdf_dark',
+        doorMaterialIds: ['mdf_dark', 'mdf_wood']
+      },
+      {
+        kind: 'section',
+        id: 'sec_drawers',
+        front: 'drawers',
+        drawers: 3,
+        shelves: 0,
+        frontMaterialId: 'mdf_wood',
+        drawerMaterialIds: [null, 'mdf_dark', null]
+      }
+    ]
+  };
+  project.cabinets = [cab];
+
+  // Validation passes with existing materials
+  assert.deepEqual(validateProject(project), []);
+
+  // Validation catches invalid front material IDs in section or door/drawer arrays
+  const brokenProject = JSON.parse(JSON.stringify(project));
+  brokenProject.cabinets[0].layout.children[0].frontMaterialId = 'non_existent_mat';
+  const errors = validateProject(brokenProject);
+  assert.ok(errors.some(e => e.message?.includes('материал фасада не найден')));
+
+  // Front layout material assignment
+  const fronts = getFrontLayout(cab, project);
+  assert.equal(fronts.length, 5); // 2 doors + 3 drawers
+  assert.equal(fronts[0].materialId, 'mdf_dark');
+  assert.equal(fronts[1].materialId, 'mdf_wood');
+  assert.equal(fronts[2].materialId, 'mdf_wood');
+  assert.equal(fronts[3].materialId, 'mdf_dark');
+  assert.equal(fronts[4].materialId, 'mdf_wood');
+
+  // Parts generation uses the assigned materialId and thickness
+  const parts = generateParts(project);
+  const frontParts = parts.filter(p => p.name.includes('Дверь') || p.name.includes('Фасад'));
+  assert.equal(frontParts.length, 5);
+
+  const door0 = frontParts.find(p => p.materialId === 'mdf_dark' && p.name.includes('Дверь') && p.thickness === 19);
+  const door1 = frontParts.find(p => p.materialId === 'mdf_wood' && p.name.includes('Дверь') && p.thickness === 18);
+  assert.ok(door0, 'Door 0 has mdf_dark and 19mm thickness');
+  assert.ok(door1, 'Door 1 has mdf_wood and 18mm thickness');
+
+  const darkDrawers = frontParts.filter(p => p.materialId === 'mdf_dark' && p.name.includes('Фасад'));
+  const woodDrawers = frontParts.filter(p => p.materialId === 'mdf_wood' && p.name.includes('Фасад'));
+  assert.equal(darkDrawers.length, 1);
+  assert.equal(woodDrawers.length, 2);
+
+  // Cutting optimization groups front parts under their respective materials
+  const cut = optimizeCutting(parts, project.materials, project.settings);
+  const darkSheetGroup = cut.sheets.find(s => s.materialId === 'mdf_dark');
+  const woodSheetGroup = cut.sheets.find(s => s.materialId === 'mdf_wood');
+  assert.ok(darkSheetGroup, 'Cutting includes sheets for mdf_dark');
+  assert.ok(woodSheetGroup, 'Cutting includes sheets for mdf_wood');
+  assert.ok(darkSheetGroup.placements.some(p => p.label.includes('Дверь')), 'Dark sheet contains dark door');
+  assert.ok(woodSheetGroup.placements.some(p => p.label.includes('Дверь')), 'Wood sheet contains wood door');
+
+  // 3D scene boxes have distinct colors matching the front materials
+  const scene = makeScene(project, { room: false, allFaces: true });
+  const frontFaces = scene.faces.filter(f => f.component === 'front');
+  assert.ok(frontFaces.length > 0);
+  const rawColors = [...new Set(frontFaces.map(f => f.rawColor))];
+  assert.ok(rawColors.includes('#333333'), 'Includes dark material color in 3D scene');
+  assert.ok(rawColors.includes('#a07040'), 'Includes wood material color in 3D scene');
+
+  // Material usage check
+  const usageDark = getMaterialUsage(project, 'mdf_dark');
+  const usageWood = getMaterialUsage(project, 'mdf_wood');
+  assert.ok(usageDark.length > 0);
+  assert.ok(usageWood.length > 0);
+  assert.ok(usageDark[0].roles.includes('sectionFrontMaterialId'));
+  assert.ok(usageDark[0].roles.includes('sectionDoorMaterialIds'));
+  assert.ok(usageDark[0].roles.includes('sectionDrawerMaterialIds'));
+
+  // Delete material with replacement updates front materials across sections and arrays
+  deleteMaterial(project, 'mdf_dark', 'mdf_wood');
+  const updatedFronts = getFrontLayout(cab, project);
+  assert.ok(updatedFronts.every(f => f.materialId === 'mdf_wood'));
+
+  // Legacy cabinet per-door override
+  const legacyCab = {
+    id: 'cab_legacy',
+    name: 'Шкаф легаси',
+    type: 'base',
+    width: 800,
+    height: 720,
+    depth: 560,
+    materialId: project.materials[0].id,
+    frontMaterialId: 'mdf_wood',
+    doors: 2,
+    doorMaterialIds: ['mdf_wood', project.materials[0].id]
+  };
+  const legacyFronts = getFrontLayout(legacyCab, project);
+  assert.equal(legacyFronts[0].materialId, 'mdf_wood');
+  assert.equal(legacyFronts[1].materialId, project.materials[0].id);
+});
+

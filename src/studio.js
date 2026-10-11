@@ -204,13 +204,20 @@ function renderProperties(){
    const geom=editorLayout(),fronts=(inside?getInternalDrawerLayout(c,project).filter(f=>f.interiorSectionId===s.id):getFrontLayout(c,project).filter(f=>f.sectionId===s.id));
    const drawerHardware=getInteriorDrawerHardwareOwner(c,project,s.id,{parentSectionId:interiorParentId});
    const index=geom.sections.findIndex(e=>e.id===s.id)+1;
+   const cabFrontMat=project.materials.find(m=>m.id===c.frontMaterialId)||project.materials[0];
+   const secFrontMat=node.frontMaterialId?project.materials.find(m=>m.id===node.frontMaterialId):null;
+   const frontMatOptions=(current,defaultLabel)=>`<option value="" ${!current?'selected':''}>${defaultLabel}</option>`+project.materials.map(m=>`<option value="${esc(m.id)}" ${m.id===current?'selected':''}>${esc(m.name)} · ${m.thickness} мм</option>`).join('');
    html+=`<div class="property-block selected-section"><div class="section-title"><span class="eyebrow">ВЫБРАНО НА СХЕМЕ</span><h2><span>${inside?'Внутренний отсек':'Секция'}</span> ${index}</h2></div>${inside?`<button class="button full" data-action="return-doors">${icon('undo')}${layout().sections.find(s=>s.id===interiorParentId)?.node.front==='doors'?'Вернуться к дверям':'Вернуться к секции'}</button>`:''}<div class="fill-options">${(inside?[['drawers','drawer','Ящики внутри'],['open','open','Открыто']]:[['doors','door','Двери'],['drawers','drawer','Ящики'],['open','open','Открыто']]).map(([v,i,l])=>`<button class="${node.front===v?'active':''}" data-front="${v}">${icon(i)}${l}</button>`).join('')}</div>`;
    const curMount=node.frontMount||(c.frontMount==='inset'?'inset':'overlay');
    const mountMarkup=inside?'':`<div style="margin:8px 0"><span class="eyebrow" style="display:block;margin-bottom:4px">НАВЕСКА (ВНУТРЬ / НАРУЖУ)</span><div class="row" style="gap:6px"><button type="button" class="button full ${curMount==='overlay'?'primary':''}" data-action="set-front-mount" data-value="overlay">Наружу (накладные)</button><button type="button" class="button full ${curMount==='inset'?'primary':''}" data-action="set-front-mount" data-value="inset">Внутрь (вкладные)</button></div></div>`;
    if(node.front==='doors'){
      html+=mountMarkup;
+     html+=`<label class="field"><span>Материал фасадов секции</span><select data-scope="section" data-field="frontMaterialId">${frontMatOptions(node.frontMaterialId,`Как у шкафа (${esc(cabFrontMat?.name||'Основной')})`)}</select></label>`;
      if(isCorner){
        const doorFront=fronts.find(f=>f.kind==='door');
+       const curDoorMat=node.doorMaterialIds?.[0]||'';
+       const defName=secFrontMat?.name||cabFrontMat?.name||'Основной';
+       html+=`<label class="field"><span>Материал распашной двери</span><select data-scope="section" data-field="door-material-0">${frontMatOptions(curDoorMat,`Как у секции (${esc(defName)})`)}</select></label>`;
        const curOpening=doorFront?.opening??c.doorOpening??(blindSide==='left'?'right':'left');
        html+=`<p class="hint">Фасад угловой секции: <strong>1 глухая планка + 1 распашная дверь</strong>.</p>`;
        html+=disclosure('door-hardware','Фурнитура двери',`${input('Петель на дверь','hingesPerDoor',node.hingesPerDoor??defaultHingesPerDoor(doorFront?.height??s.height),{min:2,max:12,unit:'шт.',scope:'section'})}<button class="text-button" data-action="auto-hinges">Рассчитать по высоте</button><p class="hint">Количество петель по высоте — предварительная оценка. Уточните его по массе двери и выбранной фурнитуре.</p>`);
@@ -219,6 +226,13 @@ function renderProperties(){
      }else{
       const doorCount=Math.max(1,node.doors||2);
       html+=input('Дверей в секции','doors',node.doors||2,{min:1,max:8,unit:'шт.',scope:'section'});
+      if(doorCount>1){
+        const defName=secFrontMat?.name||cabFrontMat?.name||'Основной';
+        html+=disclosure('door-materials','Материалы отдельных дверей',fronts.filter(f=>f.kind==='door').map(f=>{
+          const curMat=node.doorMaterialIds?.[f.index]||'';
+          return `<label class="field"><span>Дверь ${f.index+1}</span><select data-scope="section" data-field="door-material-${f.index}">${frontMatOptions(curMat,`Как у секции (${esc(defName)})`)}</select></label>`;
+        }).join(''));
+      }
       html+=disclosure('door-hardware','Фурнитура дверей',`${input('Петель на дверь','hingesPerDoor',node.hingesPerDoor??defaultHingesPerDoor(fronts.find(f=>f.kind==='door')?.height??s.height),{min:2,max:12,unit:'шт.',scope:'section'})}<button class="text-button" data-action="auto-hinges">Рассчитать по высоте</button><p class="hint">Количество петель по высоте — предварительная оценка. Уточните его по массе двери и выбранной фурнитуре.</p>`);
       if(doorCount===1){
         const curOpening=fronts.find(f=>f.kind==='door')?.opening??node.doorOpening??'left';
@@ -235,7 +249,18 @@ function renderProperties(){
     if(!node.interiorLayout)html+=input('Внутренние ящики за дверками','internalDrawerCount',node.internalDrawerCount||0,{min:0,max:12,unit:'шт.',scope:'section'});
     html+='<button class="button full" data-action="edit-interior">Внутреннее наполнение</button><p class="hint">Одни двери закрывают все внутренние отсеки. Полки и ящики настраиваются внутри.</p>';
    }
-   if(node.front==='drawers'){html+=mountMarkup;html+=input('Ящиков в секции','drawers',node.drawers||2,{min:1,max:12,unit:'шт.',scope:'section'});}
+   if(node.front==='drawers'){
+     html+=mountMarkup;
+     html+=`<label class="field"><span>Материал фасадов ящиков</span><select data-scope="section" data-field="frontMaterialId">${frontMatOptions(node.frontMaterialId,`Как у шкафа (${esc(cabFrontMat?.name||'Основной')})`)}</select></label>`;
+     html+=input('Ящиков в секции','drawers',node.drawers||2,{min:1,max:12,unit:'шт.',scope:'section'});
+     if(fronts.length>1){
+       const defName=secFrontMat?.name||cabFrontMat?.name||'Основной';
+       html+=disclosure('drawer-materials','Материалы отдельных ящиков',fronts.map((f,i)=>{
+         const curMat=node.drawerMaterialIds?.[i]||'';
+         return `<label class="field"><span>Фасад ящика ${i+1}</span><select data-scope="section" data-field="drawer-material-${i}">${frontMatOptions(curMat,`Как у секции (${esc(defName)})`)}</select></label>`;
+       }).join(''));
+     }
+   }
    if(!inside&&node.front==='open'&&(node.interiorLayout||node.internalDrawerCount>0))html+=`${!node.interiorLayout?input('Ящики внутри','internalDrawerCount',node.internalDrawerCount,{min:0,max:12,unit:'шт.',scope:'section'}):''}<button class="button full" data-action="edit-interior">Внутреннее наполнение</button><p class="hint">Снятие дверей сохраняет внутреннее наполнение.</p>`;
    if(drawerHardware&&(inside?node.front==='drawers':node.internalDrawerCount>0||node.interiorLayout))html+=input('Отступ под петли / сторона','internalDrawerHingeGap',drawerHardware.hingeGap,{max:200,scope:'interior-hardware'})+'<p class="hint">Общий отступ для ящиков за этими дверями. Применяется у левой и правой стенок; внутренние перегородки этот отступ не получают. Размер уточните по выбранным петлям.</p>';
    if(node.front!=='drawers'&&!node.interiorLayout)html+=input(inside?'Полки внутри отсека':'Полки внутри','shelves',node.shelves||0,{max:20,unit:'шт.',scope:'section',disabled:node.internalDrawerCount>0});
@@ -269,7 +294,24 @@ function renderProperties(){
    if(!inside&&node.front==='drawers'&&fronts.length>1)html+=disclosure('drawer-heights','Высоты отдельных фасадов',fronts.map((f,i)=>input(`Фасад ${i+1}`,'drawer-height-'+i,f.height,{min:60,max:s.frontHeight,scope:'section'})).join(''));
    html+='</div>';
   }
-  html+=disclosure('cabinet-materials','Материалы и отделка',`${selectMaterial('Корпус','materialId',c.materialId)}${selectMaterial('Фасады','frontMaterialId',c.frontMaterialId)}${selectMaterial('Короб ящика','drawerMaterialId',c.drawerMaterialId)}${selectMaterial('Дно ящика','drawerBottomMaterialId',c.drawerBottomMaterialId)}${selectMaterial('Задник','backMaterialId',c.backMaterialId)}<p class="hint">МДФ-задник крепится винтами. ДВП 3 мм — гвоздями без сверловки.</p><button class="text-button" data-action="materials">Изменить цвет или добавить материал</button>`);
+  let cabMultiFronts='';
+  if(!c.layout){
+    const cabDefMat=project.materials.find(m=>m.id===(c.frontMaterialId||c.materialId))||project.materials[0];
+    const cabFrontOpts=(cur)=>`<option value="" ${!cur?'selected':''}>Как у шкафа (${esc(cabDefMat?.name||'Основной')})</option>`+project.materials.map(m=>`<option value="${esc(m.id)}" ${m.id===cur?'selected':''}>${esc(m.name)} · ${m.thickness} мм</option>`).join('');
+    if((c.doors||0)>1){
+      cabMultiFronts+=disclosure('cabinet-door-materials','Материалы отдельных дверей',Array.from({length:c.doors},(_,i)=>{
+        const cur=c.doorMaterialIds?.[i]||'';
+        return `<label class="field"><span>Дверь ${i+1}</span><select data-scope="cabinet" data-field="door-material-${i}">${cabFrontOpts(cur)}</select></label>`;
+      }).join(''));
+    }
+    if((c.drawers||0)>1){
+      cabMultiFronts+=disclosure('cabinet-drawer-materials','Материалы отдельных ящиков',Array.from({length:c.drawers},(_,i)=>{
+        const cur=c.drawerMaterialIds?.[i]||'';
+        return `<label class="field"><span>Фасад ящика ${i+1}</span><select data-scope="cabinet" data-field="drawer-material-${i}">${cabFrontOpts(cur)}</select></label>`;
+      }).join(''));
+    }
+  }
+  html+=disclosure('cabinet-materials','Материалы и отделка',`${selectMaterial('Корпус','materialId',c.materialId)}${selectMaterial('Фасады','frontMaterialId',c.frontMaterialId)}${selectMaterial('Короб ящика','drawerMaterialId',c.drawerMaterialId)}${selectMaterial('Дно ящика','drawerBottomMaterialId',c.drawerBottomMaterialId)}${selectMaterial('Задник','backMaterialId',c.backMaterialId)}${cabMultiFronts}<p class="hint">МДФ-задник крепится винтами. ДВП 3 мм — гвоздями без сверловки.</p><button class="text-button" data-action="materials">Изменить цвет или добавить материал</button>`);
   if(c.rearBraces?.length)html+=disclosure('rear-braces','Задние поперечины',`${c.rearBraces.map((b,i)=>`<div class="brace-row"><div class="row"><strong>Поперечина ${i+1}</strong><button class="icon-button" data-delete-brace="${esc(b.id)}" aria-label="Удалить поперечину ${i+1}">${icon('trash')}</button></div><div class="fields">${braceInput(b,'y','От низа шкафа')}${braceInput(b,'height','Высота планки')}</div><label class="field"><span>Материал</span><select data-brace="${esc(b.id)}" data-field="materialId">${materialOptions(b.materialId||c.materialId)}</select></label></div>`).join('')}`);
     const cutoutInputs = !c.cutout ? '' : c.cutout.corner === 'both' ? `
 <div class="fields">${input('Ширина выреза слева','cutout-leftWidth',c.cutout.leftWidth??c.cutout.width,{min:10,max:c.width-60,disabled:isMezzanine})}${input('Глубина выреза слева','cutout-leftDepth',c.cutout.leftDepth??c.cutout.depth,{min:10,max:c.depth-60,disabled:isMezzanine})}</div>
@@ -512,11 +554,16 @@ document.addEventListener('change',e=>{
    else if(field==='rotation')setCabinetRotation(c,value);
     else if(field==='blindSide'){c.blindSide=value;c.doorOpening=value==='left'?'right':'left';const targetNode=s?.node??(c.layout?.kind==='section'?c.layout:c.layout?.children?.[0]);if(targetNode){targetNode.doors=1;targetNode.doorOpenings=[c.doorOpening];}}
     else if(field==='doorOpening'){c.doorOpening=value;const targetNode=s?.node??(c.layout?.kind==='section'?c.layout:c.layout?.children?.[0]);if(targetNode){targetNode.doors=1;targetNode.doorOpenings=[value];}}
+    else if(field.startsWith('door-material-')){const index=Number(field.slice(14));c.doorMaterialIds??=[];c.doorMaterialIds[index]=value||null;if(c.doorMaterialIds.every(m=>!m))delete c.doorMaterialIds;}
+    else if(field.startsWith('drawer-material-')){const index=Number(field.slice(16));c.drawerMaterialIds??=[];c.drawerMaterialIds[index]=value||null;if(c.drawerMaterialIds.every(m=>!m))delete c.drawerMaterialIds;}
    else {c[field]=value;if(field==='backMaterialId')c.backThickness=project.materials.find(m=>m.id===value)?.thickness||3;if(field==='drawerBottomMaterialId')c.drawerBottomThickness=project.materials.find(m=>m.id===value)?.thickness||6;}
    syncMezzanines(project);
    if(['x','y','z','rotation'].includes(field)&&!canPlaceCabinet(c,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');
   }
   if(scope==='section'&&s){
+   if(field==='frontMaterialId'){if(value)s.node.frontMaterialId=value;else delete s.node.frontMaterialId;return;}
+   if(field.startsWith('door-material-')){const index=Number(field.slice(14));s.node.doorMaterialIds??=[];s.node.doorMaterialIds[index]=value||null;if(s.node.doorMaterialIds.every(m=>!m))delete s.node.doorMaterialIds;return;}
+   if(field.startsWith('drawer-material-')){const index=Number(field.slice(16));s.node.drawerMaterialIds??=[];s.node.drawerMaterialIds[index]=value||null;if(s.node.drawerMaterialIds.every(m=>!m))delete s.node.drawerMaterialIds;return;}
    if(field.startsWith('door-opening-')){const index=Number(field.slice(13)),isCorner=c?.cornerType==='blind'||String(c?.type).startsWith('corner'),count=isCorner?1:(s.node.doors||2);s.node.doors=count;s.node.doorOpenings=Array.from({length:count},(_,i)=>i===index?value:s.node.doorOpenings?.[i]??(i%2?'right':'left'));return;}
    if(field==='floor-open'){s.node.floor=value?'open':'inherit';return;}
    if(field==='section-plinth'){s.node.plinthHeight=value?(s.node.plinthHeight>0?s.node.plinthHeight:c.plinth>0?c.plinth:100):0;return;}

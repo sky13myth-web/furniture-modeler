@@ -898,6 +898,10 @@ export function makeScene(project, options = {}, direction = null) {
     const externalDrawers = engine.getExternalDrawerLayout?.(raw, project) || [];
     for (const f of fronts) {
       const section = layout.sections.find(s => s.id === f.sectionId), fd = number(f.depth, bodyD);
+      const fMatId = f.materialId ?? section?.node?.frontMaterialId ?? raw.frontMaterialId ?? raw.materialId;
+      const fMat = material(project, fMatId);
+      const fColor = fMat?.color || c.frontColor;
+      const fFrontT = Math.max(3, number(fMat?.thickness, frontT));
       const fx = x + number(f.x), fy = bodyY + number(f.y), fw = number(f.width), fh = number(f.height), fz = bodyZ + fd;
       const opening = f.kind === 'door' ? doorOpening(f) : null;
       const frontExtras = { component: 'front', sectionId: f.sectionId, frontIndex: f.index, openingMechanism: f.openingMechanism || 'handle', ...(opening ? { doorOpening: opening } : {}) };
@@ -916,12 +920,12 @@ export function makeScene(project, options = {}, direction = null) {
       const doorAngle = 85 * Math.PI / 180, doorCos = Math.cos(doorAngle), doorSin = Math.sin(doorAngle);
       const hingePlaneX = opening === 'right' ? (sharedPartitionHinge || isInset ? fx + fw : wallRight) : (sharedPartitionHinge || isInset ? fx : wallLeft);
       const doorW = !options.doorsOpen || !sideHung ? closedW
-        : opening === 'right' ? (a, b, n) => [hingePlaneX - (fw - a) * doorCos - (frontT - n) * doorSin, fy + b, fz + (fw - a) * doorSin - (frontT - n) * doorCos]
-        : (a, b, n) => [hingePlaneX + a * doorCos + (frontT - n) * doorSin, fy + b, fz + a * doorSin - (frontT - n) * doorCos];
+        : opening === 'right' ? (a, b, n) => [hingePlaneX - (fw - a) * doorCos - (fFrontT - n) * doorSin, fy + b, fz + (fw - a) * doorSin - (fFrontT - n) * doorCos]
+        : (a, b, n) => [hingePlaneX + a * doorCos + (fFrontT - n) * doorSin, fy + b, fz + a * doorSin - (fFrontT - n) * doorCos];
       if (f.kind === 'door' && showHinges && !options.interior) {
         const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? (f.hingesPerDoor || (fh >= 2000 ? 5 : fh >= 1600 ? 4 : fh >= 900 ? 3 : 2));
         const rightHinge = opening === 'right', topHinge = opening === 'up';
-        const hingeSymbols = createDoorHingeSymbols({ width: fw, height: fh, thickness: frontT, opening, opened: Boolean(options.doorsOpen), count });
+        const hingeSymbols = createDoorHingeSymbols({ width: fw, height: fh, thickness: fFrontT, opening, opened: Boolean(options.doorsOpen), count });
         for (const hinge of hingeSymbols) {
           const world = p => [fx + p[0], fy + p[1], fz + p[2]];
           const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, hingeType: isInset ? 'inset' : (sharedPartitionHinge ? 'half-overlay' : 'full-overlay'), sharedPartition: sharedPartitionHinge, schematic: true, stroke: '#53605e' };
@@ -968,10 +972,10 @@ export function makeScene(project, options = {}, direction = null) {
         const rightWallX = x + (section?.x ?? t) + (section?.width ?? w - 2 * t);
         renderDrawerRunners(dx, dy, dz, dw, dh, dd, slide, leftWallX, rightWallX, { sectionId: f.sectionId, drawerIndex: f.index });
         if (options.interior) continue;
-        box(fx, fy, fz + slide, fw, fh, frontT, c.frontColor, id, frontExtras);
+        box(fx, fy, fz + slide, fw, fh, fFrontT, fColor, id, frontExtras);
         if (f.openingMechanism !== 'push') {
           const length = handleSpacing(Math.max(120, Math.min(fw * .45, 344))) + 24;
-          barHandle((a, b, n) => [fx + a, fy + b, fz + slide + n], frontT, { vertical: false, a0: (fw - length) / 2, b0: fh < 250 ? fh / 2 - 6 : fh - 66, length }, { handle: true, component: 'drawer-handle', sectionId: f.sectionId, frontIndex: f.index, stroke: 'transparent' });
+          barHandle((a, b, n) => [fx + a, fy + b, fz + slide + n], fFrontT, { vertical: false, a0: (fw - length) / 2, b0: fh < 250 ? fh / 2 - 6 : fh - 66, length }, { handle: true, component: 'drawer-handle', sectionId: f.sectionId, frontIndex: f.index, stroke: 'transparent' });
         }
       } else if (options.interior) {
         continue;
@@ -983,33 +987,33 @@ export function makeScene(project, options = {}, direction = null) {
           const u = [1, 0, 0], v = [0, -cos, sin], n = [0, sin, cos];
           const origin = [fx, fy + fh, fz];
           const transform = (a, b, depth) => add(origin, add(mul(u, a), add(mul(v, b), mul(n, depth))));
-          const doorPoints = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, frontT], [fw, 0, frontT], [fw, fh, frontT], [0, fh, frontT]].map(v => transform(...v));
-          [[0, 1, 2, 3], [4, 5, 6, 7], [3, 2, 6, 7], [1, 5, 6, 2], [0, 4, 7, 3], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => doorPoints[j]), colorShade(c.frontColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
+          const doorPoints = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, fFrontT], [fw, 0, fFrontT], [fw, fh, fFrontT], [0, fh, fFrontT]].map(v => transform(...v));
+          [[0, 1, 2, 3], [4, 5, 6, 7], [3, 2, 6, 7], [1, 5, 6, 2], [0, 4, 7, 3], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => doorPoints[j]), colorShade(fColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
           if (f.openingMechanism !== 'push') {
             const length = handleSpacing(Math.max(120, fw * .4)) + 24;
-            barHandle((a, b, depth) => transform(a, fh - b, depth), frontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length }, handleExtras);
+            barHandle((a, b, depth) => transform(a, fh - b, depth), fFrontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length }, handleExtras);
           }
         } else {
           // Side-hung door swung 90° about its hinge plane (wall face, or its own
           // edge on a shared partition); the front face stays on the outside.
-          const corners = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, frontT], [fw, 0, frontT], [fw, fh, frontT], [0, fh, frontT]].map(v => doorW(...v));
-          [[[0, 3, 2, 1], [0, 0, -1]], [[4, 5, 6, 7], [0, 0, 1]], [[0, 4, 7, 3], [-1, 0, 0]], [[1, 2, 6, 5], [1, 0, 0]], [[3, 7, 6, 2], [0, 1, 0]], [[0, 1, 5, 4], [0, -1, 0]]].forEach(([indices], i) => face(indices.map(j => corners[j]), colorShade(c.frontColor, i === 1 ? 1.03 : .94), null, id, frontExtras));
+          const corners = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, fFrontT], [fw, 0, fFrontT], [fw, fh, fFrontT], [0, fh, fFrontT]].map(v => doorW(...v));
+          [[[0, 3, 2, 1], [0, 0, -1]], [[4, 5, 6, 7], [0, 0, 1]], [[0, 4, 7, 3], [-1, 0, 0]], [[1, 2, 6, 5], [1, 0, 0]], [[3, 7, 6, 2], [0, 1, 0]], [[0, 1, 5, 4], [0, -1, 0]]].forEach(([indices], i) => face(indices.map(j => corners[j]), colorShade(fColor, i === 1 ? 1.03 : .94), null, id, frontExtras));
           if (f.openingMechanism !== 'push') {
             const length = handleSpacing(Math.max(120, fh * .3)) + 24;
-            barHandle(doorW, frontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length }, handleExtras);
+            barHandle(doorW, fFrontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length }, handleExtras);
           }
         }
       } else {
-        box(fx, fy, fz, fw, fh, frontT, c.frontColor, id, frontExtras);
+        box(fx, fy, fz, fw, fh, fFrontT, fColor, id, frontExtras);
         const rightHinge = opening === 'right', topHinge = opening === 'up';
         const handleExtras = { component: 'door-handle', handle: true, sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, stroke: 'transparent' };
         if (f.openingMechanism === 'push' || f.kind === 'blind-panel') continue;
         if (topHinge) {
           const length = handleSpacing(Math.max(120, fw * .4)) + 24;
-          barHandle(closedW, frontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length }, handleExtras);
+          barHandle(closedW, fFrontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length }, handleExtras);
         } else {
           const length = handleSpacing(Math.max(120, fh * .3)) + 24;
-          barHandle(closedW, frontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length }, handleExtras);
+          barHandle(closedW, fFrontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length }, handleExtras);
         }
       }
     }

@@ -100,6 +100,37 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
       if (node.internalDrawerCount !== undefined && (!Number.isInteger(node.internalDrawerCount) || node.internalDrawerCount < 0 || node.internalDrawerCount > 12)) fail('Внутренние ящики: число должно быть целым от 0 до 12.');
       if (node.internalDrawerCount > 0 && !['doors', 'open'].includes(node.front)) fail('Внутренние ящики размещаются в открытой секции или секции с дверями.');
       if (node.internalDrawerHingeGap !== undefined) finite(node.internalDrawerHingeGap, 'Отступ внутренних ящиков от петель', 200);
+      if (node.frontMaterialId !== undefined && node.frontMaterialId !== null) {
+        text(node.frontMaterialId, 'Секция: материал фасада');
+        if (materialIds && !materialIds.has(node.frontMaterialId)) fail('Секция: материал фасада не найден.');
+      }
+      if (node.doorMaterialIds !== undefined) {
+        if (!Array.isArray(node.doorMaterialIds)) fail('Секция: материалы дверей должны быть массивом.');
+        for (const id of node.doorMaterialIds) {
+          if (id !== null && id !== undefined) {
+            text(id, 'Секция: материал двери');
+            if (materialIds && !materialIds.has(id)) fail('Секция: материал двери не найден.');
+          }
+        }
+      }
+      if (node.drawerMaterialIds !== undefined) {
+        if (!Array.isArray(node.drawerMaterialIds)) fail('Секция: материалы ящиков должны быть массивом.');
+        for (const id of node.drawerMaterialIds) {
+          if (id !== null && id !== undefined) {
+            text(id, 'Секция: материал ящика');
+            if (materialIds && !materialIds.has(id)) fail('Секция: материал ящика не найден.');
+          }
+        }
+      }
+      if (node.frontMaterialIds !== undefined) {
+        if (!Array.isArray(node.frontMaterialIds)) fail('Секция: материалы фасадов должны быть массивом.');
+        for (const id of node.frontMaterialIds) {
+          if (id !== null && id !== undefined) {
+            text(id, 'Секция: материал фасада');
+            if (materialIds && !materialIds.has(id)) fail('Секция: материал фасада не найден.');
+          }
+        }
+      }
       if (node.openingMechanism !== undefined && !['handle', 'push'].includes(node.openingMechanism)) fail('Механизм открывания должен быть handle или push.');
       if (node.depth !== undefined && node.depth !== null) finite(node.depth, 'Секция: глубина', 3000, true);
       if (node.back !== undefined && !['inherit', 'none', 'panel', 'solid', 'braces'].includes(node.back)) fail('Секция: неверный тип задней стенки.');
@@ -242,6 +273,18 @@ export function checkImport(project) {
     validatePartEdgeBandingOverrides(cabinet.partEdgeBanding);
     for (const [key, label] of [['backThickness', 'толщина задней стенки'], ['drawerBottomThickness', 'толщина дна ящика']]) finite(cabinet[key], `Модуль: ${label}`, 60, true);
     for (const [key, label] of [['materialId', 'материал корпуса'], ['frontMaterialId', 'материал фасадов'], ['backMaterialId', 'материал задней стенки']]) materialRef(cabinet[key], materialIds, `Модуль: ${label}`);
+    if (cabinet.doorMaterialIds !== undefined) {
+      if (!Array.isArray(cabinet.doorMaterialIds)) fail('Модуль: материалы дверей должны быть массивом.');
+      for (const id of cabinet.doorMaterialIds) {
+        if (id !== null && id !== undefined) materialRef(id, materialIds, 'Модуль: материал двери');
+      }
+    }
+    if (cabinet.drawerMaterialIds !== undefined) {
+      if (!Array.isArray(cabinet.drawerMaterialIds)) fail('Модуль: материалы ящиков должны быть массивом.');
+      for (const id of cabinet.drawerMaterialIds) {
+        if (id !== null && id !== undefined) materialRef(id, materialIds, 'Модуль: материал ящика');
+      }
+    }
     const layout = cabinet.layout;
     if (layout !== undefined) validateLayoutSchema(layout, { materialIds });
     const containsDoors = node => node.kind === 'section' ? node.front === 'doors' : node.children.some(containsDoors);

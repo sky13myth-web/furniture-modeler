@@ -61,10 +61,16 @@ const backThickness = getCabinetRearReservation;
 const drawerThickness = (cabinet, project) => number(stockById(project, cabinet.drawerMaterialId ?? cabinet.materialId)?.thickness, bodyThickness(cabinet, project));
 const bottomThickness = (cabinet, project) => number(cabinet.drawerBottomThickness, number(stockById(project, cabinet.drawerBottomMaterialId)?.thickness, 6));
 const frontThickness = (cabinet, project) => {
-  const thickness = number(stockById(project, cabinet.frontMaterialId ?? cabinet.materialId)?.thickness, bodyThickness(cabinet, project));
-  if (!cabinet.layout) return integer(cabinet.doors) + integer(cabinet.drawers) > 0 ? thickness : 0;
+  const defaultThickness = number(stockById(project, cabinet.frontMaterialId ?? cabinet.materialId)?.thickness, bodyThickness(cabinet, project));
+  if (!cabinet.layout) return integer(cabinet.doors) + integer(cabinet.drawers) > 0 ? defaultThickness : 0;
   const depth = number(cabinet.depth) - backThickness(cabinet, project);
-  const projection = getFrontLayout(cabinet, project).reduce((maximum, front) => Math.max(maximum, front.depth + thickness - depth), 0);
+  const fronts = getFrontLayout(cabinet, project);
+  if (!fronts.length) return 0;
+  const projection = fronts.reduce((maximum, front) => {
+    const fMatId = front.materialId ?? cabinet.frontMaterialId ?? cabinet.materialId;
+    const fThick = number(stockById(project, fMatId)?.thickness, defaultThickness);
+    return Math.max(maximum, front.depth + fThick - depth);
+  }, 0);
   return Math.max(0, projection);
 };
 const physicalCabinet = (cabinet, project) => ({ ...cabinet, depth: number(cabinet.depth) + frontThickness(cabinet, project) });
@@ -231,7 +237,8 @@ export function getCabinetLayout(cabinet, project = { materials: [] }) {
       const actualY = floorOpen ? -number(cabinet.plinth) : floorEligible ? bottomPanelY + (hasBottom ? thickness : 0) : rect.y;
       const floorExtra = rect.y - actualY;
       const sectionRect = { ...rect, y: actualY || 0, height: rect.height + floorExtra };
-      const frontStock = stockById(project, cabinet.frontMaterialId ?? cabinet.materialId);
+      const sectionFrontMatId = node.frontMaterialId ?? cabinet.frontMaterialId ?? cabinet.materialId;
+      const frontStock = stockById(project, sectionFrontMatId);
       const frontThickness = number(frontStock?.thickness, thickness);
       const isInsetExplicit = node.frontMount === 'inset' || (cabinet.frontMount === 'inset' && node.frontMount !== 'overlay');
       const insetFront = isInsetExplicit || (node.frontMount !== 'overlay' && depth < bodyDepth - EPSILON);
@@ -578,10 +585,16 @@ export function getMaterialUsage(project, materialId) {
     if (cabinet.backMaterialId === materialId) roles.push('backMaterialId');
     if (cabinet.drawerMaterialId === materialId) roles.push('drawerMaterialId');
     if (cabinet.drawerBottomMaterialId === materialId) roles.push('drawerBottomMaterialId');
+    if (cabinet.doorMaterialIds?.includes(materialId)) roles.push('doorMaterialIds');
+    if (cabinet.drawerMaterialIds?.includes(materialId)) roles.push('drawerMaterialIds');
     if (cabinet.rearBraces?.some(b => b.materialId === materialId)) roles.push('rearBraces');
     if (cabinet.layout) {
       const visit = node => {
         if (!node) return;
+        if (node.frontMaterialId === materialId) roles.push('sectionFrontMaterialId');
+        if (node.doorMaterialIds?.includes(materialId)) roles.push('sectionDoorMaterialIds');
+        if (node.drawerMaterialIds?.includes(materialId)) roles.push('sectionDrawerMaterialIds');
+        if (node.frontMaterialIds?.includes(materialId)) roles.push('sectionFrontMaterialIds');
         if (node.rearBraces?.some(b => b.materialId === materialId)) roles.push('sectionRearBraces');
         if (Array.isArray(node.children)) node.children.forEach(visit);
         if (node.interiorLayout) visit(node.interiorLayout);
@@ -625,6 +638,12 @@ export function deleteMaterial(project, materialId, replacementId = null) {
         cabinet.drawerBottomMaterialId = replacementId;
         cabinet.drawerBottomThickness = replacement.thickness;
       }
+      if (Array.isArray(cabinet.doorMaterialIds)) {
+        cabinet.doorMaterialIds = cabinet.doorMaterialIds.map(m => m === materialId ? replacementId : m);
+      }
+      if (Array.isArray(cabinet.drawerMaterialIds)) {
+        cabinet.drawerMaterialIds = cabinet.drawerMaterialIds.map(m => m === materialId ? replacementId : m);
+      }
       if (Array.isArray(cabinet.rearBraces)) {
         for (const brace of cabinet.rearBraces) {
           if (brace.materialId === materialId) brace.materialId = replacementId;
@@ -633,6 +652,16 @@ export function deleteMaterial(project, materialId, replacementId = null) {
       if (cabinet.layout) {
         const visit = node => {
           if (!node) return;
+          if (node.frontMaterialId === materialId) node.frontMaterialId = replacementId;
+          if (Array.isArray(node.doorMaterialIds)) {
+            node.doorMaterialIds = node.doorMaterialIds.map(m => m === materialId ? replacementId : m);
+          }
+          if (Array.isArray(node.drawerMaterialIds)) {
+            node.drawerMaterialIds = node.drawerMaterialIds.map(m => m === materialId ? replacementId : m);
+          }
+          if (Array.isArray(node.frontMaterialIds)) {
+            node.frontMaterialIds = node.frontMaterialIds.map(m => m === materialId ? replacementId : m);
+          }
           if (Array.isArray(node.rearBraces)) {
             for (const brace of node.rearBraces) {
               if (brace.materialId === materialId) brace.materialId = replacementId;
@@ -852,27 +881,33 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
     const node = findFirstSection(cabinet.layout) ?? (cabinet.layout?.kind === 'section' ? cabinet.layout : null) ?? cabinet;
     const defaultDoorOpening = blindSide === 'right' ? 'left' : 'right';
     const doorOpening = cabinet.doorOpening || node.doorOpenings?.[0] || defaultDoorOpening;
+    const doorMatId = node.doorMaterialIds?.[0] ?? node.frontMaterialIds?.[0] ?? node.frontMaterialId ?? cabinet.doorMaterialIds?.[0] ?? cabinet.frontMaterialId ?? cabinet.materialId;
+    const blindMatId = node.blindMaterialId ?? node.frontMaterialId ?? cabinet.frontMaterialId ?? cabinet.materialId;
     if (blindSide === 'right') {
       result.push({
         kind: 'door', index: 0, sectionId: secId,
         opening: doorOpening, openingMechanism: openingMechanism(node),
-        x: gap, y: gap, width: round(doorW - gap * 1.5), height: round(doorH), depth
+        x: gap, y: gap, width: round(doorW - gap * 1.5), height: round(doorH), depth,
+        materialId: doorMatId
       });
       result.push({
         kind: 'blind-panel', index: 1, sectionId: secId,
         openingMechanism: 'none',
-        x: round(doorW + gap * 0.5), y: gap, width: round(rawBlindW - gap * 1.5), height: round(doorH), depth
+        x: round(doorW + gap * 0.5), y: gap, width: round(rawBlindW - gap * 1.5), height: round(doorH), depth,
+        materialId: blindMatId
       });
     } else {
       result.push({
         kind: 'blind-panel', index: 0, sectionId: secId,
         openingMechanism: 'none',
-        x: gap, y: gap, width: round(rawBlindW - gap * 1.5), height: round(doorH), depth
+        x: gap, y: gap, width: round(rawBlindW - gap * 1.5), height: round(doorH), depth,
+        materialId: blindMatId
       });
       result.push({
         kind: 'door', index: 1, sectionId: secId,
         opening: doorOpening, openingMechanism: openingMechanism(node),
-        x: round(rawBlindW + gap * 0.5), y: gap, width: round(doorW - gap * 1.5), height: round(doorH), depth
+        x: round(rawBlindW + gap * 0.5), y: gap, width: round(doorW - gap * 1.5), height: round(doorH), depth,
+        materialId: doorMatId
       });
     }
     return result;
@@ -886,7 +921,10 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
       if (node.front === 'doors') {
         const count = Math.max(1, integer(node.doors, 2));
         const doorWidth = (width - (count - 1) * gap) / count;
-        for (let index = 0; index < count; index++) fronts.push({ kind: 'door', index, sectionId, frontMount, opening: doorOpening(node, index), openingMechanism: openingMechanism(node), x: x + index * (doorWidth + gap), y, width: round(doorWidth), height: round(height), depth: frontZ });
+        for (let index = 0; index < count; index++) {
+          const materialId = node.doorMaterialIds?.[index] ?? node.frontMaterialIds?.[index] ?? node.frontMaterialId ?? cabinet.doorMaterialIds?.[index] ?? cabinet.frontMaterialId ?? cabinet.materialId;
+          fronts.push({ kind: 'door', index, sectionId, frontMount, opening: doorOpening(node, index), openingMechanism: openingMechanism(node), x: x + index * (doorWidth + gap), y, width: round(doorWidth), height: round(height), depth: frontZ, materialId });
+        }
       } else if (node.front === 'drawers') {
         const count = Math.max(1, integer(node.drawers, 2));
         const available = height - (count - 1) * gap;
@@ -896,7 +934,8 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
         weights.forEach((weight, index) => {
           const drawerHeight = available * weight / sum;
           cursor -= drawerHeight;
-          fronts.push({ kind: 'drawer', index, sectionId, frontMount, openingMechanism: openingMechanism(node), x, y: round(cursor), width: round(width), height: round(drawerHeight), depth: frontZ });
+          const materialId = node.drawerMaterialIds?.[index] ?? node.frontMaterialIds?.[index] ?? node.frontMaterialId ?? cabinet.drawerMaterialIds?.[index] ?? cabinet.frontMaterialId ?? cabinet.materialId;
+          fronts.push({ kind: 'drawer', index, sectionId, frontMount, openingMechanism: openingMechanism(node), x, y: round(cursor), width: round(width), height: round(drawerHeight), depth: frontZ, materialId });
           cursor -= gap;
         });
       }
@@ -916,14 +955,16 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
   if (doors > 0) {
     const doorWidth = (width - gap * (doors + 1)) / doors;
     for (let index = 0; index < doors; index++) {
-      result.push({ kind: 'door', index, opening: doorOpening(cabinet, index), openingMechanism: openingMechanism(cabinet), x: gap + index * (doorWidth + gap), y: gap, width: round(doorWidth), height: round(doorHeight) });
+      const materialId = cabinet.doorMaterialIds?.[index] ?? cabinet.frontMaterialIds?.[index] ?? cabinet.frontMaterialId ?? cabinet.materialId;
+      result.push({ kind: 'door', index, opening: doorOpening(cabinet, index), openingMechanism: openingMechanism(cabinet), x: gap + index * (doorWidth + gap), y: gap, width: round(doorWidth), height: round(doorHeight), materialId });
     }
   }
   if (drawers > 0) {
     const drawerHeight = drawerZone / drawers;
     const start = doors > 0 ? gap + doorHeight + gap : gap;
     for (let index = 0; index < drawers; index++) {
-      result.push({ kind: 'drawer', index, openingMechanism: openingMechanism(cabinet), x: gap, y: round(start + index * (drawerHeight + gap)), width: round(width - 2 * gap), height: round(drawerHeight) });
+      const materialId = cabinet.drawerMaterialIds?.[index] ?? cabinet.frontMaterialIds?.[index] ?? cabinet.frontMaterialId ?? cabinet.materialId;
+      result.push({ kind: 'drawer', index, openingMechanism: openingMechanism(cabinet), x: gap, y: round(start + index * (drawerHeight + gap)), width: round(width - 2 * gap), height: round(drawerHeight), materialId });
     }
   }
   return result;
@@ -1169,10 +1210,11 @@ export function generateParts(project) {
       const section = layout?.sections.find(item => item.id === front.sectionId);
       const prefix = section ? `${label(section)} · ` : '';
       const extras = section ? { sectionId: section.id } : {};
-      const frontStock = stockById(project, cabinet.frontMaterialId ?? cabinet.materialId);
+      const frontMatId = front.materialId ?? section?.node?.frontMaterialId ?? cabinet.frontMaterialId ?? cabinet.materialId;
+      const frontStock = stockById(project, frontMatId);
       const frontThickness = number(frontStock?.thickness, thickness);
       const frontLabel = front.kind === 'blind-panel' ? 'Фальш-панель угловая' : front.kind === 'door' ? (prefix ? `Дверь ${front.index + 1}` : (front.index > 0 ? `Дверь ${front.index + 1}` : 'Дверь 1')) : `Фасад ящика ${front.index + 1}`;
-      addPart(prefix + frontLabel, front.width, front.height, frontThickness, cabinet.frontMaterialId ?? cabinet.materialId, ['top', 'bottom', 'left', 'right'], { ...extras, position: { x: front.x, y: front.y, z: back + (front.depth ?? bodyDepth) }, orientation: 'vertical-width' });
+      addPart(prefix + frontLabel, front.width, front.height, frontThickness, frontMatId, ['top', 'bottom', 'left', 'right'], { ...extras, position: { x: front.x, y: front.y, z: back + (front.depth ?? bodyDepth) }, orientation: 'vertical-width' });
       if (front.kind !== 'drawer') continue;
       const box = externalDrawers.find(drawer => drawer.index === front.index && drawer.sectionId === front.sectionId).box;
       const drawerPanelThickness = box.panelThickness, drawerBottom = box.bottomThickness;
@@ -1634,6 +1676,12 @@ export function validateProject(project) {
     for (const key of ['materialId', 'backMaterialId', 'frontMaterialId']) {
       if (!materialIds.has(cabinet[key] ?? (key === 'frontMaterialId' ? cabinet.materialId : undefined))) error('выбран отсутствующий материал.');
     }
+    for (const id of cabinet.doorMaterialIds ?? []) {
+      if (id && !materialIds.has(id)) error('выбран отсутствующий материал двери.');
+    }
+    for (const id of cabinet.drawerMaterialIds ?? []) {
+      if (id && !materialIds.has(id)) error('выбран отсутствующий материал ящика.');
+    }
     if (hasDrawers) {
       for (const key of ['drawerMaterialId', 'drawerBottomMaterialId']) {
         const id = cabinet[key] ?? (key === 'drawerMaterialId' ? cabinet.materialId : cabinet.backMaterialId);
@@ -1699,6 +1747,16 @@ export function validateProject(project) {
     if (!layout && integer(cabinet.shelves) * thickness >= legacyShelfOpening(cabinet, project, bodyHeight, thickness).height && integer(cabinet.shelves) > 0) error('для такой толщины материала недостаточно внутреннего пространства.');
     for (const section of [...layout?.sections ?? [], ...layout?.internalSections ?? []]) {
       const sectionName = section.node.name ?? section.id;
+      if (section.node.frontMaterialId && !materialIds.has(section.node.frontMaterialId)) error(`выбран отсутствующий материал фасада секции «${sectionName}».`);
+      for (const id of section.node.doorMaterialIds ?? []) {
+        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал двери в секции «${sectionName}».`);
+      }
+      for (const id of section.node.drawerMaterialIds ?? []) {
+        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал фасада ящика в секции «${sectionName}».`);
+      }
+      for (const id of section.node.frontMaterialIds ?? []) {
+        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал фасада в секции «${sectionName}».`);
+      }
       if (section.width < 50 || section.height < 50 || section.usableDepth < 50) error(`секция «${sectionName}» слишком мала; требуется хотя бы 50 мм полезного размера.`);
       const depthLimit = section.parentSectionId ? layout.sections.find(item => item.id === section.parentSectionId).depth : bodyDepth;
       if (section.node.depth !== null && section.node.depth !== undefined && section.node.depth > depthLimit) error(`глубина секции «${sectionName}» превышает корпус или внешний проём.`);
