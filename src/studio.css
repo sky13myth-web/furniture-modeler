@@ -54,3 +54,197 @@
 .pipe-diameters{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 12px}.pipe-chip{border:1px solid #dfe7d5;border-radius:6px;background:#fff;padding:5px 8px;font:inherit;font-size:11px;color:#547648;cursor:pointer}.pipe-chip:hover{border-color:#9fb98b}.pipe-chip.is-active{background:#547648;border-color:#547648;color:#fff}
 .obstacle-conflicts{padding:10px 12px;border-radius:7px;background:#fff0dd;color:#95612e;margin:12px 0;font-size:12px;display:flex;flex-direction:column;gap:5px}.obstacle-conflicts .button{align-self:flex-start;margin-top:4px}
 .room-obstacle{cursor:ew-resize}
+
+/* Yıldız Entegre Visual Texture Gallery & Swatches */
+.material-swatch-badge {
+  display: inline-block;
+  width: 24px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid rgba(0,0,0,0.18);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.materials-list-item i {
+  background-size: cover;
+  background-position: center;
+}
+.yildiz-gallery-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.yildiz-gallery-btn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+.yildiz-gallery-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 75vh;
+}
+.yildiz-gallery-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface, #ffffff);
+  z-index: 2;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.yildiz-gallery-search {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #cbd5e1);
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.yildiz-gallery-search:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+.yildiz-filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.yildiz-pill {
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--bg-muted, #f8fafc);
+  color: var(--text-muted, #475569);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.yildiz-pill:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+.yildiz-pill.active {
+  background: #1e3a8a;
+  border-color: #1e3a8a;
+  color: #ffffff;
+  box-shadow: 0 2px 4px rgba(30, 58, 138, 0.2);
+}
+.yildiz-gallery-count {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  padding: 0 2px;
+}
+.yildiz-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
+  overflow-y: auto;
+  padding: 4px 2px;
+  max-height: calc(75vh - 120px);
+}
+.yildiz-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-surface, #ffffff);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  text-align: left;
+  padding: 0;
+  color: inherit;
+}
+.yildiz-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+  border-color: #3b82f6;
+}
+.yildiz-card-img-wrap {
+  width: 100%;
+  height: 115px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.yildiz-card-img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.2s ease;
+}
+.yildiz-card:hover .yildiz-card-img-wrap img {
+  transform: scale(1.05);
+}
+.yildiz-card-code {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+}
+.yildiz-card-info {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: inherit;
+}
+.yildiz-card-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.yildiz-card-format {
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+}
+.yildiz-card-collection-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+.badge-mdflam {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+.badge-kapak {
+  background: #fef3c7;
+  color: #92400e;
+}
+.yildiz-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted, #64748b);
+  font-size: 13px;
+}
+

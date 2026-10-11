@@ -1155,6 +1155,26 @@ export function defaultName(kind, language = 'tr', index) {
   return Number.isInteger(index) && index > 0 ? `${name} ${index}` : name;
 }
 
+add(`
+Каталог декоров и текстур Yıldız Entegre|Yıldız Entegre Dekor ve Doku Kataloğu|Yıldız Entegre Decor & Texture Catalog
+Все|Tümü|All
+Все декоры|Tüm dekorlar|All decors
+Yıldız MDFLAM (2100 × 2800 мм)|Yıldız MDFLAM (2100 × 2800 mm)|Yıldız MDFLAM (2100 × 2800 mm)
+Yıldız Kapak Panel (1220 × 2800 мм)|Yıldız Kapak Panel (1220 × 2800 mm)|Yıldız Front Panel (1220 × 2800 mm)
+Дерево|Ahşap|Wood
+Мрамор|Mermer|Marble
+Мрамор и камень|Mermer ve Taş|Marble & Stone
+Бетон / Камень|Beton / Taş|Concrete & Stone
+Бетон и текстиль|Beton ve Tekstil|Concrete & Textile
+Kapak Panel (матовые)|Kapak Panel (Mat)|Front Panel (Matt)
+Kapak Panel (глянцевые)|Kapak Panel (Parlak)|Front Panel (Gloss)
+Однотонные|Düz Renkler|Solid Colors
+Металл / Текстиль|Metal / Tekstil|Metal & Textile
+Поиск декора по названию или коду…|Dekor adı veya koduna göre ara…|Search decor by name or code…
+Декоры не найдены|Dekor bulunamadı|No decors found
+Выбрать декор|Dekoru seç|Select decor
+`);
+
 const factoryDecors = {
   VT_068: { ru: 'Белый', tr: 'Beyaz', en: 'White' },
   VT_037: { ru: 'Чёрный', tr: 'Siyah', en: 'Black' },

@@ -21,6 +21,33 @@ function hexToRgb(hex) {
   return [0.8, 0.8, 0.8];
 }
 
+export function resolveFaceTexture(f, project) {
+  if (!project || !f || f.room || f.floor || f.window || f.obstacle) return null;
+  if (f.textureUrl) return f.textureUrl;
+  if (f.previewUrl) return f.previewUrl;
+
+  const materials = project.materials || [];
+  if (f.materialId) {
+    const mat = materials.find(m => m.id === f.materialId);
+    if (mat?.textureUrl || mat?.previewUrl) return mat.textureUrl || mat.previewUrl;
+  }
+
+  if (f.id && project.cabinets) {
+    const cab = project.cabinets.find(c => c.id === f.id);
+    if (cab) {
+      if (f.component === 'front') {
+        const frontMatId = cab.frontMaterialId || cab.materialId;
+        const mat = materials.find(m => m.id === frontMatId);
+        if (mat?.textureUrl || mat?.previewUrl) return mat.textureUrl || mat.previewUrl;
+      } else {
+        const mat = materials.find(m => m.id === cab.materialId);
+        if (mat?.textureUrl || mat?.previewUrl) return mat.textureUrl || mat.previewUrl;
+      }
+    }
+  }
+  return null;
+}
+
 function mat4Perspective(out, fovyRad, aspect, near, far) {
   const f = 1.0 / Math.tan(fovyRad / 2);
   const nf = 1.0 / (near - far);
@@ -175,6 +202,8 @@ uniform int uLightingMode;
 uniform vec2 uResolution;
 uniform float uRoomHeight;
 uniform float uShadowTexel;
+uniform sampler2D uMaterialTexture;
+uniform bool uHasTexture;
 
 const float PI = 3.14159265;
 
@@ -253,6 +282,21 @@ void main() {
   float f0 = 0.04;
   if (isWall) roughness = 0.94;
 
+  if (uHasTexture && !isFloor && !isWall && !isGlass && !isEmissive) {
+    vec2 uv;
+    if (abs(norm.y) > 0.6) {
+      uv = vPosition.xz;
+    } else if (abs(norm.x) > 0.6) {
+      uv = vec2(vPosition.z, vPosition.y);
+    } else {
+      uv = vec2(vPosition.x, vPosition.y);
+    }
+    vec2 texCoord = uv / 1200.0;
+    vec4 texel = texture2D(uMaterialTexture, texCoord);
+    albedo = pow(texel.rgb, vec3(2.2));
+    roughness = 0.42;
+  }
+
   // Natural oak plank floor
   if (isFloor) {
     float plankWidth = 190.0;
@@ -279,7 +323,7 @@ void main() {
   bool isWood = (!isFloor && !isWall && !isGlass && vColor.a > 0.9 &&
                  vColor.r > vColor.b * 1.08 && (vColor.r - vColor.b) > 0.045 &&
                  vColor.r > 0.22 && vColor.b < 0.88);
-  if (isWood) {
+  if (isWood && !uHasTexture) {
     float u = (abs(norm.y) < 0.5) ? dot(vPosition.xz, vec2(-norm.z, norm.x)) : vPosition.x;
     float v = (abs(norm.y) < 0.5) ? vPosition.y : vPosition.z;
     float grainWave = sin(u * 0.45 + sin(v * 0.015) * 3.5);
@@ -487,6 +531,8 @@ export class RoomWebGLRenderer {
     this.opaqueVertexCount = 0;
     this.transparentOffset = 0;
     this.transparentVertexCount = 0;
+    this.textureCache = new Map();
+    this.opaqueBatches = [];
 
     this.initGL();
     this.attachEvents();
@@ -528,6 +574,8 @@ export class RoomWebGLRenderer {
         resolution: gl.getUniformLocation(this.mainProgram, 'uResolution'),
         roomHeight: gl.getUniformLocation(this.mainProgram, 'uRoomHeight'),
         shadowTexel: gl.getUniformLocation(this.mainProgram, 'uShadowTexel'),
+        materialTexture: gl.getUniformLocation(this.mainProgram, 'uMaterialTexture'),
+        hasTexture: gl.getUniformLocation(this.mainProgram, 'uHasTexture'),
       };
 
       this.shadowProgram = createProgram(gl, SHADOW_VS, SHADOW_FS);
@@ -562,11 +610,80 @@ export class RoomWebGLRenderer {
 
       this.initShadowFBO();
       this.vbo = gl.createBuffer();
+
+      this.textureCache = new Map();
+      this.defaultTexture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([240, 240, 240, 255]));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     } catch (e) {
       console.warn('WebGL initialization failed, falling back:', e);
       this.gl = null;
     }
   }
+
+  loadTexture(url) {
+    if (!this.gl || !url) return null;
+    if (this.textureCache.has(url)) return this.textureCache.get(url);
+    const gl = this.gl;
+    const tex = gl.createTexture();
+    tex.loaded = false;
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([235, 235, 235, 255]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    this.textureCache.set(url, tex);
+
+    if (typeof Image !== 'undefined') {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        if (!this.gl) return;
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        let source = img;
+        if (typeof document !== 'undefined' && document.createElement) {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, 1024, 1024);
+            source = canvas;
+          } catch {}
+        }
+        try {
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+          gl.generateMipmap(gl.TEXTURE_2D);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        } catch {
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        tex.loaded = true;
+        this.render();
+      };
+      img.onerror = () => {
+        if (!img._retried && url.startsWith('/textures/yildiz/') && !url.startsWith('http')) {
+          img._retried = true;
+          const code = url.replace('/textures/yildiz/', '').replace('.jpg', '');
+          const cdnUrl = `https://app.yildiz.com/Bundles/onizleme/${code}.jpg`;
+          if (cdnUrl !== url) {
+            img.src = cdnUrl;
+          }
+        }
+      };
+      img.src = url;
+    }
+    return tex;
+  }
+
 
   initShadowFBO() {
     const gl = this.gl;
@@ -793,7 +910,12 @@ export class RoomWebGLRenderer {
     const faces = scene.faces || [];
 
     const casterFloats = [];
-    const opaqueFloats = [];
+    const opaqueGroups = new Map();
+    const getOpaqueGroup = url => {
+      const k = url || '';
+      if (!opaqueGroups.has(k)) opaqueGroups.set(k, []);
+      return opaqueGroups.get(k);
+    };
     const transparentFloats = [];
     const edgeFloats = [];
     const edgeKeys = new Set();
@@ -860,20 +982,20 @@ export class RoomWebGLRenderer {
           const sillExt = 40;
           const s0 = [p0[0] - ux * 25 + norm[0] * sillExt, p0[1], p0[2] - uz * 25 + norm[2] * sillExt];
           const s1 = [p1[0] + ux * 25 + norm[0] * sillExt, p1[1], p1[2] + uz * 25 + norm[2] * sillExt];
-          pushPoly(opaqueFloats, [s0, s1, [s1[0], s1[1] - 22, s1[2]], [s0[0], s0[1] - 22, s0[2]]], norm, sillColor);
-          pushPoly(opaqueFloats, [s0, s1, [p1[0] + ux * 25, p1[1], p1[2] + uz * 25], [p0[0] - ux * 25, p0[1], p0[2] - uz * 25]], [0, 1, 0], sillColor);
+          pushPoly(getOpaqueGroup(''), [s0, s1, [s1[0], s1[1] - 22, s1[2]], [s0[0], s0[1] - 22, s0[2]]], norm, sillColor);
+          pushPoly(getOpaqueGroup(''), [s0, s1, [p1[0] + ux * 25, p1[1], p1[2] + uz * 25], [p0[0] - ux * 25, p0[1], p0[2] - uz * 25]], [0, 1, 0], sillColor);
 
           // 2. Outer 4-edge window frame
           const pt = (u, v, inset = 0) => [p0[0] + ux * u + norm[0] * inset, p0[1] + v, p0[2] + uz * u + norm[2] * inset];
-          pushPoly(opaqueFloats, [pt(0, 0, 8), pt(wLen, 0, 8), pt(wLen, fw, 8), pt(0, fw, 8)], norm, frameColor);
-          pushPoly(opaqueFloats, [pt(0, hLen - fw, 8), pt(wLen, hLen - fw, 8), pt(wLen, hLen, 8), pt(0, hLen, 8)], norm, frameColor);
-          pushPoly(opaqueFloats, [pt(0, fw, 8), pt(fw, fw, 8), pt(fw, hLen - fw, 8), pt(0, hLen - fw, 8)], norm, frameColor);
-          pushPoly(opaqueFloats, [pt(wLen - fw, fw, 8), pt(wLen, fw, 8), pt(wLen, hLen - fw, 8), pt(wLen - fw, hLen - fw, 8)], norm, frameColor);
+          pushPoly(getOpaqueGroup(''), [pt(0, 0, 8), pt(wLen, 0, 8), pt(wLen, fw, 8), pt(0, fw, 8)], norm, frameColor);
+          pushPoly(getOpaqueGroup(''), [pt(0, hLen - fw, 8), pt(wLen, hLen - fw, 8), pt(wLen, hLen, 8), pt(0, hLen, 8)], norm, frameColor);
+          pushPoly(getOpaqueGroup(''), [pt(0, fw, 8), pt(fw, fw, 8), pt(fw, hLen - fw, 8), pt(0, hLen - fw, 8)], norm, frameColor);
+          pushPoly(getOpaqueGroup(''), [pt(wLen - fw, fw, 8), pt(wLen, fw, 8), pt(wLen, hLen - fw, 8), pt(wLen - fw, hLen - fw, 8)], norm, frameColor);
 
           // 3. Central mullion bar for wider windows
           if (wLen > 750) {
             const mw = 30, mx = wLen * 0.5;
-            pushPoly(opaqueFloats, [pt(mx - mw / 2, fw, 8), pt(mx + mw / 2, fw, 8), pt(mx + mw / 2, hLen - fw, 8), pt(mx - mw / 2, hLen - fw, 8)], norm, frameColor);
+            pushPoly(getOpaqueGroup(''), [pt(mx - mw / 2, fw, 8), pt(mx + mw / 2, fw, 8), pt(mx + mw / 2, hLen - fw, 8), pt(mx - mw / 2, hLen - fw, 8)], norm, frameColor);
           }
 
           // 4. Transparent glass pane recessed inside frame
@@ -902,7 +1024,8 @@ export class RoomWebGLRenderer {
       if (isTransparent) {
         pushPoly(transparentFloats, f.points, norm, rgba, materialId);
       } else {
-        pushPoly(opaqueFloats, f.points, norm, rgba, materialId);
+        const texUrl = (materialId === MATERIAL.furniture) ? (resolveFaceTexture(f, this.project) || '') : '';
+        pushPoly(getOpaqueGroup(texUrl), f.points, norm, rgba, materialId);
       }
     }
 
@@ -920,32 +1043,45 @@ export class RoomWebGLRenderer {
         const c0 = [lx, ly - 30, lz];
         const p1 = [lx + Math.cos(a1) * (r - 18), ly - 30, lz + Math.sin(a1) * (r - 18)];
         const p2 = [lx + Math.cos(a2) * (r - 18), ly - 30, lz + Math.sin(a2) * (r - 18)];
-        pushPoly(opaqueFloats, [c0, p1, p2], down, glowColor, MATERIAL.emissive);
+        pushPoly(getOpaqueGroup(''), [c0, p1, p2], down, glowColor, MATERIAL.emissive);
 
         const t1 = [lx + Math.cos(a1) * r, ly - 30, lz + Math.sin(a1) * r];
         const t2 = [lx + Math.cos(a2) * r, ly - 30, lz + Math.sin(a2) * r];
-        pushPoly(opaqueFloats, [p1, t1, t2, p2], down, trimColor);
+        pushPoly(getOpaqueGroup(''), [p1, t1, t2, p2], down, trimColor);
         // Outer rim of the fitting
         const u1 = [t1[0], ly, t1[2]], u2 = [t2[0], ly, t2[2]];
         const mid = (a1 + a2) / 2;
-        pushPoly(opaqueFloats, [t1, u1, u2, t2], [Math.cos(mid), 0, Math.sin(mid)], trimColor);
+        pushPoly(getOpaqueGroup(''), [t1, u1, u2, t2], [Math.cos(mid), 0, Math.sin(mid)], trimColor);
       }
     }
 
     // Pack single unified VBO:
     // [0 .. casterFloats] -> used for shadow map depth pass
-    // [casterFloats .. opaqueFloats] -> used for opaque pass
-    // [opaqueFloats .. transparentFloats] -> used for transparent pass
+    // [casterFloats .. allOpaqueFloats] -> used for opaque pass
+    // [allOpaqueFloats .. transparentFloats] -> used for transparent pass
+    const opaqueBatches = [];
+    const allOpaqueFloats = [];
+    let currentBatchOffset = casterFloats.length / FLOATS;
+
+    for (const [texUrl, floats] of opaqueGroups.entries()) {
+      const count = floats.length / FLOATS;
+      if (count > 0) {
+        opaqueBatches.push({ textureUrl: texUrl || null, offset: currentBatchOffset, count });
+        currentBatchOffset += count;
+        for (let i = 0; i < floats.length; i++) allOpaqueFloats.push(floats[i]);
+      }
+    }
+    this.opaqueBatches = opaqueBatches;
     this.casterVertexCount = casterFloats.length / FLOATS;
     this.opaqueOffset = casterFloats.length / FLOATS;
-    this.opaqueVertexCount = opaqueFloats.length / FLOATS;
-    this.transparentOffset = (casterFloats.length + opaqueFloats.length) / FLOATS;
+    this.opaqueVertexCount = allOpaqueFloats.length / FLOATS;
+    this.transparentOffset = (casterFloats.length + allOpaqueFloats.length) / FLOATS;
     this.transparentVertexCount = transparentFloats.length / FLOATS;
 
-    const fullBuffer = new Float32Array(casterFloats.length + opaqueFloats.length + transparentFloats.length);
+    const fullBuffer = new Float32Array(casterFloats.length + allOpaqueFloats.length + transparentFloats.length);
     fullBuffer.set(casterFloats, 0);
-    fullBuffer.set(opaqueFloats, casterFloats.length);
-    fullBuffer.set(transparentFloats, casterFloats.length + opaqueFloats.length);
+    fullBuffer.set(allOpaqueFloats, casterFloats.length);
+    fullBuffer.set(transparentFloats, casterFloats.length + allOpaqueFloats.length);
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, fullBuffer, gl.STATIC_DRAW);
@@ -1083,7 +1219,28 @@ export class RoomWebGLRenderer {
     if (hasMaterial) gl.vertexAttribPointer(this.mainAttribs.material, 1, gl.FLOAT, false, stride, 10 * 4);
 
     // 2a. Opaque Pass (furniture, walls, floor, frames); polygon offset keeps edge lines crisp
-    if (this.opaqueVertexCount > 0) {
+    if (this.opaqueBatches && this.opaqueBatches.length > 0) {
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(1, 1);
+      for (const batch of this.opaqueBatches) {
+        if (batch.count === 0) continue;
+        const tex = batch.textureUrl ? this.loadTexture(batch.textureUrl) : null;
+        const hasTex = Boolean(batch.textureUrl && tex && (tex.loaded || typeof Image === 'undefined'));
+        if (hasTex) {
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.uniform1i(this.mainUniforms.materialTexture, 1);
+          gl.uniform1i(this.mainUniforms.hasTexture, 1);
+        } else {
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, this.defaultTexture);
+          gl.uniform1i(this.mainUniforms.materialTexture, 1);
+          gl.uniform1i(this.mainUniforms.hasTexture, 0);
+        }
+        gl.drawArrays(gl.TRIANGLES, batch.offset, batch.count);
+      }
+      gl.disable(gl.POLYGON_OFFSET_FILL);
+    } else if (this.opaqueVertexCount > 0) {
       gl.enable(gl.POLYGON_OFFSET_FILL);
       gl.polygonOffset(1, 1);
       gl.drawArrays(gl.TRIANGLES, this.opaqueOffset, this.opaqueVertexCount);
@@ -1115,6 +1272,7 @@ export class RoomWebGLRenderer {
     // 2c. Transparent Pass (window glass, door leaves) with alpha blending
     if (this.transparentVertexCount > 0) {
       gl.useProgram(this.mainProgram);
+      gl.uniform1i(this.mainUniforms.hasTexture, 0);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
       gl.enableVertexAttribArray(this.mainAttribs.position);
       gl.enableVertexAttribArray(this.mainAttribs.normal);

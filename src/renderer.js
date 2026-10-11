@@ -426,11 +426,12 @@ export function makeScene(project, options = {}, direction = null) {
     // drawer-only cabinets still omit shelves, as there is no shelf opening.
     if (component === 'shelf' && (section?.node.front === 'drawers' || !c.layout && number(c.drawers) > 0 && number(c.doors) <= 0)) return;
     if ((component === 'plinth' || part.role === 'plinth') && multiPlinthCabIds.has(c.id)) return;
-    const extras = { component, sectionId: part.sectionId, interiorSectionId:part.interiorSectionId, parentSectionId:part.parentSectionId, partId: part.id, braceId: part.braceId, drawerIndex:part.drawerIndex, internalDrawerIndex:part.internalDrawerIndex, noCutout: true };
+    const partMat = material(project, part.materialId);
+    const extras = { component, sectionId: part.sectionId, interiorSectionId:part.interiorSectionId, parentSectionId:part.parentSectionId, partId: part.id, braceId: part.braceId, drawerIndex:part.drawerIndex, internalDrawerIndex:part.internalDrawerIndex, noCutout: true, materialId: part.materialId, textureUrl: partMat?.textureUrl || partMat?.previewUrl };
     const internal=component.startsWith('internal-drawer')?engine.getInternalDrawerLayout(c,project).find(drawer=>drawer.sectionId===part.sectionId&&drawer.index===part.internalDrawerIndex):null;
     const external=part.component==='external-drawer-box'?engine.getExternalDrawerLayout?.(c,project).find(drawer=>drawer.sectionId===part.sectionId&&drawer.index===part.drawerIndex):null;
     const slide = external&&options.doorsOpen ? Math.min(number(section?.usableDepth,number(external.depth,layout.bodyDepth))*.48,260) : internal&&options.doorsOpen&&options.internalDrawersOpen ? Math.min(internal.box.depth*.48,260) : component === 'pull-out-shelf' && options.doorsOpen ? Math.min(number(section?.usableDepth, number(section?.depth, c.depth)) * .48, 260) : 0;
-    const x = c.x + position.x, y = c.y + c.plinth + position.y, z = c.z + position.z + slide, color = material(project, part.materialId).color;
+    const x = c.x + position.x, y = c.y + c.plinth + position.y, z = c.z + position.z + slide, color = partMat?.color || '#deddd9';
     if (part.orientation === 'horizontal') {
       const outline = part.finishedOutline ?? part.outline ?? [{ x: 0, y: 0 }, { x: pw, y: 0 }, { x: pw, y: ph }, { x: 0, y: ph }];
       const bottom = outline.map(p => [x + p.x, y, z + p.y]), top = outline.map(p => [x + p.x, y + pt, z + p.y]);
@@ -904,7 +905,7 @@ export function makeScene(project, options = {}, direction = null) {
       const fFrontT = Math.max(3, number(fMat?.thickness, frontT));
       const fx = x + number(f.x), fy = bodyY + number(f.y), fw = number(f.width), fh = number(f.height), fz = bodyZ + fd;
       const opening = f.kind === 'door' ? doorOpening(f) : null;
-      const frontExtras = { component: 'front', sectionId: f.sectionId, frontIndex: f.index, openingMechanism: f.openingMechanism || 'handle', ...(opening ? { doorOpening: opening } : {}) };
+      const frontExtras = { component: 'front', sectionId: f.sectionId, frontIndex: f.index, openingMechanism: f.openingMechanism || 'handle', ...(opening ? { doorOpening: opening } : {}), materialId: fMatId, textureUrl: fMat?.textureUrl || fMat?.previewUrl };
       if (fw <= 0 || fh <= 0) continue;
       const wallLeft = section && section.x > t ? x + section.x - t : x;
       const wallRight = section && section.x + section.width < w - t ? x + section.x + section.width + t : x + w;

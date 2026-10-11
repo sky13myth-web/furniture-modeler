@@ -1,6 +1,6 @@
 // Factory materials catalogue for Yıldız Entegre (MDFLAM / Suntalam / Kapak Panel).
 // Sheet dimensions: MDFLAM 2100 × 2800 mm, Kapak Panel 1220 × 2800 mm.
-export const YILDIZ_CATALOG_PRESETS = [
+const RAW_YILDIZ_CATALOG_PRESETS = [
   {
     "id": "yildiz-yt-z75-18",
     "name": "Yıldız MDFLAM · Crystal Onyx YT_Z75 · 18 мм",
@@ -3236,3 +3236,56 @@ export const YILDIZ_CATALOG_PRESETS = [
     "sourceUrl": "https://www.yildizentegre.com/en/products/front-panel/luxury-acrylic-grey-l-acr-237"
   }
 ];
+
+export function classifyDecorCategory(preset) {
+  const name = (preset.name || '').toLowerCase();
+  const marbleKeywords = ['marble', 'onyx', 'travertene', 'travertine', 'stone', 'slate', 'calacatta', 'carrara', 'granite', 'mermer', 'taş', 'tas'];
+  const metalKeywords = ['metal', 'iron', 'steel', 'bronze', 'silver', 'gold', 'titanium', 'rust', 'pas'];
+  const textileKeywords = ['keten', 'linen', 'textile', 'tekstil', 'fabric', 'dacron', 'chevron'];
+  const concreteKeywords = ['concrete', 'cement', 'beton', 'çimento', 'cimento', 'plaster', 'alçı'];
+  const woodKeywords = ['oak', 'walnut', 'pine', 'teak', 'ash', 'beech', 'elm', 'chestnut', 'cedar', 'birch', 'maple', 'alder', 'wood', 'bamboo', 'timber', 'wenge', 'lariks', 'meşe', 'ceviz', 'çam', 'akçaağaç', 'karaağaç'];
+
+  if (marbleKeywords.some(k => name.includes(k))) return 'marble';
+  if (metalKeywords.some(k => name.includes(k))) return 'metal';
+  if (textileKeywords.some(k => name.includes(k))) return 'textile';
+  if (concreteKeywords.some(k => name.includes(k))) return 'concrete';
+  if (preset.grain || woodKeywords.some(k => name.includes(k))) return 'wood';
+  if (name.includes('cherry') && !name.includes('marble')) return 'wood';
+  return 'solid';
+}
+
+export function isKapakPanel(preset) {
+  if (!preset) return false;
+  if (preset.sheetWidth === 1220 || preset.collection === 'front-panel') return true;
+  const code = (preset.decorCode || '').toUpperCase();
+  if (code.startsWith('HG_') || code.startsWith('MAT_') || code.startsWith('L_') || code.startsWith('U_')) return true;
+  if (preset.type && (preset.type.includes('глянцевым') || preset.type.includes('матовым') || preset.type.includes('Kapak'))) return true;
+  return false;
+}
+
+export function isKapakMatt(preset) {
+  if (!isKapakPanel(preset)) return false;
+  const code = (preset.decorCode || '').toUpperCase();
+  if (preset.type?.includes('матовым') || code.includes('MAT')) return true;
+  if (preset.type?.includes('глянцевым') || code.startsWith('HG_')) return false;
+  return false;
+}
+
+export function isKapakGloss(preset) {
+  if (!isKapakPanel(preset)) return false;
+  const code = (preset.decorCode || '').toUpperCase();
+  if (preset.type?.includes('глянцевым') || code.startsWith('HG_')) return true;
+  if (preset.type?.includes('матовым') || code.includes('MAT')) return false;
+  if (code.startsWith('L_') || code.startsWith('U_')) return true;
+  return false;
+}
+
+export const YILDIZ_CATALOG_PRESETS = RAW_YILDIZ_CATALOG_PRESETS.map(preset => ({
+  ...preset,
+  previewUrl: `https://app.yildiz.com/Bundles/onizleme/${preset.decorCode}.jpg`,
+  textureUrl: `/textures/yildiz/${preset.decorCode}.jpg`,
+  collection: preset.sheetWidth === 1220 ? 'front-panel' : 'mdflam',
+  category: classifyDecorCategory(preset)
+}));
+
+export { YILDIZ_CATALOG_PRESETS as YILDIZ_MATERIAL_PRESETS };

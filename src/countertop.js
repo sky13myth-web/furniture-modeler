@@ -233,7 +233,9 @@ export function renderUnifiedCountertops(box, rawBox, face, line, project, optio
       const yBottom = topY;
       const yTop = topY + thickness;
 
-      const extras = { component: 'countertop', runId, noCutout: true };
+      const cab = cabinets.find(c => c.id === wingCabId) || cabinets[0];
+      const topMat = cab ? (project.materials || []).find(m => m.id === (cab.countertopMaterialId || cab.materialId)) : null;
+      const extras = { component: 'countertop', runId, noCutout: true, materialId: topMat?.id, textureUrl: topMat?.textureUrl || topMat?.previewUrl };
 
       // Top face
       face([[p00.x, yTop, p00.z], [p01.x, yTop, p01.z], [p11.x, yTop, p11.z], [p10.x, yTop, p10.z]], color, [0, 1, 0], wingCabId, extras);

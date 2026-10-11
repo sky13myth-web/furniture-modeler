@@ -15,6 +15,7 @@ import {getRoomOutline,roomBounds,wallLength,remapWindows,polygonIsSimple} from 
 import {CabinetEditor} from './cabinet-editor.js';
 import {isObstacle,createObstacle,normalizeObstacle,setPipeOrientation,findObstacleConflicts,PIPE_DIAMETERS} from './room-obstacles.js';
 import {STANDARDS,MATERIAL_PRESETS,DEFAULT_MATERIAL_PRESETS} from './standards.js';
+import {isKapakMatt,isKapakGloss} from './yildiz-catalog.js';
 import {createLaundryExample,createInteriorExample,createRodsExample} from './examples.js';
 import {applyTranslations,translateText,localizeMaterialPreset} from './i18n.js';
 import {translatePrintText,translateMaterialName,translateBuiltInName} from './print-i18n.js';
@@ -183,8 +184,21 @@ function render(){
  const errors=warnings.filter(w=>w.level==='error');$('#validation-button').innerHTML=`${icon(errors.length?'info':'check')}${errors.length?`${errors.length} ошибок`:warnings.length?`${warnings.length} замечаний`:'Геометрия проверена'}`;$('#validation-button').classList.toggle('error',!!errors.length);
 }
 function input(label,field,value,{min=0,max=20000,step=1,unit='мм',scope='cabinet',disabled=false}={}){return `<label class="field"><span>${label}</span><div class="input-with-unit"><input type="number" data-scope="${scope}" data-field="${field}" value="${rounded(value)}" min="${min}" max="${max}" step="${step}" ${disabled?'disabled':''}><small>${unit}</small></div></label>`;}
+function materialSwatchStyle(m){
+ if(!m)return 'background-color:#ccc;';
+ const url=m.textureUrl||m.previewUrl;
+ const col=m.color||'#deddd9';
+ if(url){
+  return `background-color:${esc(col)};background-image:url('${esc(url)}');background-size:cover;background-position:center;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);`;
+ }
+ return `background-color:${esc(col)};box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);`;
+}
 function materialOptions(current){return project.materials.map(m=>`<option value="${esc(m.id)}" ${m.id===current?'selected':''}>${esc(m.name)} · ${m.thickness} мм</option>`).join('');}
-function selectMaterial(label,field,current){return `<label class="field"><span>${label}</span><select data-scope="cabinet" data-field="${field}">${materialOptions(current)}</select></label>`;}
+function selectMaterial(label,field,current){
+ const curMat=project.materials.find(m=>m.id===current)||project.materials[0];
+ const swatch=materialSwatchStyle(curMat);
+ return `<label class="field material-field"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><span>${label}</span><span class="material-swatch-badge" style="${swatch}" title="${esc(curMat?.name||'')}"></span></div><select data-scope="cabinet" data-field="${field}">${materialOptions(current)}</select></label>`;
+}
 function disclosure(key,label,body){return `<details class="property-details" data-detail="${key}" ${expanded.has(key)?'open':''}><summary>${label}</summary><div>${body}</div></details>`;}
 function renderProperties(){
  const c=selectedCabinet(),s=selectedSection();let html='';
@@ -654,6 +668,18 @@ function action(name, el=null){const c=selectedCabinet();
  if(name==='example'){change(()=>{project=createDefaultProject(interfaceLanguage);if(!demoMode)applyApplicationPricing(project);cabinetId=project.cabinets[0]?.id;interiorParentId=null;sectionId=null;mode='cabinet';});closeModal();}
  if(name==='materials')materialsDialog();
  if(name==='add-material')editMaterial(null);
+ if(name==='yildiz-gallery')openYildizGalleryModal(preset=>{
+  change(()=>{
+   const newMat = {
+    ...clone(preset),
+    id: uid('material'),
+    name: translateMaterialName(preset.name, interfaceLanguage),
+    type: translateText(preset.type, interfaceLanguage)
+   };
+   project.materials.push(newMat);
+  });
+  materialsDialog();
+ });
  if(name==='drawing-enable-drilling')change(()=>{project.settings.drilling={...normalizeDrillingSettings(project.settings.drilling),enabled:true};});
  if(name==='drawing-drilling-settings'&&c){factoryCabinetId=c.id;factoryDialog();}
  if(name==='drawing-svg'&&c){const language=project.settings.printLanguage??'tr',svg=selectedDrawingSvg(language),suffix=drawingView==='drilling'?selectedDrillingDrawing(language)?.page.filename:`${drawingView}-${drawingAssemblyPage}.svg`;if(svg)download(svg,`${filename()}-${suffix}`,'image/svg+xml');}
@@ -753,9 +779,109 @@ function deleteMaterialAction(id){
  });
  if(saved)materialsDialog();
 }
+function openYildizGalleryModal(onSelectMaterial){
+ let currentPill='all';
+ let currentQuery='';
+
+ function renderCards(){
+  const q=currentQuery.trim().toLowerCase();
+  const list=MATERIAL_PRESETS.filter(p=>{
+   if(currentPill==='wood'){
+    if(p.category!=='wood'&&!p.grain)return false;
+   }else if(currentPill==='marble-stone'){
+    if(p.category!=='marble')return false;
+   }else if(currentPill==='concrete-textile'){
+    if(p.category!=='concrete'&&p.category!=='metal'&&p.category!=='textile')return false;
+   }else if(currentPill==='kapak-matt'){
+    if(!isKapakMatt(p))return false;
+   }else if(currentPill==='kapak-gloss'){
+    if(!isKapakGloss(p))return false;
+   }
+   if(q){
+    const locName=translateMaterialName(p.name,interfaceLanguage).toLowerCase();
+    const rawName=(p.name||'').toLowerCase();
+    const decorCode=(p.decorCode||'').toLowerCase();
+    const type=(p.type||'').toLowerCase();
+    if(!locName.includes(q)&&!rawName.includes(q)&&!decorCode.includes(q)&&!type.includes(q))return false;
+   }
+   return true;
+  });
+
+  const countEl=$('#yildiz-gallery-count');
+  if(countEl)countEl.textContent=`${translateText('Найдено декоров:',interfaceLanguage)} ${list.length}`;
+
+  const gridEl=$('#yildiz-cards-grid');
+  if(!gridEl)return;
+
+  if(list.length===0){
+   gridEl.innerHTML=`<div class="yildiz-empty">${translateText('Декоры не найдены',interfaceLanguage)}</div>`;
+   return;
+  }
+
+  const unit=interfaceLanguage==='ru'?'мм':'mm';
+  gridEl.innerHTML=list.map(p=>{
+   const originalIdx=MATERIAL_PRESETS.indexOf(p);
+   const name=translateMaterialName(p.name,interfaceLanguage);
+   const badgeCls=p.collection==='front-panel'?'badge-kapak':'badge-mdflam';
+   const badgeText=p.collection==='front-panel'?'Kapak Panel':'MDFLAM';
+   const imgSrc=p.textureUrl||p.previewUrl;
+   return `<button type="button" class="yildiz-card" data-preset-idx="${originalIdx}" title="${esc(name)}"><div class="yildiz-card-img-wrap" style="background-color:${esc(p.color||'#cbd5e1')}">${imgSrc?`<img src="${esc(imgSrc)}" loading="lazy" alt="${esc(name)}" onerror="if(!this._cdn&&'${esc(p.previewUrl||'')}'&&this.src!=='${esc(p.previewUrl||'')}'){this._cdn=true;this.src='${esc(p.previewUrl||'')}';}else{this.style.display='none';}">`:''}${p.decorCode?`<span class="yildiz-card-code">${esc(p.decorCode)}</span>`:''}</div><div class="yildiz-card-info"><div class="yildiz-card-name">${esc(name)}</div><div class="yildiz-card-format">${p.sheetWidth} × ${p.sheetHeight} ${unit}, ${p.thickness} ${unit}</div><span class="yildiz-card-collection-badge ${badgeCls}">${badgeText}</span></div></button>`;
+  }).join('');
+ }
+
+ const pills=[
+  {id:'all',label:'Все'},
+  {id:'wood',label:'Дерево'},
+  {id:'marble-stone',label:'Мрамор и камень'},
+  {id:'concrete-textile',label:'Бетон и текстиль'},
+  {id:'kapak-matt',label:'Kapak Panel (матовые)'},
+  {id:'kapak-gloss',label:'Kapak Panel (глянцевые)'}
+ ];
+
+ const pillsHtml=pills.map(p=>`<button type="button" class="yildiz-pill ${p.id==='all'?'active':''}" data-pill-id="${p.id}">${esc(translateText(p.label,interfaceLanguage))}</button>`).join('');
+
+ const html=`<div class="yildiz-gallery-container"><div class="yildiz-gallery-header"><input type="search" class="yildiz-gallery-search" id="yildiz-gallery-search" placeholder="${esc(translateText('Поиск декора по названию или коду…',interfaceLanguage))}"><div class="yildiz-filter-pills" id="yildiz-filter-pills">${pillsHtml}</div><div class="yildiz-gallery-count" id="yildiz-gallery-count"></div></div><div class="yildiz-cards-grid" id="yildiz-cards-grid"></div></div>`;
+
+ modal(translateText('Каталог декоров и текстур Yıldız Entegre',interfaceLanguage),html,true);
+ renderCards();
+
+ const searchEl=$('#yildiz-gallery-search');
+ if(searchEl){
+  searchEl.addEventListener('input',e=>{
+   currentQuery=e.target.value;
+   renderCards();
+  });
+ }
+
+ const pillsWrap=$('#yildiz-filter-pills');
+ if(pillsWrap){
+  pillsWrap.addEventListener('click',e=>{
+   const btn=e.target.closest('.yildiz-pill');
+   if(!btn)return;
+   pillsWrap.querySelectorAll('.yildiz-pill').forEach(b=>b.classList.remove('active'));
+   btn.classList.add('active');
+   currentPill=btn.dataset.pillId;
+   renderCards();
+  });
+ }
+
+ const gridEl=$('#yildiz-cards-grid');
+ if(gridEl){
+  gridEl.addEventListener('click',e=>{
+   const card=e.target.closest('.yildiz-card');
+   if(!card)return;
+   const idx=Number(card.dataset.presetIdx);
+   const preset=MATERIAL_PRESETS[idx];
+   if(!preset)return;
+   const localized=localizeMaterialPreset(preset,interfaceLanguage);
+   closeModal();
+   if(typeof onSelectMaterial==='function')onSelectMaterial(localized);
+  });
+ }
+}
 function materialsDialog(){
  const canDelete=project.materials.length>1;
- modal('Материалы',`<div class="materials-list">${project.materials.map(m=>`<div class="materials-list-row"><button class="materials-list-item" data-material="${esc(m.id)}"><i style="background:${esc(m.color)}"></i><span><strong>${esc(m.name)}</strong><small>${m.thickness} мм · лист ${m.sheetWidth} × ${m.sheetHeight}${m.grain?' · текстура':''}</small></span></button><button type="button" class="icon-button danger" data-delete-material="${esc(m.id)}" ${canDelete?'':'disabled'} title="${esc(translateText(canDelete?'Удалить материал':'В проекте должен оставаться хотя бы один материал',interfaceLanguage))}">${icon('trash')}</button></div>`).join('')}</div><button class="button full" data-action="add-material">${icon('plus')}Добавить материал</button><a href="https://www.yildizentegre.com/tr/kartela" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;margin-top:10px;color:var(--accent,#2563eb);text-decoration:none">${icon('cube')}${translateText('Каталог Yıldız Entegre',interfaceLanguage)} ↗</a>`);
+ modal('Материалы',`<div class="materials-list">${project.materials.map(m=>`<div class="materials-list-row"><button class="materials-list-item" data-material="${esc(m.id)}"><i style="${materialSwatchStyle(m)}"></i><span><strong>${esc(m.name)}</strong><small>${m.thickness} мм · лист ${m.sheetWidth} × ${m.sheetHeight}${m.grain?' · текстура':''}</small></span></button><button type="button" class="icon-button danger" data-delete-material="${esc(m.id)}" ${canDelete?'':'disabled'} title="${esc(translateText(canDelete?'Удалить материал':'В проекте должен оставаться хотя бы один материал',interfaceLanguage))}">${icon('trash')}</button></div>`).join('')}</div><button class="button full" data-action="add-material">${icon('plus')}Добавить материал</button><button type="button" class="button full yildiz-gallery-btn" data-action="yildiz-gallery" style="background:#1e3a8a;color:#fff;margin-top:8px">${icon('cube')} ${translateText('Каталог декоров и текстур Yıldız Entegre',interfaceLanguage)}</button><a href="https://www.yildizentegre.com/tr/kartela" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px;margin-top:10px;color:var(--accent,#2563eb);text-decoration:none">${icon('cube')}${translateText('Каталог Yıldız Entegre',interfaceLanguage)} ↗</a>`);
 }
 function materialPresetOptionsMarkup(query=''){
  const needle=query.trim().toLowerCase();
@@ -779,13 +905,28 @@ function materialPresetOptionsMarkup(query=''){
  });
  return groups.filter(g=>g.items.length>0).map(g=>`<optgroup label="${esc(g.label)}">${g.items.map(({mat,i})=>`<option value="${i}">${esc(translateMaterialName(mat.name,interfaceLanguage))}</option>`).join('')}</optgroup>`).join('');
 }
-function editMaterial(id){
- const old=project.materials.find(material=>material.id===id),m=old?clone(old):{id:uid('material'),name:translateText('Новый МДФ',interfaceLanguage),type:'MDF',color:'#c5b38e',thickness:18,sheetWidth:2100,sheetHeight:2800,grain:false,edgeBand:1};
+function editMaterial(id, initialPreset = null){
+ const old=project.materials.find(material=>material.id===id);
+ const base=old?clone(old):{id:uid('material'),name:translateText('Новый МДФ',interfaceLanguage),type:'MDF',color:'#c5b38e',thickness:18,sheetWidth:2100,sheetHeight:2800,grain:false,edgeBand:1};
+ const m=initialPreset?{
+  ...base,
+  ...clone(initialPreset),
+  name:translateMaterialName(initialPreset.name,interfaceLanguage),
+  type:translateText(initialPreset.type,interfaceLanguage)
+ }:base;
  const canDelete=project.materials.length>1;
  const linkHref=m.sourceUrl||'https://www.yildizentegre.com/tr/kartela';
  const linkLabel=m.sourceUrl?'Смотреть на сайте':'Каталог Yıldız Entegre';
- modal('Материал и цвет',`<form id="material-form"><div class="field"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><span>${translateText(old?'Выбрать из каталога':'Начать с пресета',interfaceLanguage)}</span><a href="${esc(linkHref)}" id="material-source-link" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent,#2563eb);text-decoration:none;display:inline-flex;align-items:center;gap:4px">${translateText(linkLabel,interfaceLanguage)} ↗</a></div><input type="search" id="material-preset-search" placeholder="${esc(translateText('Поиск декора (название или код)…',interfaceLanguage))}"><select name="preset"><option value="">${translateText(old?'Не изменять':'Свой материал',interfaceLanguage)}</option>${materialPresetOptionsMarkup()}</select></div><label class="field"><span>Название</span><input name="name" value="${esc(m.name)}" maxlength="120" required></label><div class="fields"><label class="field"><span>Цвет</span><input name="color" type="color" value="${esc(m.color)}"></label><label class="field"><span>Толщина, мм</span><input name="thickness" type="number" value="${m.thickness}" min="1" max="60" step=".1" required></label></div><div class="fields"><label class="field"><span>Лист X, мм</span><input name="sheetWidth" type="number" value="${m.sheetWidth}" min="100" max="10000" required></label><label class="field"><span>Лист Y, мм</span><input name="sheetHeight" type="number" value="${m.sheetHeight}" min="100" max="10000" required></label></div><label class="check-row"><input name="grain" type="checkbox" ${m.grain?'checked':''}>Текстура вдоль высоты детали</label><button class="button primary full">Сохранить материал</button>${old?`<button type="button" class="button full danger" data-delete-material="${esc(id)}" ${canDelete?'':'disabled'} style="margin-top:8px" title="${esc(translateText(canDelete?'Удалить материал':'В проекте должен оставаться хотя бы один материал',interfaceLanguage))}">${icon('trash')}${translateText('Удалить материал',interfaceLanguage)}</button>`:''}</form>`);
+ modal('Материал и цвет',`<form id="material-form"><button type="button" class="button full yildiz-gallery-btn" id="material-yildiz-gallery-btn" style="background:#1e3a8a;color:#fff;margin-bottom:12px">${icon('cube')} ${translateText('Каталог декоров и текстур Yıldız Entegre',interfaceLanguage)}</button><div class="field"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><span>${translateText(old?'Выбрать из каталога':'Начать с пресета',interfaceLanguage)}</span><a href="${esc(linkHref)}" id="material-source-link" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent,#2563eb);text-decoration:none;display:inline-flex;align-items:center;gap:4px">${translateText(linkLabel,interfaceLanguage)} ↗</a></div><input type="search" id="material-preset-search" placeholder="${esc(translateText('Поиск декора (название или код)…',interfaceLanguage))}"><select name="preset"><option value="">${translateText(old?'Не изменять':'Свой материал',interfaceLanguage)}</option>${materialPresetOptionsMarkup()}</select></div><label class="field"><span>Название</span><input name="name" value="${esc(m.name)}" maxlength="120" required></label><div class="fields"><label class="field"><span>Цвет</span><input name="color" type="color" value="${esc(m.color)}"></label><label class="field"><span>Толщина, мм</span><input name="thickness" type="number" value="${m.thickness}" min="1" max="60" step=".1" required></label></div><div class="fields"><label class="field"><span>Лист X, мм</span><input name="sheetWidth" type="number" value="${m.sheetWidth}" min="100" max="10000" required></label><label class="field"><span>Лист Y, мм</span><input name="sheetHeight" type="number" value="${m.sheetHeight}" min="100" max="10000" required></label></div><label class="check-row"><input name="grain" type="checkbox" ${m.grain?'checked':''}>Текстура вдоль высоты детали</label><button class="button primary full">Сохранить материал</button>${old?`<button type="button" class="button full danger" data-delete-material="${esc(id)}" ${canDelete?'':'disabled'} style="margin-top:8px" title="${esc(translateText(canDelete?'Удалить материал':'В проекте должен оставаться хотя бы один материал',interfaceLanguage))}">${icon('trash')}${translateText('Удалить материал',interfaceLanguage)}</button>`:''}</form>`);
  const form=$('#material-form');
+ const galleryBtn=$('#material-yildiz-gallery-btn');
+ if(galleryBtn){
+  galleryBtn.onclick=()=>{
+   openYildizGalleryModal(preset=>{
+    editMaterial(id, preset);
+   });
+  };
+ }
  const searchInput=$('#material-preset-search');
  if(searchInput){
   searchInput.addEventListener('input',e=>{
@@ -805,7 +946,17 @@ function editMaterial(id){
    return;
   }
   const preset=localizeMaterialPreset(MATERIAL_PRESETS[Number(e.target.value)],interfaceLanguage);
-  Object.assign(m,{type:translateText(preset.type,interfaceLanguage),edgeBand:preset.edgeBand,manufacturer:preset.manufacturer,decorCode:preset.decorCode,sourceUrl:preset.sourceUrl});
+  Object.assign(m,{
+   type:translateText(preset.type,interfaceLanguage),
+   edgeBand:preset.edgeBand,
+   manufacturer:preset.manufacturer,
+   decorCode:preset.decorCode,
+   sourceUrl:preset.sourceUrl,
+   textureUrl:preset.textureUrl,
+   previewUrl:preset.previewUrl,
+   collection:preset.collection,
+   category:preset.category
+  });
   for(const field of ['name','color','thickness','sheetWidth','sheetHeight'])form.elements[field].value=field==='name'?translateMaterialName(preset[field],interfaceLanguage):preset[field];
   form.elements.grain.checked=preset.grain;
   if(link&&preset.sourceUrl){
