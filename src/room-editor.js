@@ -122,10 +122,11 @@ export class RoomEditor {
     }
   }
 
-  setProject(project, selectedCabinetId) {
+  setProject(project, selectedCabinetId, warnings = []) {
     this.project = project || this.project;
     this.outline = getRoomOutline(this.project.room);
     if (selectedCabinetId !== undefined) this.selectedCabinetId = selectedCabinetId;
+    this.warnings = warnings;
     if (this.selectedWall >= this.outline.length) this.selectedWall = 0;
     if (this.selectedCorner >= this.outline.length) this.selectedCorner = null;
     this.selectedCorners = new Set(this.getSelectedCorners().filter(index=>index<this.outline.length));
@@ -743,7 +744,19 @@ export class RoomEditor {
       const textY = hasMezzanine ? cz - cabinetFont * 0.65 : isMezzanine ? cz + cabinetFont * 0.75 : cz;
       const labelSize = isMezzanine ? cabinetFont * 0.84 : cabinetFont;
       const labelColor = isMezzanine ? '#546e61' : '#27473a';
-      return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}" role="button" aria-label="${escape(c.name)}" style="${c.parentId ? 'cursor:pointer' : 'cursor:move'}"><title>${escape(c.name)}${c.parentId ? ' · привязана к основному шкафу' : ''} · лицевая сторона спереди</title><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="${selected ? 3 : 1}" vector-effect="non-scaling-stroke"/>${blindOverlay}${frontMark}<text x="${cx}" y="${textY}" class="room-cabinet-label" fill="${labelColor}" text-anchor="middle" dominant-baseline="middle" font-size="${labelSize}" font-weight="${isMezzanine ? 'normal' : '500'}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text></g>`;
+      const cabWarns = (this.warnings || []).filter(w => w.cabinetId === c.id);
+      const hasError = cabWarns.some(w => w.level === 'error');
+      const hasWarn = cabWarns.some(w => w.level === 'warning');
+      const strokeColor = hasError ? '#d32f2f' : hasWarn ? '#e65100' : selected ? '#148b7c' : '#788a7b';
+      const strokeWidth = (hasError || hasWarn) ? 3.5 : (selected ? 3 : 1);
+      const strokeDash = hasError ? 'none' : hasWarn ? '5 3' : 'none';
+      let alertBadge = '';
+      if (hasError || hasWarn) {
+        const badgeSize = Math.max(16, cabinetFont * 1.3);
+        const titleText = cabWarns.map(w => w.message).join('\n');
+        alertBadge = `<g class="room-cabinet-alert-badge" pointer-events="none"><rect x="${cx + 10}" y="${textY - badgeSize/2}" width="${badgeSize}" height="${badgeSize}" rx="${badgeSize*0.25}" fill="${hasError ? '#d32f2f' : '#f57c00'}" stroke="#ffffff" stroke-width="1.2" vector-effect="non-scaling-stroke"/><text x="${cx + 10 + badgeSize/2}" y="${textY + badgeSize*0.28}" font-size="${badgeSize*0.75}" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">!</text><title>${escape(titleText)}</title></g>`;
+      }
+      return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}${hasError ? ' has-error' : hasWarn ? ' has-warning' : ''}" role="button" aria-label="${escape(c.name)}" style="${c.parentId ? 'cursor:pointer' : 'cursor:move'}"><title>${escape(c.name)}${c.parentId ? ' · привязана к основному шкафу' : ''} · лицевая сторона спереди</title><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${strokeDash}" vector-effect="non-scaling-stroke"/>${blindOverlay}${frontMark}<text x="${cx}" y="${textY}" class="room-cabinet-label" fill="${labelColor}" text-anchor="middle" dominant-baseline="middle" font-size="${labelSize}" font-weight="${isMezzanine ? 'normal' : '500'}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text>${alertBadge}</g>`;
     }).join('');
     let dimensionLines = '';
     const activeCabinetId = this.drag?.type === 'cabinet' ? this.drag.id : this.selectedCabinetId;

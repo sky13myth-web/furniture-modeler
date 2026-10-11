@@ -10,7 +10,7 @@ const labels = {open:'Открытая секция',doors:'Двери',drawers:
 export class CabinetEditor {
   constructor(container, {onSelect=()=>{}, onResize=()=>{}}={}) {
     this.container=container; this.onSelect=onSelect; this.onResize=onResize;
-    this.zoom=1; this.pan={x:0,y:0}; this.selectedId=null; this.interiorParentId=null;
+    this.zoom=1; this.pan={x:0,y:0}; this.selectedId=null; this.interiorParentId=null; this.warnings=[];
     this.onDown=e=>this.pointerDown(e);this.onMove=e=>this.pointerMove(e);this.onUp=e=>this.pointerUp(e);
     this.onCancel=()=>{this.drag=null;this.draft=null;this.render();};
     container.addEventListener('pointerdown',this.onDown);
@@ -21,9 +21,10 @@ export class CabinetEditor {
     container.addEventListener('wheel',this.onWheel,{passive:false});
     this.resizeObserver=new ResizeObserver(()=>this.render());this.resizeObserver.observe(container);
   }
-  setProject(project,cabinetId,selectedId) {
+  setProject(project,cabinetId,selectedId,warnings=[]) {
     if(cabinetId!==this.cabinet?.id){this.zoom=1;this.pan={x:0,y:0};this.interiorParentId=null;}
     this.project=project;this.cabinet=project.cabinets.find(c=>c.id===cabinetId);this.selectedId=selectedId;
+    this.warnings=warnings;
     this.render();
   }
   setInteriorParent(id=null){
@@ -64,8 +65,21 @@ export class CabinetEditor {
     }
     layout.sections.forEach((s,i)=>{
       const selected=s.id===this.selectedId, node=s.node;
-      const fill=selected?'#e4eedf':node.front==='drawers'?'#ede7da':'#fbfcf5';
-      content+=`<g data-node="${escape(s.id)}" class="cabinet-section ${selected?'is-selected':''}" tabindex="0" role="button" aria-label="Секция ${i+1}: ${escape(labels[node.front]||labels.open)}, ${n(s.width)} на ${n(s.height)} мм"><rect x="${s.x}" y="${y(s.y,s.height)}" width="${s.width}" height="${s.height}" fill="${fill}" stroke="${selected?'#3d7957':'#d2dacf'}" stroke-width="${(selected?2:1)/scale}"/>`;
+      const secWarns=(this.warnings||[]).filter(w=>w.cabinetId===c.id&&(w.sectionId===s.id||w.sectionId==='all'));
+      const hasError=secWarns.some(w=>w.level==='error');
+      const hasWarn=secWarns.some(w=>w.level==='warning');
+      const strokeColor=hasError?'#d32f2f':hasWarn?'#e65100':selected?'#3d7957':'#d2dacf';
+      const strokeWidth=(hasError||hasWarn?2.5:selected?2:1)/scale;
+      const strokeDash=hasError?'none':hasWarn?`${6/scale} ${3/scale}`:'none';
+      const fill=selected?'#e4eedf':hasError?'#fdf2f2':hasWarn?'#fef8ee':node.front==='drawers'?'#ede7da':'#fbfcf5';
+      content+=`<g data-node="${escape(s.id)}" class="cabinet-section ${selected?'is-selected':''}${hasError?' has-error':hasWarn?' has-warning':''}" tabindex="0" role="button" aria-label="Секция ${i+1}: ${escape(labels[node.front]||labels.open)}, ${n(s.width)} на ${n(s.height)} мм"><rect x="${s.x}" y="${y(s.y,s.height)}" width="${s.width}" height="${s.height}" fill="${fill}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="${strokeDash}"/>`;
+      if(hasError||hasWarn){
+        const bw=Math.max(14,font*1.2);
+        const bx=s.x+s.width-bw-font*0.25;
+        const by=y(s.y,s.height)+font*0.25;
+        const alertMsg=secWarns.map(w=>w.message).join('\n');
+        content+=`<g class="section-alert-badge" pointer-events="none"><rect x="${bx}" y="${by}" width="${bw}" height="${bw}" rx="${bw*0.25}" fill="${hasError?'#d32f2f':'#f57c00'}" stroke="#ffffff" stroke-width="${1/scale}"/><text x="${bx+bw/2}" y="${by+bw*0.76}" font-size="${bw*0.75}" font-weight="700" fill="#ffffff" text-anchor="middle">!</text><title>${escape(alertMsg)}</title></g>`;
+      }
       actualParts.filter(p=>(!p.sectionId||p.sectionId===s.id||p.sectionId===outer?.id)&&(component(p)==='brace'||p.braceId)).forEach(p=>{
         if(!p.position)return;
         const x=Math.max(s.x,p.position.x),base=Math.max(s.y,p.position.y),w=Math.min(s.x+s.width,p.position.x+(p.finishedWidth??p.width))-x,h=Math.min(s.y+s.height,p.position.y+(p.finishedHeight??p.height))-base;

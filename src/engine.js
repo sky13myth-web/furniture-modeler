@@ -1642,7 +1642,7 @@ function verticalOverlap(a, b) {
 
 export function validateProject(project) {
   const warnings = [];
-  const add = (level, message, cabinetId) => warnings.push({ level, message, ...(cabinetId ? { cabinetId } : {}) });
+  const add = (level, message, cabinetId, extra) => warnings.push({ level, message, ...(cabinetId ? { cabinetId } : {}), ...(extra || {}) });
   const room = project?.room ?? {};
   for (const [key, label] of [['width', 'ширина'], ['depth', 'глубина'], ['height', 'высота']]) {
     if (!positive(room[key])) add('error', `Помещение: ${label} должна быть больше нуля.`);
@@ -1672,8 +1672,8 @@ export function validateProject(project) {
   const cabinetIds = new Set();
   for (const cabinet of cabinets) {
     const prefix = `«${cabinet.name ?? 'Шкаф'}»`;
-    const error = message => add('error', `${prefix}: ${message}`, cabinet.id);
-    const warn = message => add('warning', `${prefix}: ${message}`, cabinet.id);
+    const error = (message, extra) => add('error', `${prefix}: ${message}`, cabinet.id, extra);
+    const warn = (message, extra) => add('warning', `${prefix}: ${message}`, cabinet.id, extra);
     try { validatePartEdgeBandingOverrides(cabinet.partEdgeBanding); } catch (problem) { error(problem.message); continue; }
     if (!cabinet.id || cabinetIds.has(cabinet.id)) error('идентификатор должен быть уникальным.');
     cabinetIds.add(cabinet.id);
@@ -1750,8 +1750,8 @@ export function validateProject(project) {
     if (!positive(cabinet.backThickness)) error('толщина задней стенки должна быть больше нуля.');
     const placement = validateCabinetPlacement(cabinet, project);
     if (number(cabinet.y) + number(cabinet.height) > number(room.height) + EPSILON || !placement.contained) error('мебель выходит за границы помещения с учётом толщины фасада, поворота и выреза.');
-    if (placement.contained && placement.deficits.walls > EPSILON) warn(`до стены не хватает ${placement.deficits.walls} мм монтажного отступа (нужно ${placement.required.walls}, доступно ${round(placement.wallClearance)} мм).`);
-    if (placement.ceilingClearance >= -EPSILON && placement.deficits.ceiling > EPSILON) warn(`до потолка не хватает ${placement.deficits.ceiling} мм монтажного отступа (нужно ${placement.required.ceiling}, доступно ${round(placement.ceilingClearance)} мм).`);
+    if (placement.contained && placement.deficits.walls > EPSILON) warn(`до стены не хватает ${placement.deficits.walls} мм монтажного отступа (нужно ${placement.required.walls}, доступно ${round(placement.wallClearance)} мм).`, { fix: { type: 'adjust-cabinet-width', cabinetId: cabinet.id, deficit: placement.deficits.walls, label: 'Уменьшить ширину шкафа' } });
+    if (placement.ceilingClearance >= -EPSILON && placement.deficits.ceiling > EPSILON) warn(`до потолка не хватает ${placement.deficits.ceiling} мм монтажного отступа (нужно ${placement.required.ceiling}, доступно ${round(placement.ceilingClearance)} мм).`, { fix: { type: 'adjust-cabinet-height', cabinetId: cabinet.id, deficit: placement.deficits.ceiling, label: 'Уменьшить высоту шкафа' } });
     if (cabinet.cutout) {
       if (!['back-left', 'back-right', 'both'].includes(cabinet.cutout.corner)) {
         error('выбран неизвестный угол выреза.');
@@ -1774,47 +1774,53 @@ export function validateProject(project) {
     }
     const shelfAreaHeight = integer(cabinet.drawers) > 0 && integer(cabinet.doors) > 0 ? number(getFrontLayout(cabinet).find(front => front.kind === 'door')?.height) : bodyHeight;
     if (integer(cabinet.shelves) > 0 && (shelfAreaHeight - 2 * thickness) / (integer(cabinet.shelves) + 1) < 80) warn('между полками остаётся менее 80 мм; проверьте полезную высоту секции дверей.');
-    if (!layout && integer(cabinet.shelves) > 0 && insideWidth > 1000) warn('пролёт полки больше 1000 мм; требуется проверить прогиб и предусмотреть перегородку или опоры.');
+    if (!layout && integer(cabinet.shelves) > 0 && insideWidth > 1000) warn('пролёт полки больше 1000 мм; требуется проверить прогиб и предусмотреть перегородку или опоры.', { fix: { type: 'split-vertical', cabinetId: cabinet.id, sectionId: `${cabinet.id}-layout`, label: 'Разделить перегородкой' } });
     if (!layout && integer(cabinet.shelves) * thickness >= legacyShelfOpening(cabinet, project, bodyHeight, thickness).height && integer(cabinet.shelves) > 0) error('для такой толщины материала недостаточно внутреннего пространства.');
     for (const section of [...layout?.sections ?? [], ...layout?.internalSections ?? []]) {
       const sectionName = section.node.name ?? section.id;
-      if (section.node.frontMaterialId && !materialIds.has(section.node.frontMaterialId)) error(`выбран отсутствующий материал фасада секции «${sectionName}».`);
+      if (section.node.frontMaterialId && !materialIds.has(section.node.frontMaterialId)) error(`выбран отсутствующий материал фасада секции «${sectionName}».`, { sectionId: section.id });
       for (const id of section.node.doorMaterialIds ?? []) {
-        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал двери в секции «${sectionName}».`);
+        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал двери в секции «${sectionName}».`, { sectionId: section.id });
       }
       for (const id of section.node.drawerMaterialIds ?? []) {
-        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал фасада ящика в секции «${sectionName}».`);
+        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал фасада ящика в секции «${sectionName}».`, { sectionId: section.id });
       }
       for (const id of section.node.frontMaterialIds ?? []) {
-        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал фасада в секции «${sectionName}».`);
+        if (id && !materialIds.has(id)) error(`выбран отсутствующий материал фасада в секции «${sectionName}».`, { sectionId: section.id });
       }
-      if (section.width < 50 || section.height < 50 || section.usableDepth < 50) error(`секция «${sectionName}» слишком мала; требуется хотя бы 50 мм полезного размера.`);
+      if (section.width < 50 || section.height < 50 || section.usableDepth < 50) error(`секция «${sectionName}» слишком мала; требуется хотя бы 50 мм полезного размера.`, { sectionId: section.id });
       const depthLimit = section.parentSectionId ? layout.sections.find(item => item.id === section.parentSectionId).depth : bodyDepth;
-      if (section.node.depth !== null && section.node.depth !== undefined && section.node.depth > depthLimit) error(`глубина секции «${sectionName}» превышает корпус или внешний проём.`);
-      if (section.node.floor === 'open' && !section.floorEligible) warn(`секция «${sectionName}» не касается основания корпуса; открытый проём до пола применяется только к нижней секции.`);
-      if (section.node.plinthHeight != null && !section.floorEligible) warn(`секция «${sectionName}» не касается основания корпуса; собственный цоколь применяется только к нижней секции.`);
-      if (section.node.pullOutShelf && (section.node.front !== 'open' || section.width - 2 * number(cabinet.drawerSlideGap, 13) < 50 || section.usableDepth - 40 < 50 || section.height < thickness + 5)) error(`выдвижная полка не помещается в открытую секцию «${sectionName}».`);
-      if (section.node.front === 'drawers' && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают короба ящиков.`);
-      if (integer(section.node.shelves) > 0 && integer(section.node.shelves) * thickness >= section.height) error('для такой толщины материала недостаточно внутреннего пространства.');
-      if (!section.node.interiorLayout && section.node.internalDrawerCount > 0 && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают внутренние ящики за дверями.`);
-      if (section.node.interiorLayout && (integer(section.node.shelves) > 0 || section.node.pullOutShelf)) error(`полки секции «${sectionName}» пересекают внутреннее наполнение; задайте их во внутренних отсеках.`);
-      if (section.node.rods?.length && (section.node.front === 'drawers' || section.node.appliance || section.node.interiorLayout)) error(`штанги в секции «${sectionName}» требуют открытого или дверного проёма без техники; при внутреннем наполнении задайте штангу во внутреннем отсеке.`);
-      if (integer(section.node.shelves) > 0 && section.width > 1000) warn(`пролёт полки секции «${sectionName}» больше 1000 мм; проверьте прогиб и опоры.`);
-      if (integer(section.node.shelves) > 0 && section.height / (integer(section.node.shelves) + 1) < 80) warn(`между полками секции «${sectionName}» остаётся менее 80 мм.`);
+      if (section.node.depth !== null && section.node.depth !== undefined && section.node.depth > depthLimit) error(`глубина секции «${sectionName}» превышает корпус или внешний проём.`, { sectionId: section.id });
+      if (section.node.floor === 'open' && !section.floorEligible) warn(`секция «${sectionName}» не касается основания корпуса; открытый проём до пола применяется только к нижней секции.`, { sectionId: section.id });
+      if (section.node.plinthHeight != null && !section.floorEligible) warn(`секция «${sectionName}» не касается основания корпуса; собственный цоколь применяется только к нижней секции.`, { sectionId: section.id });
+      if (section.node.pullOutShelf && (section.node.front !== 'open' || section.width - 2 * number(cabinet.drawerSlideGap, 13) < 50 || section.usableDepth - 40 < 50 || section.height < thickness + 5)) error(`выдвижная полка не помещается в открытую секцию «${sectionName}».`, { sectionId: section.id });
+      if (section.node.front === 'drawers' && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают короба ящиков.`, { sectionId: section.id });
+      if (integer(section.node.shelves) > 0 && integer(section.node.shelves) * thickness >= section.height) error('для такой толщины материала недостаточно внутреннего пространства.', { sectionId: section.id });
+      if (!section.node.interiorLayout && section.node.internalDrawerCount > 0 && integer(section.node.shelves) > 0) error(`полки секции «${sectionName}» пересекают внутренние ящики за дверями.`, { sectionId: section.id });
+      if (section.node.interiorLayout && (integer(section.node.shelves) > 0 || section.node.pullOutShelf)) error(`полки секции «${sectionName}» пересекают внутреннее наполнение; задайте их во внутренних отсеках.`, { sectionId: section.id });
+      if (section.node.rods?.length && (section.node.front === 'drawers' || section.node.appliance || section.node.interiorLayout)) error(`штанги в секции «${sectionName}» требуют открытого или дверного проёма без техники; при внутреннем наполнении задайте штангу во внутреннем отсеке.`, { sectionId: section.id });
+      const maxSpan = thickness <= 16 ? 800 : thickness <= 18 ? 1000 : 1200;
+      if (integer(section.node.shelves) > 0 && section.width > maxSpan) warn(`пролёт полки секции «${sectionName}» (${Math.round(section.width)} мм) превышает стандарт ${maxSpan} мм для плиты ${thickness} мм; требуется перегородка или опоры.`, { sectionId: section.id, fix: { type: 'split-vertical', cabinetId: cabinet.id, sectionId: section.id, label: 'Разделить перегородкой' } });
+      if (integer(section.node.shelves) > 0 && section.height / (integer(section.node.shelves) + 1) < 80) warn(`между полками секции «${sectionName}» остаётся менее 80 мм.`, { sectionId: section.id });
       if (section.node.appliance) {
         const appliance = section.node.appliance;
         const fit = getApplianceFit(section, appliance);
+        const fitFix = { type: 'fit-appliance', cabinetId: cabinet.id, sectionId: section.id, label: 'Подогнать нишу под технику' };
         for (const [axis, label] of [['width', 'ширине'], ['height', 'высоте'], ['depth', 'глубине']]) {
           if (fit.deficits[axis] <= EPSILON) continue;
           const physicalDeficit = round(number(appliance[axis]) - fit.available[axis]);
-          if (physicalDeficit > EPSILON) error(`техника «${appliance.label ?? appliance.type}» не помещается в секцию «${sectionName}» по ${label}: не хватает ${physicalDeficit} мм (нужно ${round(number(appliance[axis]))}, доступно ${round(fit.available[axis])} мм).`);
-          else warn(`для монтажного зазора техники «${appliance.label ?? appliance.type}» в секции «${sectionName}» по ${label} не хватает ${fit.deficits[axis]} мм (нужно ${round(fit.required[axis])}, доступно ${round(fit.available[axis])} мм).`);
+          if (physicalDeficit > EPSILON) error(`техника «${appliance.label ?? appliance.type}» не помещается в секцию «${sectionName}» по ${label}: не хватает ${physicalDeficit} мм (нужно ${round(number(appliance[axis]))}, доступно ${round(fit.available[axis])} мм).`, { sectionId: section.id, fix: fitFix });
+          else warn(`для монтажного зазора техники «${appliance.label ?? appliance.type}» в секции «${sectionName}» по ${label} не хватает ${fit.deficits[axis]} мм (нужно ${round(fit.required[axis])}, доступно ${round(fit.available[axis])} мм).`, { sectionId: section.id, fix: fitFix });
         }
-        if (section.node.front !== 'open' || integer(section.node.shelves) > 0) error(`для техники в секции «${sectionName}» требуется открытая ниша без полок.`);
-        if (section.node.pullOutShelf) error(`выдвижная полка секции «${sectionName}» пересекает основание техники; поместите её в отдельный проём.`);
+        if (['oven', 'microwave', 'fridge'].includes(appliance.type) && section.usableDepth < appliance.depth + 45) {
+          const vDeficit = Math.ceil(appliance.depth + 50 - section.usableDepth);
+          warn(`для встроенной техники «${appliance.label ?? appliance.type}» в секции «${sectionName}» требуется задний вентиляционный зазор ≥ 45–50 мм (доступно ${Math.max(0, Math.round(section.usableDepth - appliance.depth))} мм).`, { sectionId: section.id, type: 'appliance-oven-ventilation', fix: { type: 'adjust-cabinet-depth', cabinetId: cabinet.id, deficit: vDeficit, label: 'Увеличить глубину корпуса (+50 мм)' } });
+        }
+        if (section.node.front !== 'open' || integer(section.node.shelves) > 0) error(`для техники в секции «${sectionName}» требуется открытая ниша без полок.`, { sectionId: section.id });
+        if (section.node.pullOutShelf) error(`выдвижная полка секции «${sectionName}» пересекает основание техники; поместите её в отдельный проём.`, { sectionId: section.id });
         const machineX = section.x + (section.width - appliance.width) / 2;
         const machineZ = backThickness(cabinet, project) + section.rearOffset + Math.max(0, section.usableDepth - appliance.depth);
-        for (const panel of bracePanels) if (machineX < panel.x + panel.width - EPSILON && machineX + appliance.width > panel.x + EPSILON && section.y < panel.y + panel.height - EPSILON && section.y + appliance.height > panel.y + EPSILON && machineZ < panel.z + panel.thickness - EPSILON && machineZ + appliance.depth > panel.z + EPSILON) error(`задняя перемычка пересекает технику «${appliance.label ?? appliance.type}» в секции «${sectionName}».`);
+        for (const panel of bracePanels) if (machineX < panel.x + panel.width - EPSILON && machineX + appliance.width > panel.x + EPSILON && section.y < panel.y + panel.height - EPSILON && section.y + appliance.height > panel.y + EPSILON && machineZ < panel.z + panel.thickness - EPSILON && machineZ + appliance.depth > panel.z + EPSILON) error(`задняя перемычка пересекает технику «${appliance.label ?? appliance.type}» в секции «${sectionName}».`, { sectionId: section.id });
       }
     }
     for (const front of getFrontLayout(cabinet, project)) if (front.width <= 0 || front.height <= 0) error('фасады не помещаются при заданном числе и зазорах.');
@@ -1869,6 +1875,36 @@ export function validateProject(project) {
   for (let index = 0; index < cabinets.length; index++) {
     for (let next = index + 1; next < cabinets.length; next++) {
       if (verticalOverlap(cabinets[index], cabinets[next]) && polygonsOverlap(cabinetFootprint(physicalCabinet(cabinets[index], project)), cabinetFootprint(physicalCabinet(cabinets[next], project)))) add('error', `«${cabinets[index].name}» пересекается с «${cabinets[next].name}».`, cabinets[index].id);
+    }
+  }
+  // Kitchen ergonomics and safety: check minimum distance between sink and cooktop (EN 1116)
+  const cooktops = [];
+  const sinks = [];
+  for (const cabinet of cabinets) {
+    const layout = cabinet.layout ? getCabinetLayout(cabinet, project) : null;
+    const sections = layout?.sections ?? [];
+    for (const sec of sections) {
+      if (sec.node.appliance?.type === 'cooktop') cooktops.push({ cabinet, sec });
+      if (sec.node.appliance?.type?.startsWith('sink')) sinks.push({ cabinet, sec });
+    }
+  }
+  for (const cItem of cooktops) {
+    for (const sItem of sinks) {
+      if (cItem.cabinet.id === sItem.cabinet.id) {
+        const dist = Math.abs((cItem.sec.x + cItem.sec.width / 2) - (sItem.sec.x + sItem.sec.width / 2));
+        const clearDist = dist - (cItem.sec.width + sItem.sec.width) / 2;
+        if (clearDist < 400) {
+          add('warning', `Кухня: варочная панель и мойка в шкафу «${cItem.cabinet.name}» расположены на расстоянии менее 400 мм; по нормам EN 1116 требуется защитная зона ≥ 400 мм.`, cItem.cabinet.id, { type: 'en1116-cooktop-sink' });
+        }
+      } else {
+        const dx = (cItem.cabinet.x + cItem.sec.x + cItem.sec.width / 2) - (sItem.cabinet.x + sItem.sec.x + sItem.sec.width / 2);
+        const dz = (cItem.cabinet.z) - (sItem.cabinet.z);
+        const centerDist = Math.hypot(dx, dz);
+        const clearDist = centerDist - (cItem.sec.width + sItem.sec.width) / 2;
+        if (clearDist < 400) {
+          add('warning', `Кухня: варочная панель в «${cItem.cabinet.name}» и мойка в «${sItem.cabinet.name}» расположены на расстоянии менее 400 мм; по нормам EN 1116 требуется защитная зона ≥ 400 мм.`, cItem.cabinet.id, { type: 'en1116-cooktop-sink' });
+        }
+      }
     }
   }
   for (const window of room.windows ?? []) {
