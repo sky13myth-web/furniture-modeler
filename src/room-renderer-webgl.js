@@ -215,6 +215,12 @@ uniform float uRoomHeight;
 uniform float uShadowTexel;
 uniform sampler2D uMaterialTexture;
 uniform bool uHasTexture;
+uniform sampler2D uSunShadowMap;
+uniform mat4 uSunLightSpace;
+uniform vec3 uSunDir;
+uniform float uSunShadowTexel;
+uniform bool uUseSunShadows;
+uniform float uRoughnessOverride;
 
 const float PI = 3.14159265;
 
@@ -247,6 +253,29 @@ float shadowVisibility(vec3 worldPos, vec3 norm, float radiusTexels) {
     lit += (current <= d) ? 1.0 : 0.0;
   }
   return lit / 16.0;
+}
+
+// Directional sun / key-light shadow with rotated Poisson PCF (soft penumbra).
+float sunShadow(vec3 worldPos, vec3 norm) {
+  if (!uUseSunShadows) return 1.0;
+  float NdL = dot(norm, uSunDir);
+  if (NdL <= 0.0) return 0.0;
+  vec3 offsetPos = worldPos + norm * mix(14.0, 4.0, NdL);
+  vec4 ls = uSunLightSpace * vec4(offsetPos, 1.0);
+  vec3 p = ls.xyz / ls.w * 0.5 + 0.5;
+  if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
+  float current = p.z - 0.0012;
+  float rot = hash12(gl_FragCoord.yx + 17.0) * 6.2831853;
+  float lit = 0.0;
+  for (int i = 0; i < 12; i++) {
+    float fi = float(i);
+    float r = sqrt((fi + 0.5) / 12.0) * 2.6;
+    float a = fi * 2.39996323 + rot;
+    vec2 off = vec2(cos(a), sin(a)) * r * uSunShadowTexel;
+    float d = unpackDepth(texture2D(uSunShadowMap, p.xy + off));
+    lit += (current <= d) ? 1.0 : 0.0;
+  }
+  return lit / 12.0;
 }
 
 float distributionGGX(float NdH, float a) {
@@ -306,6 +335,14 @@ void main() {
     vec4 texel = texture2D(uMaterialTexture, texCoord);
     albedo = pow(texel.rgb, vec3(2.2));
     roughness = 0.42;
+  }
+  if (uRoughnessOverride >= 0.0 && !isFloor && !isWall && !isGlass) roughness = uRoughnessOverride;
+
+  // Painted plaster: low-frequency tonal variation keeps large walls from looking flat
+  if (isWall && !isFloor) {
+    vec2 wp = vec2(vPosition.x + vPosition.z, vPosition.y);
+    float n = hash12(floor(wp / 40.0)) * 0.5 + hash12(floor(wp / 9.0) + 3.1) * 0.5;
+    albedo *= 0.985 + n * 0.03;
   }
 
   // Natural oak plank floor
@@ -380,10 +417,11 @@ void main() {
   vec3 diffuse = lightCol * NdL;
   vec3 specular = lightCol * NdL * specTerm;
 
+  float sunVis = sunShadow(vPosition, norm);
   if (!evening) {
-    // Daylight sun through the windows
-    vec3 sunDir = normalize(vec3(0.55, 0.82, -0.42));
-    vec3 sunCol = vec3(1.45, 1.40, 1.30) * mix(0.55, 1.0, vis);
+    // Daylight sun through the windows, with real cast shadows
+    vec3 sunDir = uSunDir;
+    vec3 sunCol = vec3(1.45, 1.40, 1.30) * mix(0.55, 1.0, vis) * mix(0.22, 1.0, sunVis);
     float sNdL = max(dot(norm, sunDir), 0.0);
     vec3 sH = normalize(sunDir + viewDir);
     float sF = f0 + (1.0 - f0) * pow(1.0 - max(dot(viewDir, sH), 0.0), 5.0);
@@ -391,9 +429,9 @@ void main() {
     diffuse += sunCol * sNdL;
     specular += sunCol * sNdL * sSpec;
   } else {
-    // Soft warm key light to model furniture volumes
-    vec3 keyDir = normalize(vec3(0.35, 0.85, 0.4));
-    diffuse += vec3(0.24, 0.22, 0.19) * max(dot(norm, keyDir), 0.0) * ao;
+    // Soft warm key light to model furniture volumes, also shadowed
+    vec3 keyDir = uSunDir;
+    diffuse += vec3(0.30, 0.27, 0.23) * max(dot(norm, keyDir), 0.0) * ao * mix(0.35, 1.0, sunVis);
   }
 
   // Environment reflection (fresnel-weighted sky / floor)
@@ -418,6 +456,8 @@ void main() {
   vec3 finalColor = pow(mapped, vec3(1.0 / 2.2));
   if (evening) finalColor *= vec3(1.015, 1.0, 0.975);
   finalColor *= vignette();
+  // Triangular dither (±1/255) removes banding in soft gradients and shadows
+  finalColor += (hash12(gl_FragCoord.xy) + hash12(gl_FragCoord.xy + 71.3) - 1.0) / 255.0;
   gl_FragColor = vec4(clamp(finalColor, 0.0, 1.0), outAlpha);
 }
 `;
@@ -587,7 +627,15 @@ export class RoomWebGLRenderer {
         shadowTexel: gl.getUniformLocation(this.mainProgram, 'uShadowTexel'),
         materialTexture: gl.getUniformLocation(this.mainProgram, 'uMaterialTexture'),
         hasTexture: gl.getUniformLocation(this.mainProgram, 'uHasTexture'),
+        sunShadowMap: gl.getUniformLocation(this.mainProgram, 'uSunShadowMap'),
+        sunLightSpace: gl.getUniformLocation(this.mainProgram, 'uSunLightSpace'),
+        sunDir: gl.getUniformLocation(this.mainProgram, 'uSunDir'),
+        sunShadowTexel: gl.getUniformLocation(this.mainProgram, 'uSunShadowTexel'),
+        useSunShadows: gl.getUniformLocation(this.mainProgram, 'uUseSunShadows'),
+        roughnessOverride: gl.getUniformLocation(this.mainProgram, 'uRoughnessOverride'),
       };
+      this.anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic') || null;
+      this.maxAnisotropy = this.anisotropy ? Math.min(8, gl.getParameter(this.anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1) : 1;
 
       this.shadowProgram = createProgram(gl, SHADOW_VS, SHADOW_FS);
       this.shadowAttribs = {
@@ -669,6 +717,7 @@ export class RoomWebGLRenderer {
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+          if (this.anisotropy) gl.texParameterf(gl.TEXTURE_2D, this.anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, this.maxAnisotropy);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
         } catch {
@@ -696,30 +745,69 @@ export class RoomWebGLRenderer {
   }
 
 
-  initShadowFBO() {
+  createDepthTarget(size) {
     const gl = this.gl;
-    this.shadowSize = 2048;
-    this.shadowTexture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.shadowSize, this.shadowSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     // Packed depth must not be interpolated between texels.
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-    this.shadowDepthRB = gl.createRenderbuffer();
-    gl.bindRenderbuffer(gl.RENDERBUFFER, this.shadowDepthRB);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, this.shadowSize, this.shadowSize);
-
-    this.shadowFBO = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadowFBO);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.shadowTexture, 0);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.shadowDepthRB);
-
+    const rb = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, size, size);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindRenderbuffer(gl.RENDERBUFFER, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
+    return { texture, rb, fbo };
+  }
+
+  initShadowFBO() {
+    this.shadowSize = 2048;
+    const overhead = this.createDepthTarget(this.shadowSize);
+    this.shadowTexture = overhead.texture;
+    this.shadowDepthRB = overhead.rb;
+    this.shadowFBO = overhead.fbo;
+    this.sunShadowSize = 2048;
+    const sun = this.createDepthTarget(this.sunShadowSize);
+    this.sunShadowTexture = sun.texture;
+    this.sunShadowDepthRB = sun.rb;
+    this.sunShadowFBO = sun.fbo;
+  }
+
+  getSunDirection() {
+    const d = this.lightingMode === 'day' ? [0.55, 0.82, -0.42] : [0.35, 0.85, 0.4];
+    const l = Math.hypot(...d);
+    return d.map(v => v / l);
+  }
+
+  computeSunLightSpaceMatrix() {
+    const b = this.roomBounds || { minX: 0, maxX: 4000, minZ: 0, maxZ: 3000, height: 2700 };
+    const H = b.height || 2700;
+    const center = [(b.minX + b.maxX) / 2, H / 2, (b.minZ + b.maxZ) / 2];
+    const radius = Math.hypot(b.maxX - b.minX, H, b.maxZ - b.minZ) / 2 + 300;
+    const dir = this.getSunDirection();
+    const eye = center.map((c, i) => c + dir[i] * radius * 2);
+    const view = new Float32Array(16), proj = new Float32Array(16), out = new Float32Array(16);
+    mat4LookAt(view, eye, center, [0, 1, 0]);
+    mat4Ortho(proj, -radius, radius, -radius, radius, radius * 0.5, radius * 3.5);
+    mat4Multiply(out, proj, view);
+    return out;
+  }
+
+  /** High-gloss (HG_) fronts mirror the room, matt (MAT_) panels stay diffuse. */
+  roughnessForTexture(url) {
+    if (!url) return -1;
+    const code = String(url).split('/').pop().toUpperCase();
+    if (code.startsWith('HG_')) return 0.12;
+    if (code.startsWith('MAT_')) return 0.72;
+    return -1;
   }
 
   setProject(project) {
@@ -1164,6 +1252,24 @@ export class RoomWebGLRenderer {
       gl.drawArrays(gl.TRIANGLES, 0, this.casterVertexCount);
       gl.disableVertexAttribArray(this.shadowAttribs.position);
     }
+
+    // 1b. Directional sun / key light depth pass (furniture casters only)
+    const sunLightSpace = this.computeSunLightSpaceMatrix();
+    if (this.sunShadowFBO) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.sunShadowFBO);
+      gl.viewport(0, 0, this.sunShadowSize, this.sunShadowSize);
+      gl.clearColor(1.0, 1.0, 1.0, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      if (this.casterVertexCount > 0) {
+        gl.useProgram(this.shadowProgram);
+        gl.uniformMatrix4fv(this.shadowUniforms.lightSpace, false, sunLightSpace);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+        gl.enableVertexAttribArray(this.shadowAttribs.position);
+        gl.vertexAttribPointer(this.shadowAttribs.position, 3, gl.FLOAT, false, stride, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, this.casterVertexCount);
+        gl.disableVertexAttribArray(this.shadowAttribs.position);
+      }
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
     // 2. Main Render Pass
@@ -1217,6 +1323,15 @@ export class RoomWebGLRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
     gl.uniform1i(this.mainUniforms.shadowMap, 0);
 
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.sunShadowTexture || this.shadowTexture);
+    gl.uniform1i(this.mainUniforms.sunShadowMap, 2);
+    gl.uniformMatrix4fv(this.mainUniforms.sunLightSpace, false, sunLightSpace);
+    gl.uniform3fv(this.mainUniforms.sunDir, this.getSunDirection());
+    gl.uniform1f(this.mainUniforms.sunShadowTexel, 1 / (this.sunShadowSize || 2048));
+    gl.uniform1i(this.mainUniforms.useSunShadows, this.sunShadowFBO ? 1 : 0);
+    gl.uniform1f(this.mainUniforms.roughnessOverride, -1);
+
     const hasMaterial = this.mainAttribs.material >= 0;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.enableVertexAttribArray(this.mainAttribs.position);
@@ -1248,8 +1363,10 @@ export class RoomWebGLRenderer {
           gl.uniform1i(this.mainUniforms.materialTexture, 1);
           gl.uniform1i(this.mainUniforms.hasTexture, 0);
         }
+        gl.uniform1f(this.mainUniforms.roughnessOverride, this.roughnessForTexture(batch.textureUrl));
         gl.drawArrays(gl.TRIANGLES, batch.offset, batch.count);
       }
+      gl.uniform1f(this.mainUniforms.roughnessOverride, -1);
       gl.disable(gl.POLYGON_OFFSET_FILL);
     } else if (this.opaqueVertexCount > 0) {
       gl.enable(gl.POLYGON_OFFSET_FILL);
@@ -1533,6 +1650,9 @@ export class RoomWebGLRenderer {
       if (this.shadowFBO) this.gl.deleteFramebuffer(this.shadowFBO);
       if (this.shadowTexture) this.gl.deleteTexture(this.shadowTexture);
       if (this.shadowDepthRB) this.gl.deleteRenderbuffer(this.shadowDepthRB);
+      if (this.sunShadowFBO) this.gl.deleteFramebuffer(this.sunShadowFBO);
+      if (this.sunShadowTexture) this.gl.deleteTexture(this.sunShadowTexture);
+      if (this.sunShadowDepthRB) this.gl.deleteRenderbuffer(this.sunShadowDepthRB);
       if (this.bgVbo) this.gl.deleteBuffer(this.bgVbo);
       if (this.edgeVbo) this.gl.deleteBuffer(this.edgeVbo);
       if (this.bgProgram) this.gl.deleteProgram(this.bgProgram);
