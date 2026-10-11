@@ -966,7 +966,7 @@ test('left, right and upward doors rotate about the requested physical edge and 
         near(Math.min(...points.map(p=>p[1])),fy+fh-fh*cos);
         near(Math.max(...points.map(p=>p[2])),fz+fh*sin+18*cos);
       } else {
-        const hinge=opening==='right'?fx+fw:fx;
+        const hinge=opening==='right'?cabinet.x+cabinet.width:cabinet.x;
         assert.ok(contains([hinge,fy,fz])&&contains([hinge,fy+fh,fz]),'the requested vertical hinge edge stays fixed');
         const free=opening==='right'?hinge-fw*cos:hinge+fw*cos;
         assert.ok(contains([free,fy,fz+fw*sin]));

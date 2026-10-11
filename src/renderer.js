@@ -516,6 +516,9 @@ export function makeScene(project, options = {}, direction = null) {
       const opening = f.kind === 'door' ? doorOpening(f) : null;
       const frontExtras = { component: 'front', sectionId: f.sectionId, frontIndex: f.index, openingMechanism: f.openingMechanism || 'handle', ...(opening ? { doorOpening: opening } : {}) };
       if (fw <= 0 || fh <= 0) continue;
+      const wallLeft = section && section.x > t ? x + section.x - t : x;
+      const wallRight = section && section.x + section.width < w - t ? x + section.x + section.width + t : x + w;
+      const wallTop = section && section.y + section.height < bodyH - t ? bodyY + section.y + section.height + t : y + h;
       if (f.kind === 'door' && showHinges && !options.interior) {
         const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? (f.hingesPerDoor || (fh >= 2000 ? 5 : fh >= 1600 ? 4 : fh >= 900 ? 3 : 2));
         const rightHinge = opening === 'right', topHinge = opening === 'up';
@@ -523,45 +526,44 @@ export function makeScene(project, options = {}, direction = null) {
         for (const hinge of hingeSymbols) {
           const world = p => [fx + p[0], fy + p[1], fz + p[2]];
           const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, schematic: true, stroke: '#53605e' };
-
-          // 1. Primary Cup Face on the door
-          face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-
-          // 2. 3D Mounting Plate on carcass side wall
           const stationY = fy + (hinge.cup[1] !== undefined ? hinge.cup[1] : fh / 2);
+
           if (topHinge) {
+            face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
             const hx = fx + (hinge.plate[0] ? (hinge.plate[0][0] + hinge.plate[1][0]) / 2 : fw / 2);
-            rawBox(hx - 14, fy + fh - 4, fz - 44, 28, 4, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
-            rawBox(hx - 7.5, fy + fh - 14, fz - 32, 15, 12, 34, '#c5ced2', id, { ...extras, hingePart: 'arm' });
+            rawBox(hx - 14, wallTop - t, fz - 44, 28, 4, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
+            rawBox(hx - 7.5, wallTop - t - 10, fz - 32, 15, 12, 34, '#c5ced2', id, { ...extras, hingePart: 'arm' });
+          } else if (rightHinge) {
+            if (options.doorsOpen) {
+              const cupZ = fz + 22;
+              const cupRing = Array.from({ length: 20 }, (_, step) => [wallRight - frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
+              face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+              face([[wallRight - t - 2, stationY - 4, fz + 2], [wallRight - t - 2, stationY + 4, fz + 2], [wallRight - frontT - 2, stationY + 4, cupZ], [wallRight - frontT - 2, stationY - 4, cupZ]], '#dce4e7', [-1, 0, 0], id, { ...extras, hingePart: 'linkage' });
+            } else {
+              face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+            }
+            rawBox(wallRight - t - 4, stationY - 16, fz - 44, 4, 32, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
+            rawBox(wallRight - t - 4.5, stationY - 9, fz - 38, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
+            rawBox(wallRight - t - 4.5, stationY + 4, fz - 24, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
+            rawBox(wallRight - t - 11, stationY - 7.5, fz - 34, 10, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
+            rawBox(wallRight - t - 9, stationY + 7.5, fz - 22, 6, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
           } else {
-            const plateX = rightHinge ? fx + fw - 4 : fx;
-            const armX = rightHinge ? fx + fw - 15 : fx + 3;
-            rawBox(plateX, stationY - 16, fz - 44, 4, 32, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
-            rawBox(plateX + (rightHinge ? -0.5 : 3.5), stationY - 9, fz - 38, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
-            rawBox(plateX + (rightHinge ? -0.5 : 3.5), stationY + 4, fz - 24, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
-            rawBox(armX, stationY - 7.5, fz - 34, 12, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
-            rawBox(armX + 2, stationY + 7.5, fz - 22, 8, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
+            if (options.doorsOpen) {
+              const cupZ = fz + 22;
+              const cupRing = Array.from({ length: 20 }, (_, step) => [wallLeft + frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
+              face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+              face([[wallLeft + t + 2, stationY - 4, fz + 2], [wallLeft + t + 2, stationY + 4, fz + 2], [wallLeft + frontT + 2, stationY + 4, cupZ], [wallLeft + frontT + 2, stationY - 4, cupZ]], '#dce4e7', [1, 0, 0], id, { ...extras, hingePart: 'linkage' });
+            } else {
+              face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+            }
+            rawBox(wallLeft + t, stationY - 16, fz - 44, 4, 32, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
+            rawBox(wallLeft + t + 3.5, stationY - 9, fz - 38, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
+            rawBox(wallLeft + t + 3.5, stationY + 4, fz - 24, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
+            rawBox(wallLeft + t + 1, stationY - 7.5, fz - 34, 10, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
+            rawBox(wallLeft + t + 3, stationY + 7.5, fz - 22, 6, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
           }
 
-          // 3. Linkage connecting arm to cup when opened
-          if (options.doorsOpen) {
-            const pArm = topHinge ? [fx + fw / 2, fy + fh - 8, fz - 2] : [fx + (rightHinge ? fw - 9 : 9), stationY, fz - 2];
-            const pCup = world(hinge.cup);
-            face([
-              [pArm[0], pArm[1] + 3, pArm[2]],
-              [pArm[0], pArm[1] + 5, pArm[2]],
-              [pCup[0], pCup[1] + 5, pCup[2]],
-              [pCup[0], pCup[1] + 3, pCup[2]]
-            ], '#dce4e7', [0, 1, 0], id, { ...extras, hingePart: 'linkage' });
-            face([
-              [pArm[0], pArm[1] - 5, pArm[2]],
-              [pArm[0], pArm[1] - 3, pArm[2]],
-              [pCup[0], pCup[1] - 3, pCup[2]],
-              [pCup[0], pCup[1] - 5, pCup[2]]
-            ], '#dce4e7', [0, -1, 0], id, { ...extras, hingePart: 'linkage' });
-          }
-
-          // 4. Lines for 2D schematic mode compatibility
+          // Lines for 2D schematic mode compatibility
           for (let index = 1; index < hinge.arm.length; index++) line(world(hinge.arm[index - 1]), world(hinge.arm[index]), '#465c58', 2.2, id, { ...extras, hingePart: 'arm' });
         }
       }
@@ -594,22 +596,40 @@ export function makeScene(project, options = {}, direction = null) {
       } else if (options.interior) {
         continue;
       } else if (options.doorsOpen) {
-        const rightHinge = opening==='right', topHinge=opening==='up';
-        // A full quarter-turn leaves the sideways fronts clear of extended
-        // internal drawers. The preview angle does not specify a hinge model.
-        const hingeX = rightHinge ? fx + fw : fx, angle = topHinge ? Math.PI * .44 : Math.PI / 2;
-        const sign = rightHinge ? -1 : 1, cos=Math.cos(angle), sin=Math.sin(angle);
-        const u = topHinge?[1,0,0]:[sign*cos,0,sin], v=topHinge?[0,-cos,sin]:[0,1,0], n=topHinge?[0,sin,cos]:[-sign*sin,0,cos];
-        const origin=[hingeX,topHinge?fy+fh:fy,fz];
-        const transform = (a, b, depth) => add(origin,add(mul(u,a),add(mul(v,b),mul(n,depth))));
-        const doorPoints = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, frontT], [fw, 0, frontT], [fw, fh, frontT], [0, fh, frontT]].map(v => transform(...v));
-        [[0, 1, 2, 3], [4, 5, 6, 7], [3, 2, 6, 7], [1, 5, 6, 2], [0, 4, 7, 3], [0,1,5,4]].forEach((indices, i) => face(indices.map(j => doorPoints[j]), colorShade(c.frontColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
-        const handleExtras={component:'door-handle',handle:true,sectionId:f.sectionId,frontIndex:f.index,doorOpening:opening};
-        if(f.openingMechanism==='push')continue;
-        if(topHinge){
-          const handleW=Math.min(160,fw*.38);
-          line(transform((fw-handleW)/2,fh-30,frontT+10),transform((fw+handleW)/2,fh-30,frontT+10),'#676358',3,id,handleExtras);
-        } else line(transform(fw - 32, fh * .43, frontT + 10), transform(fw - 32, fh * .43 + Math.min(160, fh * .25), frontT + 10), '#676358', 3, id,handleExtras);
+        const rightHinge = opening === 'right', topHinge = opening === 'up';
+        const handleExtras = { component: 'door-handle', handle: true, sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening };
+        if (topHinge) {
+          const angle = Math.PI * .44, cos = Math.cos(angle), sin = Math.sin(angle);
+          const u = [1, 0, 0], v = [0, -cos, sin], n = [0, sin, cos];
+          const origin = [fx, fy + fh, fz];
+          const transform = (a, b, depth) => add(origin, add(mul(u, a), add(mul(v, b), mul(n, depth))));
+          const doorPoints = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, frontT], [fw, 0, frontT], [fw, fh, frontT], [0, fh, frontT]].map(v => transform(...v));
+          [[0, 1, 2, 3], [4, 5, 6, 7], [3, 2, 6, 7], [1, 5, 6, 2], [0, 4, 7, 3], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => doorPoints[j]), colorShade(c.frontColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
+          if (f.openingMechanism !== 'push') {
+            const handleW = Math.min(160, fw * .38);
+            line(transform((fw - handleW) / 2, fh - 30, frontT + 10), transform((fw + handleW) / 2, fh - 30, frontT + 10), '#676358', 3, id, handleExtras);
+          }
+        } else if (rightHinge) {
+          // Open right door: flush with carcass right side wall
+          const p = [
+            [wallRight - frontT, fy, fz], [wallRight, fy, fz], [wallRight, fy + fh, fz], [wallRight - frontT, fy + fh, fz],
+            [wallRight - frontT, fy, fz + fw], [wallRight, fy, fz + fw], [wallRight, fy + fh, fz + fw], [wallRight - frontT, fy + fh, fz + fw]
+          ];
+          [[0, 3, 2, 1], [4, 5, 6, 7], [0, 4, 7, 3], [1, 2, 6, 5], [3, 7, 6, 2], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => p[j]), colorShade(c.frontColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
+          if (f.openingMechanism !== 'push') {
+            line([wallRight + 10, fy + fh * .43, fz + fw - 32], [wallRight + 10, fy + fh * .43 + Math.min(160, fh * .25), fz + fw - 32], '#676358', 3, id, handleExtras);
+          }
+        } else {
+          // Open left door: flush with carcass left side wall
+          const p = [
+            [wallLeft, fy, fz], [wallLeft + frontT, fy, fz], [wallLeft + frontT, fy + fh, fz], [wallLeft, fy + fh, fz],
+            [wallLeft, fy, fz + fw], [wallLeft + frontT, fy, fz + fw], [wallLeft + frontT, fy + fh, fz + fw], [wallLeft, fy + fh, fz + fw]
+          ];
+          [[0, 3, 2, 1], [4, 5, 6, 7], [0, 4, 7, 3], [1, 2, 6, 5], [3, 7, 6, 2], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => p[j]), colorShade(c.frontColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
+          if (f.openingMechanism !== 'push') {
+            line([wallLeft - 10, fy + fh * .43, fz + fw - 32], [wallLeft - 10, fy + fh * .43 + Math.min(160, fh * .25), fz + fw - 32], '#676358', 3, id, handleExtras);
+          }
+        }
       } else {
         box(fx, fy, fz, fw, fh, frontT, c.frontColor, id, frontExtras);
         const rightHinge = opening==='right', topHinge=opening==='up';
