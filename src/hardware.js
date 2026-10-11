@@ -114,10 +114,31 @@ export function getProjectHardwareSchedule(project) {
         partId: row.partId, partCode: row.partCode, kind, quantity: row.quantity, unit: 'pcs', source: 'back-panel',
         planned: false, ...(kind === 'rear-screw' ? { diameter: row.screwDiameter, length: row.screwLength } : {}) });
     }
+    const cabinetBrackets = (rear.bracketJoints ?? []).filter(joint => joint.cabinetId === cabinet.cabinetId);
+    const bracketQuantity = cabinetBrackets.reduce((sum, joint) => sum + (joint.quantity ?? 2), 0);
+    cabinet.bracketTotals = { brackets: bracketQuantity, screws: bracketQuantity * 2 };
+    if (bracketQuantity > 0) {
+      cabinet.rows.push({
+        id: `${cabinet.cabinetId}-brackets`,
+        cabinetId: cabinet.cabinetId,
+        cabinetName: cabinet.cabinetName,
+        kind: 'corner-bracket',
+        quantity: bracketQuantity,
+        unit: 'pcs',
+        source: 'cross-joint',
+        name: 'Уголок мебельный специальный',
+        diameter: 3.5,
+        length: 16,
+        screwsPerBracket: 2,
+        planned: false
+      });
+    }
   }
   const totals = emptyTotals();
   for (const schedule of cabinets) for (const key of Object.keys(totals)) totals[key] += schedule.totals[key];
   return { cabinets, rows: cabinets.flatMap(schedule => schedule.rows), totals,
     rearTotals: rear.totals, rearFastenings: rear.rows, rearIssues: rear.errors,
+    bracketTotals: { brackets: rear.totals?.brackets ?? 0, screws: (rear.totals?.brackets ?? 0) * 2 },
+    bracketJoints: rear.bracketJoints ?? [],
     rearValid: rear.valid && !rear.rows.some(row=>row.unsupported) };
 }

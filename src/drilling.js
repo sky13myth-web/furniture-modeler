@@ -8,6 +8,8 @@ export const DRILLING_DEFAULTS = Object.freeze({
   enabled: false, screwDiameter: 7, screwLength: 50, clearanceDiameter: 7,
   pilotDiameter: 5, pilotExtraDepth: 2, endOffset: 50, maxSpacing: 300,
   countersinkDiameter: 10, countersinkDepth: null, screwsPerJoint: 'auto', measureFromFinishedEdge: false,
+  crossJointFastener: 'bracket', bracketScrewDiameter: 3.5, bracketScrewLength: 16,
+  bracketPilotDiameter: 3, bracketPilotDepth: 10, bracketHoles: false,
   ...REAR_FASTENING_DEFAULTS
 });
 const EPS = .002;
@@ -31,7 +33,11 @@ export function normalizeDrillingSettings(settings = {}) {
   const result = { enabled: settings.enabled === true };
   for (const [key, value] of Object.entries(DRILLING_DEFAULTS)) {
     if (key === 'enabled') continue;
-    if (key === 'measureFromFinishedEdge') { result[key] = settings[key] === true; continue; }
+    if (key === 'measureFromFinishedEdge' || key === 'bracketHoles') { result[key] = settings[key] === true; continue; }
+    if (key === 'crossJointFastener') {
+      result[key] = settings[key] === 'error' ? 'error' : 'bracket';
+      continue;
+    }
     if (key === 'screwsPerJoint') {
       result[key] = settings[key] === undefined || settings[key] === 'auto' ? 'auto' : number(settings[key], settings[key]);
       continue;
@@ -362,7 +368,7 @@ export function generateDrillingPlan(project, { parts } = {}) {
   if (coreSettingsValid) for (const horizontal of selected.filter(desc => desc.part.orientation === 'horizontal')) {
     for (const vertical of selected.filter(desc => desc.part.orientation === 'vertical-depth' && desc.part.cabinetId === horizontal.part.cabinetId)) {
       for (const contact of contacts(horizontal, vertical)) {
-        const detail = { partId: contact.through.part.id, partCode: contact.through.part.partCode, receivingPartId: contact.receiving.part.id, receivingPartCode: contact.receiving.part.partCode };
+        const detail = { cabinetId: contact.through.part.cabinetId, partId: contact.through.part.id, partCode: contact.through.part.partCode, receivingPartId: contact.receiving.part.id, receivingPartCode: contact.receiving.part.partCode };
         const throughThickness = contact.through.part.thickness, receiverThickness = contact.receiving.part.thickness;
         if (Math.min(throughThickness, receiverThickness) < 15 - EPS) { errors.push(issue('panel-too-thin', 'Плита тоньше 15 мм: автоматическая сверловка под конфирмат не поддерживается.', detail)); continue; }
         if (settings.screwLength <= throughThickness + EPS) { errors.push(issue('no-engagement', 'Длина винта не обеспечивает вход в соединяемую плиту.', detail)); continue; }
@@ -372,7 +378,45 @@ export function generateDrillingPlan(project, { parts } = {}) {
         if (!physicalIntervals.length) { errors.push(issue('pilot-outside', 'Отверстие выходит за контур заготовки или пересекает вырез.', detail)); continue; }
         const intervals = contactIntervals(contact, settings, pilotDepth, selected);
         if (!intervals.length) {
-          errors.push(issue('unsupported-cross-joint', 'Доступ к головке винта закрыт противоположной перегородкой. Такое соединение требует другого крепежа.', detail)); continue;
+          if (settings.crossJointFastener === 'error') {
+            errors.push(issue('unsupported-cross-joint', 'Доступ к головке винта закрыт противоположной перегородкой. Такое соединение требует другого крепежа.', detail));
+            continue;
+          }
+          const safeRanges = physicalIntervals.filter(interval => interval.high - interval.low >= 2 * settings.endOffset);
+          const placementIntervals = settings.screwsPerJoint === 2 && safeRanges.length
+            ? [{ low: safeRanges[0].low, high: safeRanges.at(-1).high }]
+            : settings.screwsPerJoint === 2 ? physicalIntervals.slice(0, 1) : physicalIntervals;
+          const chosen = [];
+          for (const interval of placementIntervals) {
+            const low = interval.low + settings.endOffset, high = interval.high - settings.endOffset;
+            if (high - low < EPS) {
+              chosen.push(round((interval.low + interval.high) / 2));
+            } else {
+              const count = settings.screwsPerJoint === 2 ? 2 : Math.max(2, Math.ceil((high - low) / settings.maxSpacing) + 1);
+              for (let index = 0; index < count; index++) {
+                chosen.push(round(count === 1 ? (low + high) / 2 : low + (high - low) * index / (count - 1)));
+              }
+            }
+          }
+          const bracketJointId = `B${String(joints.length + 1).padStart(4, '0')}`;
+          joints.push({
+            id: bracketJointId,
+            ...detail,
+            fastenerType: 'bracket',
+            name: 'Уголок мебельный специальный',
+            quantity: chosen.length,
+            pairIds: [],
+            throughPartId: contact.through.part.id,
+            receivingPartId: contact.receiving.part.id,
+            throughFace: contact.throughFace,
+            receivingFace: contact.receivingFace,
+            positions: chosen,
+            stationAxis: contact.stationAxis ?? 'z',
+            screwDiameter: settings.bracketScrewDiameter,
+            screwLength: settings.bracketScrewLength
+          });
+          warnings.push(issue('cross-joint-bracket', 'Стык перегородок закреплён специальным мебельным уголком.', detail));
+          continue;
         }
         const jointHoles = [], pairIds = [];
         let failed = false;
@@ -421,8 +465,11 @@ export function generateDrillingPlan(project, { parts } = {}) {
 export function getRearFasteningSchedule(project, options = {}) {
   const plan = generateDrillingPlan({ ...project, settings: { ...project.settings, drilling: { ...project.settings?.drilling, enabled: true } } }, options);
   const errors = plan.errors.filter(error => error.code.startsWith('rear-') || String(error.field ?? '').startsWith('rear'));
-  return { rows: plan.rearFastenings, rearFastenings: plan.rearFastenings,
+  const bracketJoints = plan.joints.filter(joint => joint.fastenerType === 'bracket');
+  const bracketCount = bracketJoints.reduce((sum, joint) => sum + (joint.quantity ?? 2), 0);
+  return { rows: plan.rearFastenings, rearFastenings: plan.rearFastenings, bracketJoints,
     totals: { screws: plan.rearFastenings.filter(row => row.method === 'screw').reduce((sum, row) => sum + row.quantity, 0),
-      nails: plan.rearFastenings.filter(row => row.method === 'nail').reduce((sum, row) => sum + row.quantity, 0) },
+      nails: plan.rearFastenings.filter(row => row.method === 'nail').reduce((sum, row) => sum + row.quantity, 0),
+      brackets: bracketCount },
     errors, allErrors: plan.errors, warnings: plan.warnings, valid: errors.length === 0, planValid: plan.valid };
 }

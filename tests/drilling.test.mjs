@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDefaultProject, createSection, generateParts } from '../src/engine.js';
 import { DRILLING_DEFAULTS, generateDrillingPlan, normalizeDrillingSettings } from '../src/drilling.js';
+import { getProjectHardwareSchedule } from '../src/hardware.js';
+import { checkDrillingExport } from '../src/drilling-export.js';
 
 const near = (actual, expected, tolerance = .004) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
 function fixture(overrides = {}, settings = {}) {
@@ -327,8 +329,23 @@ test('separate 5 mm pilot bores also reserve their wider 7 mm screw threads', ()
   for (const first of left) for (const second of right) assert.ok(Math.abs(first.b - second.b) >= 7, 'wider screw threads must not meet');
 });
 
-test('aligned vertical dividers on both sides of one separator report inaccessible screw heads', () => {
+test('aligned vertical dividers on both sides of one separator are fastened with special corner brackets by default', () => {
   const { project, cabinet } = fixture();
+  const row = id => ({ id, kind: 'split', axis: 'vertical', sizes: [1, 1], children: [
+    { ...createSection(), id: `${id}-left` }, { ...createSection(), id: `${id}-right` }
+  ] });
+  cabinet.layout = { id: 'rows', kind: 'split', axis: 'horizontal', sizes: [1, 1], children: [row('upper'), row('lower')] };
+  const plan = generateDrillingPlan(project);
+  assert.equal(plan.valid, true);
+  assert.equal(plan.errors.length, 0);
+  const brackets = plan.joints.filter(e => e.fastenerType === 'bracket');
+  assert.equal(brackets.length, 2);
+  assert.ok(brackets.every(b => b.quantity >= 2 && b.positions.length === b.quantity && b.screwDiameter === 3.5 && b.screwLength === 16));
+  assert.equal(plan.warnings.filter(w => w.code === 'cross-joint-bracket').length, 2);
+});
+
+test('cross joints report inaccessible screw heads when crossJointFastener is set to error', () => {
+  const { project, cabinet } = fixture({}, { crossJointFastener: 'error' });
   const row = id => ({ id, kind: 'split', axis: 'vertical', sizes: [1, 1], children: [
     { ...createSection(), id: `${id}-left` }, { ...createSection(), id: `${id}-right` }
   ] });
@@ -360,3 +377,20 @@ test('supplied production parts keep global P identifiers across cabinets', () =
   assert.equal(new Set(plan.holes.map(h => h.id)).size, plan.holes.length);
   assert.equal(plan.joints.length, 8);
 });
+
+test('cabinets with cross-joints include corner brackets in hardware schedule and export check passes', () => {
+  const { project, cabinet } = fixture();
+  const row = id => ({ id, kind: 'split', axis: 'vertical', sizes: [1, 1], children: [
+    { ...createSection(), id: `${id}-left` }, { ...createSection(), id: `${id}-right` }
+  ] });
+  cabinet.layout = { id: 'rows', kind: 'split', axis: 'horizontal', sizes: [1, 1], children: [row('upper'), row('lower')] };
+  const hardware = getProjectHardwareSchedule(project);
+  const bracketRows = hardware.rows.filter(r => r.kind === 'corner-bracket');
+  assert.ok(bracketRows.length > 0);
+  assert.equal(hardware.bracketTotals.brackets, 6);
+  assert.equal(hardware.bracketTotals.screws, 12);
+  const check = checkDrillingExport(project);
+  assert.equal(check.valid, true);
+  assert.equal(check.errors.length, 0);
+});
+

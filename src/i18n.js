@@ -42,6 +42,11 @@ DXF: раскладка на листах 1:1 в мм. Пропил задаёт
 Шкаф не найден.|Dolap bulunamadı.|Cabinet not found.
 Сохранить чертёж HTML|HTML çizimini kaydet|Save HTML drawing
 Доступ к головке винта закрыт противоположной перегородкой. Такое соединение требует другого крепежа.|Karşı ara panel vida başına erişimi engelliyor. Bu bağlantı için başka bir bağlantı elemanı gerekir.|The opposite divider blocks access to the screw head. This joint needs a different fastener.
+Уголок мебельный специальный|Özel gövde köşe bağlantısı|Special corner bracket
+Крепление уголком специальным|Özel köşe bağlantısı|Special corner bracket fastening
+Крепление перекрестных стыков|Çapraz birleşim bağlantısı|Cross-joint fastening
+Стык перегородок закреплён специальным мебельным уголком.|Ara panel birleşimi özel gövde köşe bağlantısıyla sabitlenmiştir.|Divider joint is fastened with a special corner bracket.
+Запретить (ошибка)|Yasakla (hata)|Disallow (error)
 Глубина зенковки не задана: в ведомости она отмечена для настройки в мастерской.|Havşa derinliği belirtilmedi: listede atölyede ayarlanacak olarak işaretlenmiştir.|Countersink depth is unset: the schedule marks it for workshop setup.
 Недопустимый параметр сверловки.|Geçersiz delik ayarı.|Invalid drilling setting.
 Проверьте диаметры отверстий под выбранный винт.|Seçilen vida için delik çaplarını kontrol edin.|Check the hole diameters for the selected screw.
