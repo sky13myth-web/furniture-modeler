@@ -970,6 +970,18 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
   return result;
 }
 
+export const STANDARD_RUNNER_INCREMENTS = [250, 300, 350, 400, 450, 500, 550, 600];
+
+export function quantizeDrawerRunnerLength(depth) {
+  const d = Number(depth);
+  if (!Number.isFinite(d)) return 250;
+  if (d <= 250) return 250;
+  if (d >= 600) return 600;
+  return Math.floor(d / 50) * 50;
+}
+export const quantizeRunnerLength = quantizeDrawerRunnerLength;
+export const quantizeDrawerDepth = quantizeDrawerRunnerLength;
+
 /** Real outer-drawer boxes. The old 20 mm front offsets remain where they
  * fit; thicker body panels clip that envelope to the actual clean opening.
  * The editable facade gap is also the planning vertical clearance here. */
@@ -983,9 +995,17 @@ export function getExternalDrawerLayout(cabinet, project = { materials: [] }) {
       height: layout.bodyHeight - 2 * layout.thickness, usableDepth: layout.bodyDepth - number(cabinet.cutout?.depth), rearOffset: number(cabinet.cutout?.depth) };
     const y = Math.max(front.y + 20, opening.y + gap);
     const top = Math.min(front.y + front.height - 20, opening.y + opening.height - gap);
-    return { ...front, box: { x: round(opening.x + runner), y: round(y), z: round(back + opening.rearOffset + 40),
-      width: round(opening.width - 2 * runner), height: round(top - y - bottom), depth: round(opening.usableDepth - 40),
-      panelThickness: panels, bottomThickness: bottom },
+    const rawDepth = round(opening.usableDepth - 40);
+    const runnerLength = quantizeDrawerRunnerLength(rawDepth);
+    const boxDepth = (cabinet.quantizeDrawerDepth || project.settings?.quantizeDrawerDepth) ? runnerLength : rawDepth;
+    const box = { x: round(opening.x + runner), y: round(y), z: round(back + opening.rearOffset + 40),
+      width: round(opening.width - 2 * runner), height: round(top - y - bottom), depth: boxDepth,
+      panelThickness: panels, bottomThickness: bottom };
+    Object.defineProperties(box, {
+      runnerLength: { value: runnerLength, enumerable: false, writable: true, configurable: true },
+      nominalRunnerLength: { value: runnerLength, enumerable: false, writable: true, configurable: true }
+    });
+    return { ...front, runnerLength, nominalRunnerLength: runnerLength, box,
       verticalClearance: { bottom: round(y - opening.y), top: round(opening.y + opening.height - top), required: gap } };
   });
 }
@@ -1017,15 +1037,23 @@ export function getInternalDrawerLayout(cabinet, project = { materials: [] }) {
       for (let index = 0; index < count; index++) {
         const height = availableHeight * weights[index] / sum;
         cursor -= height;
+        const rawBoxDepth = round(section.usableDepth - 40 - panels - gap - handleProjection);
+        const runnerLength = quantizeDrawerRunnerLength(rawBoxDepth);
+        const boxDepth = (cabinet.quantizeDrawerDepth || project.settings?.quantizeDrawerDepth) ? runnerLength : rawBoxDepth;
+        const box = { x: round(section.x + leftHinge + runner), y: round(cursor + 20), z: round(back + section.rearOffset + 40),
+          width: round(section.width - leftHinge - rightHinge - 2 * runner), height: round(height - 40 - bottom),
+          depth: boxDepth, panelThickness: panels, bottomThickness: bottom };
+        Object.defineProperties(box, {
+          runnerLength: { value: runnerLength, enumerable: false, writable: true, configurable: true },
+          nominalRunnerLength: { value: runnerLength, enumerable: false, writable: true, configurable: true }
+        });
         result.push({
           kind: 'internal-drawer', index: globalIndex++, localIndex: index, sectionId: outer.id, ...(internal ? { interiorSectionId: section.id } : {}),
           x: round(section.x + leftHinge + gap), y: round(cursor),
           width: round(section.width - leftHinge - rightHinge - 2 * gap), height: round(height),
           depth: round(section.depth - panels - gap - handleProjection), frontThickness: panels,
-          hingeGap, handleProjection, openingMechanism: mechanism,
-          box: { x: round(section.x + leftHinge + runner), y: round(cursor + 20), z: round(back + section.rearOffset + 40),
-            width: round(section.width - leftHinge - rightHinge - 2 * runner), height: round(height - 40 - bottom),
-            depth: round(section.usableDepth - 40 - panels - gap - handleProjection), panelThickness: panels, bottomThickness: bottom }
+          hingeGap, handleProjection, openingMechanism: mechanism, runnerLength, nominalRunnerLength: runnerLength,
+          box
         });
         cursor -= gap;
       }
@@ -1054,11 +1082,12 @@ export function generateParts(project) {
       sequence++;
       if (![panelWidth, panelHeight, panelThickness].every(value => Number.isFinite(value) && value > 0)) return;
       const outline = extras.outline?.map(point => ({ ...point }));
+      const isShelfOrPlinth = extras.role === 'plinth' || extras.component === 'plinth' || extras.role === 'shelf' || extras.component === 'shelf' || extras.grainAlongLength || /^(?:.* · )?(?:полка|цоколь|цокольная)/i.test(name);
       parts.push({
         id: `${cabinet.id}-part-${sequence}`, cabinetId: cabinet.id, cabinetName: cabinet.name,
         name, width: round(panelWidth), height: round(panelHeight), thickness: panelThickness,
         finishedWidth: round(finishedWidth), finishedHeight: round(finishedHeight), materialId, quantity: 1,
-        grain: Boolean(material?.grain), edges, ...extras, ...(outline ? { outline, finishedOutline: extras.outline.map(point => ({ ...point })), area: contourArea(outline) } : { area: panelWidth * panelHeight })
+        grain: Boolean(material?.grain), ...(Boolean(material?.grain) && isShelfOrPlinth ? { grainAlongLength: true, grainAxis: 'width' } : {}), edges, ...extras, ...(outline ? { outline, finishedOutline: extras.outline.map(point => ({ ...point })), area: contourArea(outline) } : { area: panelWidth * panelHeight })
       });
     };
     if (width <= 0 || bodyHeight <= 0 || bodyDepth <= 0 || thickness <= 0) continue;
@@ -1151,7 +1180,7 @@ export function generateParts(project) {
       }
       for (const section of layout.sections) {
         if (section.node.interiorLayout) continue;
-        for (let index = 0; index < integer(section.node.shelves); index++) horizontal(`${label(section)} · полка ${index + 1}`, section.x + 2, back + section.rearInset, section.width - 4, section.depth - section.rearInset - 20, shelfPanelY(section.y, section.height, integer(section.node.shelves), index, thickness), section.id, { clipRearInset: section.rearInset });
+        for (let index = 0; index < integer(section.node.shelves); index++) horizontal(`${label(section)} · полка ${index + 1}`, section.x + 2, back + section.rearInset, section.width - 4, section.depth - section.rearInset - 20, shelfPanelY(section.y, section.height, integer(section.node.shelves), index, thickness), section.id, { role: 'shelf', component: 'shelf', clipRearInset: section.rearInset });
         if (section.node.pullOutShelf) {
           const slide = number(cabinet.drawerSlideGap, 13);
           addPart(`${label(section)} · выдвижная полка`, section.width - 2 * slide, section.usableDepth - 40, thickness, cabinet.materialId, ['bottom', 'left', 'right'], { sectionId: section.id, role: 'pull-out-shelf', component: 'pull-out-shelf', pullOutShelf: true, openingMechanism: openingMechanism(section.node), position: { x: section.x + slide, y: section.y + 5, z: back + section.rearOffset + 20 }, orientation: 'horizontal' });
@@ -1183,7 +1212,7 @@ export function generateParts(project) {
       }
     } else {
       const opening = legacyShelfOpening(cabinet, project, bodyHeight, thickness);
-      for (let index = 0; index < integer(cabinet.shelves); index++) horizontal(`Полка ${index + 1}`, thickness + 2, back, insideWidth - 4, bodyDepth - 20, shelfPanelY(opening.y, opening.height, integer(cabinet.shelves), index, thickness));
+      for (let index = 0; index < integer(cabinet.shelves); index++) horizontal(`Полка ${index + 1}`, thickness + 2, back, insideWidth - 4, bodyDepth - 20, shelfPanelY(opening.y, opening.height, integer(cabinet.shelves), index, thickness), undefined, { role: 'shelf', component: 'shelf' });
     }
     if (number(cabinet.plinth) > 10 || layout?.sections.some(section => section.floorEligible && section.effectivePlinth > 10)) {
       const gap = number(cabinet.gap, 2);
@@ -1233,7 +1262,7 @@ export function generateParts(project) {
       const defaultBlindW = cabinet.type === 'corner-wall' ? 340 : 600;
       const rawBlindW = Math.max(100, Math.min(width - 200, positiveNumber(cabinet.blindWidth, defaultBlindW)));
       const braceX = blindSide === 'right' ? width - rawBlindW : rawBlindW - thickness;
-      addPart('Угловая опорная планка', thickness, layout.bodyHeight - 2 * thickness, 100, cabinet.materialId, ['top', 'bottom', 'left', 'right'], {
+      addPart('Угловая опорная планка', 100, (layout?.bodyHeight ?? bodyHeight) - 2 * thickness, thickness, cabinet.materialId, ['left', 'right'], {
         role: 'corner-post', component: 'corner-post',
         position: { x: braceX, y: thickness, z: bodyDepth - 100 },
         orientation: 'vertical-depth'
@@ -1361,7 +1390,9 @@ function assignContactEdgeBands(parts) {
           if (pointInPolygon({ x: bounds.x, z }, polygon) && pointInPolygon({ x: bounds.x + bounds.width, z }, polygon)) covered.push([b.y, b.y + b.height]);
         }
       }
-      if (intervalsCover(bounds.y, bounds.height, covered)) part.edges.left = 0;
+      if (intervalsCover(bounds.y, bounds.height, covered)) {
+        part.edges.right = 0;
+      }
     }
   }
 }

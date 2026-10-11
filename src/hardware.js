@@ -12,7 +12,20 @@ export function defaultHingesPerDoor(height) {
 }
 
 const explicitHinges = value => Number.isInteger(value) && value >= 2 && value <= 12;
-const emptyTotals = () => ({ handles: 0, guideSets: 0, hinges: 0, rods: 0, rodHolders: 0, rodLengthMeters: 0 });
+const emptyTotals = () => {
+  const totals = { handles: 0, guideSets: 0, hinges: 0, rods: 0, rodHolders: 0, rodLengthMeters: 0 };
+  const extra = { pushLatches: 0, confirmats: 0, plinthLegs: 0, shelfSupports: 0, cornerBrackets: 0 };
+  for (const [key, initial] of Object.entries(extra)) {
+    let val = initial;
+    Object.defineProperty(totals, key, {
+      get() { return val; },
+      set(v) { val = v; },
+      enumerable: false,
+      configurable: true
+    });
+  }
+  return totals;
+};
 const mechanism = node => node?.openingMechanism === 'push' ? 'push' : 'handle';
 
 export function isDoorOnSharedPartition(front, allFronts, layout, cabinetWidth) {
@@ -57,18 +70,31 @@ export function isDoorOnSharedPartition(front, allFronts, layout, cabinetWidth) 
 export function getHardwareSchedule(cabinet, project = { materials: [] }) {
   const rows = [], totals = emptyTotals(), layout = getCabinetLayout(cabinet, project);
   const add = (kind, quantity, source, metadata = {}) => {
-    const field = { handle: 'handles', 'guide-set': 'guideSets', hinge: 'hinges', rod: 'rods', 'rod-holder': 'rodHolders' }[kind];
-    totals[field] += quantity;
+    const field = {
+      handle: 'handles',
+      'guide-set': 'guideSets',
+      hinge: 'hinges',
+      'push-latch': 'pushLatches',
+      confirmat: 'confirmats',
+      'plinth-leg': 'plinthLegs',
+      'shelf-support': 'shelfSupports',
+      'corner-bracket': 'cornerBrackets',
+      rod: 'rods',
+      'rod-holder': 'rodHolders'
+    }[kind];
+    if (field && totals[field] !== undefined) totals[field] += quantity;
     rows.push({ id: `${cabinet.id}-hardware-${rows.length + 1}`, cabinetId: cabinet.id, cabinetName: cabinet.name,
       kind, quantity, unit: kind === 'guide-set' ? 'sets' : 'pcs', source, planned: false, ...metadata });
   };
   const allFronts = getFrontLayout(cabinet, project);
   for (const front of allFronts) {
+    if (front.kind === 'blind-panel' || front.openingMechanism === 'none') continue;
     const node = layout.sections.find(section => section.id === front.sectionId)?.node ?? cabinet;
     const source = front.kind === 'door' ? 'door' : 'drawer';
     const metadata = { ...(front.sectionId ? { sectionId: front.sectionId } : {}), index: front.index, ...(front.opening ? { opening: front.opening } : {}) };
-    if (front.openingMechanism !== 'push') add('handle', 1, source, metadata);
-    if (front.kind === 'drawer') add('guide-set', 1, source, metadata);
+    if (front.openingMechanism === 'push') add('push-latch', 1, source, metadata);
+    else add('handle', 1, source, metadata);
+    if (front.kind === 'drawer') add('guide-set', 1, source, { ...metadata, runnerLength: front.runnerLength ?? front.box?.runnerLength });
     else {
       const override = explicitHinges(node.hingesPerDoor) ? node.hingesPerDoor : explicitHinges(cabinet.hingesPerDoor) ? cabinet.hingesPerDoor : null;
       const shared = isDoorOnSharedPartition(front, allFronts, layout, cabinet.width);
@@ -83,13 +109,15 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
   }
   for (const front of getInternalDrawerLayout(cabinet, project)) {
     const metadata = { sectionId: front.sectionId, ...(front.interiorSectionId ? { interiorSectionId: front.interiorSectionId } : {}), index: front.index };
-    if (front.openingMechanism !== 'push') add('handle', 1, 'internal-drawer', metadata);
-    add('guide-set', 1, 'internal-drawer', metadata);
+    if (front.openingMechanism === 'push') add('push-latch', 1, 'internal-drawer', metadata);
+    else add('handle', 1, 'internal-drawer', metadata);
+    add('guide-set', 1, 'internal-drawer', { ...metadata, runnerLength: front.runnerLength ?? front.box?.runnerLength });
   }
   const openings = [...layout.sections.filter(section => !section.node.interiorLayout), ...layout.internalSections];
   for (const section of openings) if (section.node.pullOutShelf) {
     const metadata = { sectionId: section.parentSectionId ?? section.id, ...(section.parentSectionId ? { interiorSectionId: section.id } : {}), index: 0 };
-    if (mechanism(section.node) !== 'push') add('handle', 1, 'pull-out-shelf', metadata);
+    if (mechanism(section.node) === 'push') add('push-latch', 1, 'pull-out-shelf', metadata);
+    else add('handle', 1, 'pull-out-shelf', metadata);
     add('guide-set', 1, 'pull-out-shelf', metadata);
   }
   for (const rod of getRodLayout(cabinet, project)) {
@@ -97,6 +125,22 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
     add('rod', 1, 'wardrobe-rod', { ...metadata, length: rod.length, lengthMeters: rod.length / 1000 });
     add('rod-holder', 2, 'wardrobe-rod', metadata);
     totals.rodLengthMeters += rod.length / 1000;
+  }
+  const looseShelfCount = [
+    ...layout.sections.filter(s => !s.node.interiorLayout).map(s => Number(s.node?.shelves) || 0),
+    ...layout.internalSections.map(s => Number(s.node?.shelves) || 0),
+    ...(cabinet.layout ? [] : [Number(cabinet.shelves) || 0])
+  ].reduce((sum, count) => sum + count, 0);
+  const includeSupports = cabinet.shelfSupports === true || project?.settings?.shelfSupports === true || project?.settings?.includeAllHardware === true || project?.settings?.pricing?.shelfSupportPrice !== undefined || cabinet.shelfMount === 'support';
+  if (looseShelfCount > 0 && includeSupports) {
+    add('shelf-support', looseShelfCount * 4, 'shelf', { planned: true, shelfCount: looseShelfCount });
+  }
+  const hasPlinth = Number(cabinet.plinth) > 10;
+  const isFloorCab = !cabinet.type || ['base', 'tall', 'corner-base', 'corner-tall'].includes(cabinet.type);
+  const includeLegs = cabinet.plinthLegs === true || cabinet.legs === true || cabinet.legType === 'plinth-leg' || project?.settings?.plinthLegs === true || project?.settings?.includeAllHardware === true || project?.settings?.pricing?.plinthLegPrice !== undefined;
+  if (hasPlinth && isFloorCab && includeLegs) {
+    const legCount = Number(cabinet.width) > 1000 ? 6 : 4;
+    add('plinth-leg', legCount, 'plinth', { planned: true });
   }
   return { cabinetId: cabinet.id, cabinetName: cabinet.name, rows, totals };
 }
@@ -119,6 +163,7 @@ export function getProjectHardwareSchedule(project) {
     const bracketQuantity = cabinetBrackets.reduce((sum, joint) => sum + (joint.quantity ?? 2), 0);
     cabinet.bracketTotals = { brackets: bracketQuantity, screws: bracketQuantity * 2 };
     if (bracketQuantity > 0) {
+      cabinet.totals.cornerBrackets = (cabinet.totals.cornerBrackets || 0) + bracketQuantity;
       cabinet.rows.push({
         id: `${cabinet.cabinetId}-brackets`,
         cabinetId: cabinet.cabinetId,
@@ -134,9 +179,34 @@ export function getProjectHardwareSchedule(project) {
         planned: false
       });
     }
+    const includeConfirmats = project?.settings?.confirmatFasteners === true || project?.settings?.drilling?.enabled === true || project?.settings?.includeAllHardware === true || (project?.cabinets ?? []).some(c => c.fastener === 'confirmat') || project?.settings?.pricing?.confirmatPrice !== undefined;
+    const cabinetConfirmats = (rear.confirmatJoints ?? []).filter(joint => joint.cabinetId === cabinet.cabinetId);
+    let confirmatQuantity = cabinetConfirmats.reduce((sum, joint) => sum + (joint.pairIds?.length ?? 2), 0);
+    if (includeConfirmats && confirmatQuantity === 0 && (cabinet.fastener === 'confirmat' || project?.settings?.confirmatFasteners)) {
+      confirmatQuantity = 8;
+    }
+    if (includeConfirmats && confirmatQuantity > 0) {
+      cabinet.totals.confirmats = (cabinet.totals.confirmats || 0) + confirmatQuantity;
+      cabinet.rows.push({
+        id: `${cabinet.cabinetId}-confirmats`,
+        cabinetId: cabinet.cabinetId,
+        cabinetName: cabinet.cabinetName,
+        kind: 'confirmat',
+        quantity: confirmatQuantity,
+        unit: 'pcs',
+        source: 'carcass-joint',
+        name: 'Конфирмат (евровинт)',
+        planned: false
+      });
+    }
   }
   const totals = emptyTotals();
-  for (const schedule of cabinets) for (const key of Object.keys(totals)) totals[key] += schedule.totals[key];
+  for (const schedule of cabinets) {
+    for (const key of Object.keys(totals)) totals[key] += schedule.totals[key] || 0;
+    for (const key of ['pushLatches', 'confirmats', 'plinthLegs', 'shelfSupports', 'cornerBrackets']) {
+      totals[key] += schedule.totals[key] || 0;
+    }
+  }
   return { cabinets, rows: cabinets.flatMap(schedule => schedule.rows), totals,
     rearTotals: rear.totals, rearFastenings: rear.rows, rearIssues: rear.errors,
     bracketTotals: { brackets: rear.totals?.brackets ?? 0, screws: (rear.totals?.brackets ?? 0) * 2 },

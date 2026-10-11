@@ -38,7 +38,7 @@ const doorOpening = front => ['left','right','up'].includes(front.opening) ? fro
 const doorOpeningText = opening => ({left:'Влево',right:'Вправо',up:'Вверх'}[opening] || 'Влево');
 
 const COMPACT_LABEL_FONT = 14;
-const PANEL_EDGE_CODES = { top: 'E1', right: 'E2', bottom: 'E3', left: 'E4' };
+export const PANEL_EDGE_CODES = { left: 'E1', right: 'E2', top: 'E3', bottom: 'E4' };
 function physicalPartEdges(part) {
   return part.orientation === 'horizontal'
     ? { top: 'Сзади', bottom: 'Спереди', left: 'Слева', right: 'Справа' }
@@ -2240,13 +2240,22 @@ function compactScheduleSheets(blocks, language) {
 function hardwarePrintBlocks(project,{cabinetId=null,language='tr'}={}){
   const t=text=>translatePrintText(text,language),n=value=>printNumber(value,language);
   const selected=(project.cabinets||[]).find(cabinet=>cabinet.id===cabinetId),source=selected?{...project,cabinets:[selected]}:project,schedule=getProjectHardwareSchedule(source);
-  const block=(name,totals,rows,kind='hardware')=>({kind,title:`${name} · ${t('Фурнитура')}`,intro:`${t('Один комплект направляющих — пара для одного ящика или выдвижной полки.')}${rows.some(row=>row.kind==='hinge'&&row.planned)?` ${t('Количество петель по высоте — предварительный расчёт. Нагрузку и механизм подъёмной двери проверьте по выбранной фурнитуре.')}`:''}`,headings:['№','Фурнитура','Количество','Ед.'],rows:[
-    ['1',t('Ручки'),n(totals.handles),t('шт.')],['2',t('Комплекты направляющих'),n(totals.guideSets),t('Комплект (пара)')],['3',t('Петли'),n(totals.hinges),t('шт.')],
-    ...(totals.rods>0?[['4',t('Штанги для одежды'),n(totals.rods),t('шт.')]]:[]),...(totals.rodHolders>0?[['5',t('Держатели штанг'),n(totals.rodHolders),t('шт.')]]:[]),
-    ...(rows.some(row=>row.kind==='rear-screw')?[['6',t('Винты задника'),n(rows.filter(row=>row.kind==='rear-screw').reduce((sum,row)=>sum+row.quantity,0)),t('шт.')]]:[]),
-    ...(rows.some(row=>row.kind==='rear-nail')?[['7',t('Гвозди задника'),n(rows.filter(row=>row.kind==='rear-nail').reduce((sum,row)=>sum+row.quantity,0)),t('шт.')]]:[]),
-  ]});
-  const listed=selected||schedule.cabinets.length<2?schedule.cabinets:schedule.cabinets.filter(cabinet=>Object.values(cabinet.totals).some(quantity=>quantity>0));
+  const block=(name,totals,rows,kind='hardware')=>{
+    const items=[
+      [t('Ручки'),n(totals.handles),t('шт.')],[t('Комплекты направляющих'),n(totals.guideSets),t('Комплект (пара)')],[t('Петли'),n(totals.hinges),t('шт.')],
+      ...(totals.rods>0?[[t('Штанги для одежды'),n(totals.rods),t('шт.')]]:[]),...(totals.rodHolders>0?[[t('Держатели штанг'),n(totals.rodHolders),t('шт.')]]:[]),
+      ...(rows.some(row=>row.kind==='rear-screw')?[[t('Винты задника'),n(rows.filter(row=>row.kind==='rear-screw').reduce((sum,row)=>sum+row.quantity,0)),t('шт.')]]:[]),
+      ...(rows.some(row=>row.kind==='rear-nail')?[[t('Гвозди задника'),n(rows.filter(row=>row.kind==='rear-nail').reduce((sum,row)=>sum+row.quantity,0)),t('шт.')]]:[]),
+      ...((totals.pushLatches??0)>0?[[t('Толкатели push-to-open'),n(totals.pushLatches),t('шт.')]]:[]),
+      ...((totals.confirmats??0)>0?[[t('Конфирматы'),n(totals.confirmats),t('шт.')]]:[]),
+      ...((totals.plinthLegs??0)>0?[[t('Опоры цоколя'),n(totals.plinthLegs),t('шт.')]]:[]),
+      ...((totals.shelfSupports??0)>0?[[t('Полкодержатели'),n(totals.shelfSupports),t('шт.')]]:[]),
+      ...((totals.cornerBrackets??0)>0?[[t('Уголки'),n(totals.cornerBrackets),t('шт.')]]:[]),
+    ];
+    return {kind,title:`${name} · ${t('Фурнитура')}`,intro:`${t('Один комплект направляющих — пара для одного ящика или выдвижной полки.')}${rows.some(row=>row.kind==='hinge'&&row.planned)?` ${t('Количество петель по высоте — предварительный расчёт. Нагрузку и механизм подъёмной двери проверьте по выбранной фурнитуре.')}`:''}`,headings:['№','Фурнитура','Количество','Ед.'],rows:items.map((r,i)=>[String(i+1),...r])};
+  };
+  const hasHardware=cabinet=>Object.values(cabinet.totals).some(q=>q>0)||(cabinet.totals.pushLatches||cabinet.totals.confirmats||cabinet.totals.plinthLegs||cabinet.totals.shelfSupports||cabinet.totals.cornerBrackets);
+  const listed=selected||schedule.cabinets.length<2?schedule.cabinets:schedule.cabinets.filter(hasHardware);
   const blocks=listed.map(cabinet=>block(translateBuiltInName(cabinet.cabinetName,language,'cabinet')||t('Корпус'),cabinet.totals,cabinet.rows));
   if(!selected&&schedule.cabinets.length>1)blocks.push(block(t('Всего по проекту'),schedule.totals,schedule.rows,'hardware-total'));
   if(!blocks.length)blocks.push(block(t('Всего по проекту'),schedule.totals,[], 'hardware-total'));

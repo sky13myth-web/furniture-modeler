@@ -24,7 +24,7 @@ export function getMaterialPrice(material,{thickness=material.thickness}={}){
 }
 
 export function getPriceSettings(project){
-  return Object.fromEntries(['handlePrice','guideSetPrice','hingePrice','edgeBandPricePerMeter','rodPricePerMeter','rodHolderPrice','rearScrewPrice','rearNailPrice'].map(key=>{
+  return Object.fromEntries(['handlePrice','guideSetPrice','hingePrice','edgeBandPricePerMeter','rodPricePerMeter','rodHolderPrice','rearScrewPrice','rearNailPrice','confirmatPrice','plinthLegPrice','shelfSupportPrice','cornerBracketPrice','pushLatchPrice'].map(key=>{
     const manual=validPrice(project.settings?.pricing?.[key]);
     const value=manual?project.settings.pricing[key]:HARDWARE_PRICE_REFERENCES[key]?.price??null;
     return [key,{price:value===null?null:money(value),manual,reference:manual?null:HARDWARE_PRICE_REFERENCES[key]??null}];
@@ -42,7 +42,7 @@ export function getProjectCostEstimate(project,{cabinetId=null}={}){
     const material=project.materials.find(m=>m.id===id),rate=getMaterialPrice(material,{thickness});
     rows.push({kind:'material',id,label:material.name,thickness,materialMismatch:Number(thickness)!==Number(material.thickness),quantity,unit:'sheet',unitPrice:rate.pricePerSheet,manual:rate.manual,reference:rate.reference});
   }
-  const add=(id,label,quantity,unit,rate)=>{if(quantity>0)rows.push({kind:'hardware',id,label,quantity,unit,unitPrice:rate.price,manual:rate.manual,reference:rate.reference});};
+  const add=(id,label,quantity,unit,rate)=>{if(quantity>0)rows.push({kind:'hardware',id,label,quantity,unit,unitPrice:rate?.price??null,manual:rate?.manual??false,reference:rate?.reference??null});};
   add('handles','Ручки',hardware.totals.handles,'pcs',prices.handlePrice);
   add('guideSets','Комплекты направляющих',hardware.totals.guideSets,'pair',prices.guideSetPrice);
   add('hinges','Петли',hardware.totals.hinges,'pcs',prices.hingePrice);
@@ -50,6 +50,21 @@ export function getProjectCostEstimate(project,{cabinetId=null}={}){
   add('rodHolders','Держатели штанг',hardware.totals.rodHolders,'pcs',prices.rodHolderPrice);
   add('rearScrews','Винты задника',hardware.rearTotals.screws,'pcs',prices.rearScrewPrice);
   add('rearNails','Гвозди задника',hardware.rearTotals.nails,'pcs',prices.rearNailPrice);
+  if (project.settings?.pricing?.pushLatchPrice !== undefined || project.settings?.includeAllHardware || project.settings?.pushLatches) {
+    add('pushLatches','Толкатели push-to-open',hardware.totals.pushLatches??0,'pcs',prices.pushLatchPrice);
+  }
+  if (project.settings?.pricing?.confirmatPrice !== undefined || project.settings?.includeAllHardware || project.settings?.confirmatFasteners || project.settings?.drilling?.enabled) {
+    add('confirmats','Конфирматы',hardware.totals.confirmats??0,'pcs',prices.confirmatPrice);
+  }
+  if (project.settings?.pricing?.plinthLegPrice !== undefined || project.settings?.includeAllHardware || project.settings?.plinthLegs) {
+    add('plinthLegs','Опоры цоколя',hardware.totals.plinthLegs??0,'pcs',prices.plinthLegPrice);
+  }
+  if (project.settings?.pricing?.shelfSupportPrice !== undefined || project.settings?.includeAllHardware || project.settings?.shelfSupports) {
+    add('shelfSupports','Полкодержатели',hardware.totals.shelfSupports??0,'pcs',prices.shelfSupportPrice);
+  }
+  if (project.settings?.pricing?.cornerBracketPrice !== undefined || project.settings?.includeAllHardware) {
+    add('cornerBrackets','Уголки',hardware.totals.cornerBrackets??0,'pcs',prices.cornerBracketPrice);
+  }
   add('edge','Кромка',edge.lengthMeters,'meter',prices.edgeBandPricePerMeter);
   for(const row of rows)row.cost=row.unitPrice===null?null:money(row.quantity*row.unitPrice);
   const knownTotal=money(rows.reduce((sum,row)=>sum+(row.cost??0),0));

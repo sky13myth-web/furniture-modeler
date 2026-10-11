@@ -391,7 +391,13 @@ export function checkImport(project) {
   }
   if (project.settings.pricing !== undefined) {
     record(project.settings.pricing, 'цены фурнитуры');
-    for (const [key, label] of [['handlePrice', 'ручка'], ['guideSetPrice', 'направляющие, комплект'], ['hingePrice', 'петля'], ['edgeBandPricePerMeter', 'кромка за метр'], ['rodPricePerMeter', 'штанга за метр'], ['rodHolderPrice', 'держатель штанги'], ['rearScrewPrice', 'винт задника'], ['rearNailPrice', 'гвоздь задника']]) {
+    for (const [key, label] of [
+      ['handlePrice', 'ручка'], ['guideSetPrice', 'направляющие, комплект'], ['hingePrice', 'петля'],
+      ['edgeBandPricePerMeter', 'кромка за метр'], ['rodPricePerMeter', 'штанга за метр'], ['rodHolderPrice', 'держатель штанги'],
+      ['rearScrewPrice', 'винт задника'], ['rearNailPrice', 'гвоздь задника'],
+      ['confirmatPrice', 'конфирмат'], ['plinthLegPrice', 'опора цоколя'], ['shelfSupportPrice', 'полкодержатель'],
+      ['cornerBracketPrice', 'уголок'], ['pushLatchPrice', 'толкатель push-to-open']
+    ]) {
       if (project.settings.pricing[key] !== undefined) finite(project.settings.pricing[key], `Цена: ${label}, TRY`, 1e9);
     }
   }

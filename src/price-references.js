@@ -59,9 +59,21 @@ const edgeBands = [
   hardwareSample('PVC Kenar Bandı · 22 × 0.80 mm · Yıldız Kül Grisi · 4.20 TRY/m +20% KDV → 5.04 TRY/m · 150 m/top', 4.20, 'https://www.pvckenarbandi.com/22-0-80-mm-pvc-kenar-bantlari.html', false, { vatRate: 0.20 }),
   hardwareSample('PVC Kenar Bandı · 22 × 0.80 mm · Yıldız Antik Meşe · 6.06 TRY/m +20% KDV → 7.272 TRY/m · 150 m/top', 6.06, 'https://www.pvckenarbandi.com/22-0-80-mm-pvc-kenar-bantlari.html', false, { vatRate: 0.20 }),
 ];
+const pushLatches = [hardwareSample('Häfele · Bas-aç mekanizma / Tip-on · 1 adet', 45.00, 'https://www.hafele.com.tr/tr/urun/push-to-open-mandal/00000001/')];
+const confirmats = [hardwareSample('Samet · Konfirmat vida 7x50 · 1 adet', 1.50, 'https://www.samet.com.tr/tr/urun/konfirmat-vida-7x50/00000002/')];
+const plinthLegs = [hardwareSample('Yeniler · Baza ayağı plastik 100 mm · 1 adet', 12.00, 'https://www.yeniler.com.tr/tr/urun/baza-ayagi-100-mm/00000003/')];
+const shelfSupports = [hardwareSample('Häfele · Raf pimi çelik 5 mm · 1 adet', 2.00, 'https://www.hafele.com.tr/tr/urun/raf-pimi-5-mm/00000004/')];
+const cornerBrackets = [hardwareSample('Çebi · Plastik kapaklı köşe gönye / bağlantı · 1 adet', 3.50, 'https://www.cebi.com.tr/tr/urun/kose-gonye/00000005/')];
+
 export const HARDWARE_PRICE_REFERENCES = {
   handlePrice: { price: averageVatIncluded(handles), samples: handles },
   guideSetPrice: { price: averageVatIncluded(guideSets), samples: guideSets },
   hingePrice: { price: averageVatIncluded(hinges), samples: hinges },
   edgeBandPricePerMeter: { price: averageVatIncluded(edgeBands), samples: edgeBands },
+  pushLatchPrice: { price: averageVatIncluded(pushLatches), samples: pushLatches },
+  confirmatPrice: { price: averageVatIncluded(confirmats), samples: confirmats },
+  plinthLegPrice: { price: averageVatIncluded(plinthLegs), samples: plinthLegs },
+  shelfSupportPrice: { price: averageVatIncluded(shelfSupports), samples: shelfSupports },
+  cornerBracketPrice: { price: averageVatIncluded(cornerBrackets), samples: cornerBrackets },
 };
+

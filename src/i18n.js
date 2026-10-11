@@ -26,8 +26,18 @@ add(`
 Отверстия задника размещаются только в местах контакта с неподвижными плитами корпуса. Размер винта и диаметр сверла можно изменить.|Arkalık delikleri yalnızca sabit gövde levhalarına temas eden noktalara yerleştirilir. Vida ve matkap çapı değiştirilebilir.|Back holes are placed only at contacts with fixed carcass panels. Screw size and drill diameter are adjustable.
 Цена винта задника|Arkalık vida fiyatı|Back screw price
 Цена гвоздя задника|Arkalık çivi fiyatı|Back nail price
+Цена толкателя push-to-open|Bas-aç mekanizması fiyatı|Push-to-open latch price
+Цена конфирмата|Konfirmat vida fiyatı|Confirmat screw price
+Цена опоры цоколя|Baza ayağı fiyatı|Plinth leg price
+Цена полкодержателя|Raf pimi fiyatı|Shelf support price
+Цена уголка|Köşe gönyesi fiyatı|Corner bracket price
 Винты задника|Arkalık vidaları|Back panel screws
 Гвозди задника|Arkalık çivileri|Back panel nails
+Толкатели push-to-open|Bas-aç mekanizmaları|Push-to-open latches
+Конфирматы|Konfirmat vidalar|Confirmat screws
+Опоры цоколя|Baza ayakları|Plinth legs
+Полкодержатели|Raf pimleri|Shelf supports
+Уголки|Köşe gönyeleri|Corner brackets
 Виды шкафа|Dolap görünümleri|Cabinet views
 Раздвинуть детали|Parçaları ayır|Explode parts
 Собрать детали|Parçaları birleştir|Assemble parts

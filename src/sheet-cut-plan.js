@@ -87,9 +87,27 @@ function remainder(rectangle, width, height, kerf, axis) {
   return { largest: Math.max(...freeAreas), cutArea };
 }
 
+function isShelfOrPlinth(part) {
+  return part.role === 'plinth' || part.component === 'plinth' ||
+         part.role === 'shelf' || part.component === 'shelf' ||
+         part.grainAlongLength === true || part.grainAxis === 'width' || part.grainAxis === 'x' ||
+         /^(?:.* · )?(?:полка|цоколь|цокольная)/i.test(part.name ?? '');
+}
+
 function findPlacement(sheet, part, allowRotate) {
-  const orientations = [{ width: part.width, height: part.height, rotated: false }];
-  if (allowRotate && !part.grain && !near(part.width, part.height)) orientations.push({ width: part.height, height: part.width, rotated: true });
+  const isLongPart = isShelfOrPlinth(part);
+  const orientations = [];
+  if (!part.grain) {
+    orientations.push({ width: part.width, height: part.height, rotated: false });
+    if (allowRotate && !near(part.width, part.height)) orientations.push({ width: part.height, height: part.width, rotated: true });
+  } else if (isLongPart) {
+    orientations.push({ width: part.height, height: part.width, rotated: true });
+    if (part.width <= sheet.width + EPS && part.height <= sheet.height + EPS) {
+      orientations.push({ width: part.width, height: part.height, rotated: false });
+    }
+  } else {
+    orientations.push({ width: part.width, height: part.height, rotated: false });
+  }
   let best;
   for (const region of sheet.regions) {
     if (region.state !== 'free') continue;
@@ -163,8 +181,9 @@ export function createSheetCutPlan(parts = [], materials = [], settings = {}, { 
     else if (![Number(stock.sheetWidth), Number(stock.sheetHeight)].every(positive) || Number(stock.sheetWidth) <= 2 * margin || Number(stock.sheetHeight) <= 2 * margin) reason = 'Некорректные размеры листа или отступ от края.';
     else {
       const usableWidth = Number(stock.sheetWidth) - 2 * margin, usableHeight = Number(stock.sheetHeight) - 2 * margin;
+      const isLongPart = isShelfOrPlinth(prototype);
       const fits = prototype.width <= usableWidth + EPS && prototype.height <= usableHeight + EPS;
-      const rotatedFits = allowRotate && !prototype.grain && prototype.height <= usableWidth + EPS && prototype.width <= usableHeight + EPS;
+      const rotatedFits = (allowRotate && !prototype.grain || (prototype.grain && isLongPart)) && prototype.height <= usableWidth + EPS && prototype.width <= usableHeight + EPS;
       if (!fits && !rotatedFits) reason = 'Деталь не помещается на листе с учётом отступа и направления текстуры.';
     }
     if (reason) { for (let instanceIndex = 1; instanceIndex <= quantity; instanceIndex++) reject({ ...prototype, instanceIndex }, reason); continue; }

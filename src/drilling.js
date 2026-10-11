@@ -103,11 +103,11 @@ function localDirection(desc, direction) { return { a: dot(direction, desc.basis
 
 function structural(part) {
   if (!['horizontal', 'vertical-depth'].includes(part.orientation)) return false;
-  if (part.component && !['bottom', 'interior-partition'].includes(part.component)) return false;
-  if (part.role && !['bottom', 'interior-partition'].includes(part.role)) return false;
+  if (part.component && !['bottom', 'interior-partition', 'corner-post'].includes(part.component)) return false;
+  if (part.role && !['bottom', 'interior-partition', 'corner-post'].includes(part.role)) return false;
   if (part.orientation === 'horizontal' && part.role !== 'bottom' && !part.partitionId && part.name !== 'Крышка') return false;
   // Loose shelves intentionally have a 2 mm side gap and are not screw fixed.
-  return !part.sectionId || part.role === 'bottom' || part.component === 'interior-partition' || Boolean(part.partitionId);
+  return !part.sectionId || part.role === 'bottom' || part.component === 'interior-partition' || part.component === 'corner-post' || Boolean(part.partitionId);
 }
 
 function finishedBounds(part) {
@@ -467,7 +467,8 @@ export function getRearFasteningSchedule(project, options = {}) {
   const errors = plan.errors.filter(error => error.code.startsWith('rear-') || String(error.field ?? '').startsWith('rear'));
   const bracketJoints = plan.joints.filter(joint => joint.fastenerType === 'bracket');
   const bracketCount = bracketJoints.reduce((sum, joint) => sum + (joint.quantity ?? 2), 0);
-  return { rows: plan.rearFastenings, rearFastenings: plan.rearFastenings, bracketJoints,
+  const confirmatJoints = plan.joints.filter(joint => joint.fastenerType === 'confirmat');
+  return { rows: plan.rearFastenings, rearFastenings: plan.rearFastenings, bracketJoints, confirmatJoints,
     totals: { screws: plan.rearFastenings.filter(row => row.method === 'screw').reduce((sum, row) => sum + row.quantity, 0),
       nails: plan.rearFastenings.filter(row => row.method === 'nail').reduce((sum, row) => sum + row.quantity, 0),
       brackets: bracketCount },

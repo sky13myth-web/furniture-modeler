@@ -183,7 +183,8 @@ test('both L back joints are complete butt joints with no side or near-boundary 
     const { project, cabinet } = fixture({ width: 1200, height: 2200, depth: 620, sidesToFloor: false, cutout: { corner, width: 300, depth: 180 } });
     let parts = generateParts(project), rear = parts.find(p => p.name === 'Задняя стенка выреза'), side = parts.find(p => p.name === 'Возвратная боковина выреза');
     assert.deepEqual([rear.finishedWidth, rear.position.x, rear.position.z], [318, corner === 'back-left' ? 0 : 882, 180]);
-    assert.equal(side.edges.left, 0);
+    assert.equal(side.edges.right, 0);
+    assert.equal(side.edges.left, 1);
     const shortened = parts.find(p => p.name === (corner === 'back-left' ? 'Боковина левая' : 'Боковина правая'));
     assert.deepEqual([shortened.finishedWidth, shortened.position.z], [437, 183]);
     assertAssembly(parts);

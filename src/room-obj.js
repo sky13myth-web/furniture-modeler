@@ -25,13 +25,72 @@ function sanitizeName(str) {
 function triangulateFace(points) {
   if (points.length < 3) return [];
   if (points.length === 3) return [[0, 1, 2]];
-  if (points.length === 4) return [[0, 1, 2], [0, 2, 3]];
-  // Convex / simple fan triangulation for planar polygons
-  const triangles = [];
-  for (let i = 1; i < points.length - 1; i++) {
-    triangles.push([0, i, i + 1]);
+
+  // Project 3D planar points to 2D along dominant normal axis
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p0 = points[i];
+    const p1 = points[(i + 1) % points.length];
+    nx += (p0[1] - p1[1]) * (p0[2] + p1[2]);
+    ny += (p0[2] - p1[2]) * (p0[0] + p1[0]);
+    nz += (p0[0] - p1[0]) * (p0[1] + p1[1]);
   }
-  return triangles;
+  const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+  let u = 0, v = 1;
+  if (ay >= ax && ay >= az) {
+    u = 0; v = 2; // XZ plane (floor/ceiling)
+  } else if (ax >= ay && ax >= az) {
+    u = 1; v = 2; // YZ plane
+  } else {
+    u = 0; v = 1; // XY plane
+  }
+
+  const vertices2d = points.map(p => [p[u], p[v]]);
+  const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const area = vertices2d.reduce((sum, p, i) => {
+    const q = vertices2d[(i + 1) % vertices2d.length];
+    return sum + p[0] * q[1] - q[0] * p[1];
+  }, 0);
+  if (Math.abs(area) < 1e-7) return [];
+  const sign = area >= 0 ? 1 : -1;
+
+  if (vertices2d.every((p, i) => cross(p, vertices2d[(i + 1) % vertices2d.length], vertices2d[(i + 2) % vertices2d.length]) * sign >= -1e-7)) {
+    return Array.from({ length: vertices2d.length - 2 }, (_, i) => [0, i + 1, i + 2]);
+  }
+
+  const remaining = vertices2d.map((_, i) => i);
+  const result = [];
+  let guard = vertices2d.length * vertices2d.length;
+  while (remaining.length > 3 && guard-- > 0) {
+    let clipped = false;
+    for (let i = 0; i < remaining.length; i++) {
+      const a = remaining[(i + remaining.length - 1) % remaining.length];
+      const b = remaining[i];
+      const c = remaining[(i + 1) % remaining.length];
+      if (cross(vertices2d[a], vertices2d[b], vertices2d[c]) * sign <= 1e-7) continue;
+      const contains = remaining.some(index =>
+        index !== a && index !== b && index !== c &&
+        cross(vertices2d[a], vertices2d[b], vertices2d[index]) * sign >= -1e-7 &&
+        cross(vertices2d[b], vertices2d[c], vertices2d[index]) * sign >= -1e-7 &&
+        cross(vertices2d[c], vertices2d[a], vertices2d[index]) * sign >= -1e-7
+      );
+      if (contains) continue;
+      result.push([a, b, c]);
+      remaining.splice(i, 1);
+      clipped = true;
+      break;
+    }
+    if (!clipped) {
+      for (let i = 1; i < remaining.length - 1; i++) {
+        result.push([remaining[0], remaining[i], remaining[i + 1]]);
+      }
+      return result;
+    }
+  }
+  if (remaining.length === 3) {
+    result.push([...remaining]);
+  }
+  return result;
 }
 
 /**
