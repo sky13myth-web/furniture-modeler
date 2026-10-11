@@ -112,7 +112,15 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
       }
       if (node.appliance !== undefined && node.appliance !== null) {
         record(node.appliance, 'техника');
-        if (!['washer', 'dryer', 'boiler', 'custom'].includes(node.appliance.type)) fail('Секция: неизвестный тип техники.');
+        const allowedTypes = [
+          'washer', 'dryer', 'boiler', 'custom',
+          'oven', 'cooktop', 'microwave',
+          'fridge-builtin', 'fridge-freestanding',
+          'dishwasher-builtin', 'dishwasher-freestanding',
+          'sink-round', 'sink-rectangular',
+          'hood-builtin', 'hood-wall'
+        ];
+        if (!allowedTypes.includes(node.appliance.type)) fail('Секция: неизвестный тип техники.');
         for (const key of ['width', 'height', 'depth']) finite(node.appliance[key], `Техника: ${key}`, 6000, true);
         if (node.appliance.label !== undefined) text(node.appliance.label, 'Техника: название');
         if (node.appliance.useClearances !== undefined) boolean(node.appliance.useClearances, 'Техника: учитывать монтажные зазоры');
@@ -120,6 +128,12 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
           record(node.appliance.clearances, 'монтажные зазоры техники');
           for (const key of ['side', 'top', 'rear']) finite(node.appliance.clearances[key], `Монтажный зазор: ${key}`, 1000);
         }
+        if (node.appliance.sinkShape !== undefined && !['round', 'rectangular'].includes(node.appliance.sinkShape)) fail('Раковина: неизвестная форма чаши.');
+        if (node.appliance.bowlWidth !== undefined) finite(node.appliance.bowlWidth, 'Раковина: ширина чаши', 3000, true);
+        if (node.appliance.bowlDepth !== undefined) finite(node.appliance.bowlDepth, 'Раковина: глубина чаши', 3000, true);
+        if (node.appliance.bowlDiameter !== undefined) finite(node.appliance.bowlDiameter, 'Раковина: диаметр чаши', 3000, true);
+        if (node.appliance.hasDrainer !== undefined) boolean(node.appliance.hasDrainer, 'Раковина: крыло для сушки');
+        if (node.appliance.drainerSide !== undefined && !['left', 'right'].includes(node.appliance.drainerSide)) fail('Раковина: неизвестная сторона крыла.');
       }
       if (!interior && node.interiorLayout !== undefined) {
         if (!['doors', 'open'].includes(node.front)) fail('Внутреннее наполнение возможно только у открытой секции или секции с дверями.');

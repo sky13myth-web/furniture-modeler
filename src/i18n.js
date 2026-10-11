@@ -1073,6 +1073,8 @@ X / Z, мм|X / Z, mm|X / Z, mm
 Фальш-панели для скрытия стыков подвесных шкафов|Üst dolap alt kapama paneli|Wall cabinet bottom finish panels
 Крыло справа|Damlalık sağda|Drainer on right
 Крыло слева|Damlalık solda|Drainer on left
+Раковина: неизвестная форма чаши.|Evye: bilinmeyen hazne şekli.|Sink: unknown bowl shape.
+Раковина: неизвестная сторона крыла.|Evye: bilinmeyen damlalık yönü.|Sink: unknown drainer side.
 `);
 
 let phrasePattern;

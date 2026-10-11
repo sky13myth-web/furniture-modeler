@@ -214,8 +214,10 @@ test('polygon rooms, edge windows, rotation, cutouts and appliance schema are va
   project.cabinets[0].rotation = 181;
   assert.throws(() => checkImport(project), /поворот/);
   project.cabinets[0].rotation = 0;
-  project.cabinets[0].layout.children[0].appliance = { type: 'washer', width: 600, height: 850, depth: 550 };
-  assert.doesNotThrow(() => checkImport(project));
+  for (const type of ['oven', 'cooktop', 'microwave', 'fridge-builtin', 'fridge-freestanding', 'dishwasher-builtin', 'dishwasher-freestanding', 'sink-round', 'sink-rectangular', 'hood-builtin', 'hood-wall', 'washer', 'dryer', 'boiler', 'custom']) {
+    project.cabinets[0].layout.children[0].appliance = { type, width: 600, height: 850, depth: 550 };
+    assert.doesNotThrow(() => checkImport(project), `checkImport should allow ${type}`);
+  }
   project.cabinets[0].layout.children[0].appliance.type = 'unknown';
   assert.throws(() => checkImport(project), /неизвестный тип техники/);
 });
