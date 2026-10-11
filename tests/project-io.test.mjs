@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDefaultProject, validateProject } from '../src/engine.js';
+import { createDefaultProject, createCabinet, validateProject } from '../src/engine.js';
 import { checkImport, csvCell, validateLayoutSchema, validateHingesPerDoor } from '../src/project-io.js';
 import { remapWindows } from '../src/room-geometry.js';
 import { normalizeDrillingSettings } from '../src/drilling.js';
@@ -622,4 +622,27 @@ test('manual price import rejects strings, negatives, nonfinite values and malfo
     }
   }
   for (const value of [null, [], 'prices', 42]) rejects(p => { p.settings.pricing = value; }, /цены фурнитуры/);
+});
+
+test('corner cabinet single door opening and section doorOpenings sync validate without door count mismatch error', () => {
+  for (const type of ['corner-base', 'corner-wall', 'corner-tall']) {
+    const project = createDefaultProject();
+    const corner = createCabinet(type, project, { cornerType: 'blind', blindSide: 'right' });
+    assert.equal(corner.doors, 1);
+    assert.equal(corner.layout.doors, 1);
+    corner.layout.front = 'doors';
+    corner.layout.doorOpenings = [corner.doorOpening || 'left'];
+    project.cabinets.push(corner);
+    assert.doesNotThrow(() => checkImport(project));
+    assert.deepEqual(validateProject(project), []);
+
+    // Change direction to 'right'
+    corner.doorOpening = 'right';
+    corner.layout.doorOpenings = ['right'];
+    assert.doesNotThrow(() => checkImport(project));
+
+    // Mismatched length (2 openings for 1 door) throws
+    corner.layout.doorOpenings = ['left', 'right'];
+    assert.throws(() => checkImport(project), /Число направлений открывания должно совпадать с числом дверей/);
+  }
 });

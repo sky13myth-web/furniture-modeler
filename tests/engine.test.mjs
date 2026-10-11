@@ -1169,3 +1169,39 @@ test('new cabinets prefer the actual thin fibre back without reassigning old eig
   project.materials.find(m => m.id === 'custom-thin-fibre').thickness = 8;
   assert.equal(createCabinet('tall', project).backMaterialId, other.id, 'the priority never fakes a three-millimetre gauge');
 });
+
+test('corner cabinet front layout accurately resolves single door opening direction and blind panel', () => {
+  const project = createDefaultProject();
+  const corner = createCabinet('corner-base', project, { cornerType: 'blind', blindSide: 'right', blindWidth: 600, width: 1000, height: 860, depth: 580 });
+  corner.layout = { ...createSection('doors'), doors: 1, doorOpenings: ['left'] };
+  let fronts = getFrontLayout(corner, project);
+  assert.equal(fronts.length, 2);
+  const blindFront = fronts.find(f => f.kind === 'blind-panel');
+  const doorFront = fronts.find(f => f.kind === 'door');
+  assert.ok(blindFront);
+  assert.ok(doorFront);
+  assert.equal(blindFront.x, 401); // 400 + gap * 0.5
+  assert.equal(blindFront.width, 597); // 600 - gap * 1.5
+  assert.equal(doorFront.x, 2); // gap
+  assert.equal(doorFront.width, 397); // 400 - gap * 1.5
+  assert.equal(doorFront.opening, 'left');
+
+  // Change doorOpening to 'right'
+  corner.doorOpening = 'right';
+  corner.layout.doorOpenings = ['right'];
+  fronts = getFrontLayout(corner, project);
+  assert.equal(fronts.find(f => f.kind === 'door').opening, 'right');
+
+  // Flip corner side to left
+  corner.blindSide = 'left';
+  corner.doorOpening = 'left';
+  corner.layout.doorOpenings = ['left'];
+  fronts = getFrontLayout(corner, project);
+  const blindLeft = fronts.find(f => f.kind === 'blind-panel');
+  const doorRight = fronts.find(f => f.kind === 'door');
+  assert.equal(blindLeft.x, 2);
+  assert.equal(blindLeft.width, 597);
+  assert.equal(doorRight.x, 601);
+  assert.equal(doorRight.width, 397);
+  assert.equal(doorRight.opening, 'left');
+});

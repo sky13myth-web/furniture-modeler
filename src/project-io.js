@@ -200,7 +200,9 @@ export function checkImport(project) {
       if (cabinet.layout && cabinet[key] === undefined) continue;
       if (!Number.isInteger(cabinet[key]) || cabinet[key] < 0 || cabinet[key] > limit) fail(`Модуль: ${label} должно быть целым числом от 0 до ${limit}.`);
     }
-    validateDoorOpenings(cabinet.doorOpenings, cabinet.doors ?? 0);
+    if (!cabinet.layout || cabinet.doors !== undefined) {
+      validateDoorOpenings(cabinet.doorOpenings, cabinet.doors ?? 0);
+    }
     for (const [key, limit, label] of [['plinth', 6000, 'высота цоколя'], ['gap', 10, 'зазор фасадов'], ['drawerSlideGap', 40, 'зазор направляющей'], ['edgeBand', 3, 'толщина кромки']]) finite(cabinet[key], `Модуль: ${label}`, limit);
     validatePartEdgeBandingOverrides(cabinet.partEdgeBanding);
     for (const [key, label] of [['backThickness', 'толщина задней стенки'], ['drawerBottomThickness', 'толщина дна ящика']]) finite(cabinet[key], `Модуль: ${label}`, 60, true);

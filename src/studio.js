@@ -317,7 +317,7 @@ document.addEventListener('click',e=>{
  if(b.dataset.roomView){roomView=b.dataset.roomView;render();}
  if(b.dataset.drawingView){drawingView=b.dataset.drawingView;drawingAssemblyPage=1;renderDrawings();}
  if(b.dataset.assemblyPage){drawingAssemblyPage=Number(b.dataset.assemblyPage);renderDrawings();}
- if(b.dataset.front){change(()=>{const node=editableSection()?.node;if(node){node.front=b.dataset.front;if(node.front==='doors'&&!(node.doors>0))node.doors=2;if(node.front!=='open')delete node.pullOutShelf;if(node.front!=='doors')delete node.hingesPerDoor;if(node.front==='drawers'){delete node.internalDrawerCount;delete node.interiorLayout;if(!(node.drawers>0))node.drawers=2;node.shelves=0;delete node.rods;}delete node.appliance;if(!getFrontLayout(selectedCabinet(),project).some(front=>front.kind==='door'))delete selectedCabinet().hingesPerDoor;}});}
+ if(b.dataset.front){change(()=>{const c=selectedCabinet(),isCorner=c?.cornerType==='blind'||String(c?.type).startsWith('corner'),node=editableSection()?.node;if(node){node.front=b.dataset.front;if(node.front==='doors'){if(isCorner)node.doors=1;else if(!(node.doors>0))node.doors=2;if(node.doorOpenings){node.doorOpenings=Array.from({length:node.doors},(_,i)=>node.doorOpenings[i]??(i%2?'right':'left'));}}else{delete node.doorOpenings;}if(node.front!=='open')delete node.pullOutShelf;if(node.front!=='doors')delete node.hingesPerDoor;if(node.front==='drawers'){delete node.internalDrawerCount;delete node.interiorLayout;if(!(node.drawers>0))node.drawers=2;node.shelves=0;delete node.rods;}delete node.appliance;if(!getFrontLayout(c,project).some(front=>front.kind==='door'))delete c.hingesPerDoor;}});}
  if(b.dataset.split){const s=selectedSection();if(s)change(()=>{const c=selectedCabinet();if(interiorParentId){const outer=layout().sections.find(s=>s.id===interiorParentId),next=splitInteriorSection(outer.node.interiorLayout,s.id,b.dataset.split);if(!next)return false;outer.node.interiorLayout=next;sectionId=findInteriorNode(next,s.id)?.children?.[0]?.id;return;}if(!splitSection(c,s.id,b.dataset.split))return false;sectionId=findLayoutNode(c.layout,s.id)?.children?.[0]?.id;});}
  if(b.dataset.deleteWindow)deleteOpening(b.dataset.deleteWindow);
  if(b.dataset.selectWindow){selectedWindowId=b.dataset.selectWindow;roomFocus='window';const w=selectedOpening();if(w)selectedWall=w.wallIndex??legacyWall(w.wall);render();}
@@ -364,14 +364,14 @@ document.addEventListener('change',e=>{
    if(field==='cutout-corner'){c.cutout=value==='none'?undefined:{corner:value,width:c.cutout?.width||150,depth:c.cutout?.depth||150};}
    else if(field.startsWith('cutout-'))c.cutout[field.slice(7)]=value;
    else if(field==='rotation')setCabinetRotation(c,value);
-    else if(field==='blindSide'){c.blindSide=value;c.doorOpening=value==='left'?'right':'left';if(s?.node)s.node.doorOpenings=[c.doorOpening];}
-    else if(field==='doorOpening'){c.doorOpening=value;if(s?.node)s.node.doorOpenings=[value];}
+    else if(field==='blindSide'){c.blindSide=value;c.doorOpening=value==='left'?'right':'left';const targetNode=s?.node??(c.layout?.kind==='section'?c.layout:c.layout?.children?.[0]);if(targetNode){targetNode.doors=1;targetNode.doorOpenings=[c.doorOpening];}}
+    else if(field==='doorOpening'){c.doorOpening=value;const targetNode=s?.node??(c.layout?.kind==='section'?c.layout:c.layout?.children?.[0]);if(targetNode){targetNode.doors=1;targetNode.doorOpenings=[value];}}
    else {c[field]=value;if(field==='backMaterialId')c.backThickness=project.materials.find(m=>m.id===value)?.thickness||3;if(field==='drawerBottomMaterialId')c.drawerBottomThickness=project.materials.find(m=>m.id===value)?.thickness||6;}
    syncMezzanines(project);
    if(['x','y','z','rotation'].includes(field)&&!canPlaceCabinet(c,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');
   }
   if(scope==='section'&&s){
-   if(field.startsWith('door-opening-')){const index=Number(field.slice(13));s.node.doorOpenings=Array.from({length:s.node.doors||2},(_,i)=>i===index?value:s.node.doorOpenings?.[i]??(i%2?'right':'left'));return;}
+   if(field.startsWith('door-opening-')){const index=Number(field.slice(13)),isCorner=c?.cornerType==='blind'||String(c?.type).startsWith('corner'),count=isCorner?1:(s.node.doors||2);s.node.doors=count;s.node.doorOpenings=Array.from({length:count},(_,i)=>i===index?value:s.node.doorOpenings?.[i]??(i%2?'right':'left'));return;}
    if(field==='floor-open'){s.node.floor=value?'open':'inherit';return;}
    if(field==='section-plinth'){s.node.plinthHeight=value?(s.node.plinthHeight>0?s.node.plinthHeight:c.plinth>0?c.plinth:100):0;return;}
    if(field==='back'&&c.includeBack!==false)return false;
@@ -409,7 +409,7 @@ function action(name){const c=selectedCabinet();
  if(name==='undo'||name==='redo')rememberPricing();
  if(name==='add-cabinet')addCabinetDialog();
  if((name==='extend-left'||name==='extend-right')&&c)change(()=>{const added=extendCabinetSide(c,name==='extend-left'?'left':'right',300,project);if(!added)throw Error('Эту сторону нельзя расширить: проверьте задний вырез, ширину шкафа и число секций.');sectionId=added;});
-  if(name==='flip-corner-side'&&c){change(()=>{const isCorner=c.cornerType==='blind'||String(c.type).startsWith('corner');if(!isCorner)return false;c.blindSide=c.blindSide==='left'?'right':'left';c.doorOpening=c.blindSide==='left'?'right':'left';const s=c.layout?.sections?.[0]?.node??c.layout;if(s)s.doorOpenings=[c.doorOpening];});}
+  if(name==='flip-corner-side'&&c){change(()=>{const isCorner=c.cornerType==='blind'||String(c.type).startsWith('corner');if(!isCorner)return false;c.blindSide=c.blindSide==='left'?'right':'left';c.doorOpening=c.blindSide==='left'?'right':'left';const targetNode=editableSection()?.node??selectedSection()?.node??(c.layout?.kind==='section'?c.layout:c.layout?.children?.[0]??c.layout);if(targetNode){targetNode.doors=1;targetNode.doorOpenings=[c.doorOpening];}});}
  if(name==='rotate-cabinet'&&c){if(c.parentId){toast(translateText('Антресоль привязана к основному шкафу. Перемещайте основной шкаф.',interfaceLanguage));return;}change(()=>{setCabinetRotation(c,(((c.rotation||0)+90+180)%360+360)%360-180);syncMezzanines(project);if(!canPlaceCabinet(c,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');});}
  if(name==='reset-view'){cabinetEditor.reset();viewport.resetCamera();}
  if(name==='open-fronts'){const open=!viewport.options.doorsOpen;viewport.setOptions({doorsOpen:open,...(!open?{internalDrawersOpen:false}:{})});render();}
@@ -490,7 +490,7 @@ function addCabinetDialog(){
   const isWall=['wall','corner-wall','mezzanine'].includes(type),isBase=['base','corner-base'].includes(type),isCorner=['corner-base','corner-wall','corner-tall'].includes(type);
   const defaultName=type==='mezzanine'?`${translateText('Антресоль',interfaceLanguage)} (${anchor?.name||project.cabinets.length+1})`:type==='base'?translateText('Кухонная тумба',interfaceLanguage):type==='corner-base'?translateText('Угловая тумба',interfaceLanguage):type==='corner-wall'?translateText('Угловой навесной шкаф',interfaceLanguage):type==='corner-tall'?translateText('Угловой шкаф',interfaceLanguage):translateText(`Шкаф ${project.cabinets.length+1}`,interfaceLanguage);
   const engineType=['base','corner-base','corner-wall','corner-tall','wall','tall'].includes(type)?type:(type==='mezzanine'?'wall':'tall');
-  const next=createCabinet(engineType,project,{...values,name:defaultName,shelves:isWall?2:isBase?1:0,plinth:isWall?0:100,parentId:type==='mezzanine'?anchor.id:undefined,...(isBase?{countertop:true}:{}),...(isCorner?{cornerType:'blind',blindSide:'right',blindWidth:type==='corner-wall'?340:600}:{})});next.layout=createSection('open');
+  const next=createCabinet(engineType,project,{...values,name:defaultName,shelves:isWall?2:isBase?1:0,plinth:isWall?0:100,parentId:type==='mezzanine'?anchor.id:undefined,...(isBase?{countertop:true}:{}),...(isCorner?{cornerType:'blind',blindSide:'right',blindWidth:type==='corner-wall'?340:600}:{})});next.layout={...createSection('open'),doors:isCorner?1:2,shelves:isWall?2:isBase?1:0};
   if(type==='mezzanine'){if(!anchor)throw Error('Выберите шкаф для установки антресоли.');Object.assign(next,{parentId:anchor.id,width:anchor.width,depth:anchor.depth,x:anchor.x,z:anchor.z,y:anchor.y+anchor.height,rotation:anchor.rotation||0,...(anchor.cutout?{cutout:clone(anchor.cutout)}:{})});}
   const invalid=validateProject({...project,cabinets:[next]}).find(w=>w.level==='error'&&w.cabinetId===next.id);if(invalid)throw Error(invalid.message);
   if(!canPlaceCabinet(next,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');

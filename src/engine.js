@@ -759,7 +759,8 @@ export function getFrontLayout(cabinet, project = { materials: [] }) {
     const depth = number(cabinet.depth) - getCabinetRearReservation(cabinet, project);
     const result = [];
     const secId = cabinet.layout?.id ?? 'section-1';
-    const node = cabinet.layout?.sections?.[0]?.node ?? cabinet;
+    const findFirstSection = l => !l ? null : l.kind === 'section' ? l : Array.isArray(l.children) ? l.children.map(findFirstSection).find(Boolean) : null;
+    const node = findFirstSection(cabinet.layout) ?? (cabinet.layout?.kind === 'section' ? cabinet.layout : null) ?? cabinet;
     const defaultDoorOpening = blindSide === 'right' ? 'left' : 'right';
     const doorOpening = cabinet.doorOpening || node.doorOpenings?.[0] || defaultDoorOpening;
     if (blindSide === 'right') {
@@ -1433,7 +1434,9 @@ export function validateProject(project) {
     if (cabinet.hingesPerDoor !== undefined && (!Number.isInteger(cabinet.hingesPerDoor) || cabinet.hingesPerDoor < 2 || cabinet.hingesPerDoor > 12)) error('число петель на дверь должно быть целым числом от 2 до 12.');
     let layoutValid = true;
     if (cabinet.layout) { try { validateLayoutSchema(cabinet.layout, { materialIds }); } catch (problem) { error(problem.message); layoutValid = false; } }
-    try { validateDoorOpenings(cabinet.doorOpenings, cabinet.doors ?? 0); } catch (problem) { error(problem.message); }
+    if (!cabinet.layout || cabinet.doors !== undefined) {
+      try { validateDoorOpenings(cabinet.doorOpenings, cabinet.doors ?? 0); } catch (problem) { error(problem.message); }
+    }
     const layout = cabinet.layout && layoutValid ? getCabinetLayout(cabinet, project) : null;
     const hasDrawers = layout ? layout.sections.some(section => section.node.front === 'drawers' || !section.node.interiorLayout && section.node.internalDrawerCount > 0) || layout.internalSections.some(section => section.node.front === 'drawers') : integer(cabinet.drawers) > 0;
     for (const [key, label] of [['width', 'ширина'], ['height', 'высота'], ['depth', 'глубина']]) {
