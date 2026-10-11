@@ -480,3 +480,46 @@ test('Delete routes selected openings to their own callback and never intercepts
   editor.setSelectedCorners([0],false);
   editor.keyDown({...key,key:'Escape'});assert.deepEqual(editor.getSelectedCorners(),[]);
 });
+
+test('Alt key bypasses snapping when dragging a cabinet near a wall', () => {
+  const { editor } = editorFixture();
+  editor.project.cabinets[0].x = 500;
+  editor.project.cabinets[0].z = 100;
+
+  // 1. Move without Alt near wall 0 (z = 20 <= 45 threshold) -> snaps to z = 0
+  editor.drag = { type: 'cabinet', id: 'cab', pointerId: 1, start: { x: 500, z: 100 }, original: { x: 500, z: 100 }, draft: { x: 500, z: 100 }, moved: false };
+  editor.pointerMove(pointer(500, 20));
+  assert.equal(editor.drag.draft.z, 0);
+  assert.equal(editor.drag.draft.x, 500);
+
+  // 2. Move with Alt near wall 0 (altKey = true) -> free positioning without snapping (z = 20)
+  editor.drag = { type: 'cabinet', id: 'cab', pointerId: 1, start: { x: 500, z: 100 }, original: { x: 500, z: 100 }, draft: { x: 500, z: 100 }, moved: false };
+  editor.pointerMove({ ...pointer(500, 20), altKey: true });
+  assert.equal(editor.drag.draft.z, 20);
+  assert.equal(editor.drag.draft.x, 500);
+});
+
+test('dimension lines are rendered in the SVG output when a cabinet is selected and disappear on deselect', () => {
+  const { editor } = editorFixture();
+  editor.root = { clientWidth: 600, clientHeight: 500, querySelector: () => null, innerHTML: '' };
+  editor.planMetrics = () => ({ scale: 0.1, font: 12, cabinetFont: 11, handle: 6 });
+
+  // When a cabinet is selected, dimension lines are rendered:
+  editor.selectedCabinetId = 'cab';
+  RoomEditor.prototype.render.call(editor);
+  assert.match(editor.root.innerHTML, /room-dimension-line/);
+  assert.match(editor.root.innerHTML, /room-dim-label/);
+  // cab is at x: 100, z: 100 in 4000x3000 room -> left distance is 100 mm
+  assert.match(editor.root.innerHTML, /100\s*мм/);
+
+  // When an adjacent cabinet is added to the right:
+  editor.project.cabinets.push({ id: 'cab2', x: 1000, z: 100, width: 600, depth: 400 });
+  RoomEditor.prototype.render.call(editor);
+  // Distance between cab (x: 100 + 600 = 700) and cab2 (x: 1000) is 300 mm
+  assert.match(editor.root.innerHTML, /300\s*мм/);
+
+  // When deselecting cabinet, dimension lines disappear:
+  editor.selectedCabinetId = null;
+  RoomEditor.prototype.render.call(editor);
+  assert.doesNotMatch(editor.root.innerHTML, /room-dimension-line/);
+});

@@ -962,6 +962,21 @@ X / Z, мм|X / Z, mm|X / Z, mm
 Проёмы не добавлены.|Açıklık eklenmedi.|No openings added.
 Красным отмечены проёмы с неверными размерами или выходом за границы стены.|Geçersiz ölçüleri olan veya duvar sınırlarını aşan açıklıklar kırmızı gösterilir.|Openings with invalid dimensions or extending beyond their wall are marked in red.
 План печатается независимо от масштаба и выделения на экране.|Plan, ekrandaki yakınlaştırma ve seçimden bağımsız yazdırılır.|The plan prints independently of the screen zoom and selection.
+Ракурс камеры|Kamera açısı|Camera angle
+Спереди|Önden|Front
+От двери|Kapıdan|From door
+Угол 1|Köşe 1|Corner 1
+Угол 2|Köşe 2|Corner 2
+Сверху|Üstten|Top
+Освещение|Aydınlatma|Lighting
+День|Gündüz|Day
+Вечер|Akşam|Evening
+Поиск декора (название или код)…|Dekor ara (ad veya kod)…|Search decor (name or code)…
+Буклет-презентация для клиента|Müşteri sunum kitapçığı|Client presentation booklet
+Буклет-презентация проекта для клиента|Müşteri için proje sunum kitapçığı|Client project presentation booklet
+Презентация|Sunum|Presentation
+Презентация проекта|Proje sunumu|Project presentation
+Сохранить буклет HTML|Sunum HTML dosyasını kaydet|Save presentation HTML
 `);
 
 let phrasePattern;

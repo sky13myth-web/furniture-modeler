@@ -221,3 +221,149 @@ export function polygonsOverlap(a, b) {
   }
   return b.some((p, i) => edgeEntersInterior(p, b[(i + 1) % b.length], a));
 }
+
+const cleanZero = v => Math.abs(v) < 1e-9 ? 0 : Math.round(v * 1000) / 1000;
+
+/** Snap cabinet rear edge flush against the nearest wall segment within threshold. */
+export function snapCabinetToWall(cabinet, room = {}, threshold = 45) {
+  if (!cabinet || typeof cabinet !== 'object') return cabinet;
+  const outline = Array.isArray(room) ? normalizeRoomOutline(room) : getRoomOutline(room);
+  if (!Array.isArray(outline) || outline.length < 3) return { ...cabinet };
+  const width = positiveNumber(cabinet.width, 0);
+  const depth = positiveNumber(cabinet.depth, 0);
+  if (!width || !depth) return { ...cabinet };
+
+  const currentRot = Number.isFinite(cabinet.rotation) ? cabinet.rotation : 0;
+  const rad = currentRot * Math.PI / 180;
+  const bl = { x: Number.isFinite(cabinet.x) ? cabinet.x : 0, z: Number.isFinite(cabinet.z) ? cabinet.z : 0 };
+  const br = { x: bl.x + width * Math.cos(rad), z: bl.z + width * Math.sin(rad) };
+  const bm = { x: (bl.x + br.x) / 2, z: (bl.z + br.z) / 2 };
+
+  let best = null;
+  let minDistance = Infinity;
+
+  for (let i = 0; i < outline.length; i++) {
+    const [a, b] = edge(outline, i);
+    const segLen = Math.hypot(b.x - a.x, b.z - a.z);
+    if (segLen <= EPS) continue;
+
+    const dBl = pointSegmentDistance(bl, a, b);
+    const dBr = pointSegmentDistance(br, a, b);
+    const dBm = pointSegmentDistance(bm, a, b);
+    const rearDist = Math.min(dBm, (dBl + dBr) / 2, Math.max(dBl, dBr));
+
+    if (rearDist < minDistance) {
+      minDistance = rearDist;
+      best = { a, b, index: i, segLen, dBl, dBr, dBm, rearDist };
+    }
+  }
+
+  if (!best) return { ...cabinet };
+
+  const isWithin = best.dBm <= threshold || (best.dBl <= threshold && best.dBr <= threshold) || best.rearDist <= threshold;
+  if (!isWithin) return { ...cabinet };
+
+  const { a, b, segLen } = best;
+  const segX = (b.x - a.x) / segLen, segZ = (b.z - a.z) / segLen;
+  const isClockwise = polygonArea(outline) >= 0;
+  const wallDirX = isClockwise ? segX : -segX;
+  const wallDirZ = isClockwise ? segZ : -segZ;
+
+  let targetAngle = Math.atan2(wallDirZ, wallDirX) * 180 / Math.PI;
+  targetAngle = Math.round(targetAngle * 1000) / 1000;
+  while (targetAngle > 180) targetAngle -= 360;
+  while (targetAngle <= -180) targetAngle += 360;
+
+  // Project back-left corner onto the wall segment
+  const toBlX = bl.x - a.x, toBlZ = bl.z - a.z;
+  const t = (toBlX * (b.x - a.x) + toBlZ * (b.z - a.z)) / (segLen * segLen);
+  let clampedT = t;
+  if (segLen >= width) {
+    clampedT = isClockwise ? Math.max(0, Math.min(1 - width / segLen, t)) : Math.max(width / segLen, Math.min(1, t));
+  } else {
+    clampedT = Math.max(0, Math.min(1, t));
+  }
+
+  const projBl = {
+    x: a.x + clampedT * (b.x - a.x),
+    z: a.z + clampedT * (b.z - a.z)
+  };
+
+  const newX = projBl.x;
+  const newZ = projBl.z;
+
+  return {
+    ...cabinet,
+    x: cleanZero(newX),
+    z: cleanZero(newZ),
+    rotation: cleanZero(targetAngle)
+  };
+}
+
+/** Snap cabinet flush side-to-side to an adjacent cabinet within threshold, aligning front facades. */
+export function snapCabinetToNeighbour(cabinet, existingCabinets = [], threshold = 40) {
+  if (!cabinet || typeof cabinet !== 'object' || !Array.isArray(existingCabinets) || !existingCabinets.length) {
+    return { ...cabinet };
+  }
+  const wB = positiveNumber(cabinet.width, 0);
+  const dB = positiveNumber(cabinet.depth, 0);
+  if (!wB || !dB) return { ...cabinet };
+
+  const curX = Number.isFinite(cabinet.x) ? cabinet.x : 0;
+  const curZ = Number.isFinite(cabinet.z) ? cabinet.z : 0;
+
+  let best = null;
+  let minDistance = threshold;
+
+  for (const other of existingCabinets) {
+    if (!other || other.id === cabinet.id || other.parentId === cabinet.id || other.parentId) continue;
+    const wA = positiveNumber(other.width, 0);
+    const dA = positiveNumber(other.depth, 0);
+    if (!wA || !dA) continue;
+
+    const rotA = Number.isFinite(other.rotation) ? other.rotation : 0;
+    const radA = rotA * Math.PI / 180;
+    const cosA = Math.cos(radA), sinA = Math.sin(radA);
+    const oX = Number.isFinite(other.x) ? other.x : 0;
+    const oZ = Number.isFinite(other.z) ? other.z : 0;
+
+    // Candidate 1: Place cabinet on the RIGHT of other cabinet.
+    // In other's local coordinates: x = wA, front facade aligns: z = dA - dB
+    const candRightX = oX + wA * cosA - (dA - dB) * sinA;
+    const candRightZ = oZ + wA * sinA + (dA - dB) * cosA;
+    const distRight = Math.hypot(curX - candRightX, curZ - candRightZ);
+    if (distRight <= minDistance) {
+      minDistance = distRight;
+      best = {
+        x: cleanZero(candRightX),
+        z: cleanZero(candRightZ),
+        rotation: rotA
+      };
+    }
+
+    // Candidate 2: Place cabinet on the LEFT of other cabinet.
+    // In other's local coordinates: x = -wB, front facade aligns: z = dA - dB
+    const candLeftX = oX - wB * cosA - (dA - dB) * sinA;
+    const candLeftZ = oZ - wB * sinA + (dA - dB) * cosA;
+    const distLeft = Math.hypot(curX - candLeftX, curZ - candLeftZ);
+    if (distLeft <= minDistance) {
+      minDistance = distLeft;
+      best = {
+        x: cleanZero(candLeftX),
+        z: cleanZero(candLeftZ),
+        rotation: rotA
+      };
+    }
+  }
+
+  if (best) {
+    return {
+      ...cabinet,
+      x: best.x,
+      z: best.z,
+      rotation: best.rotation
+    };
+  }
+
+  return { ...cabinet };
+}

@@ -1,4 +1,4 @@
-import { getRoomOutline, polygonArea, polygonIsSimple, cabinetFootprint } from './room-geometry.js';
+import { getRoomOutline, polygonArea, polygonIsSimple, cabinetFootprint, snapCabinetToWall, snapCabinetToNeighbour } from './room-geometry.js';
 import { applyTranslations } from './i18n.js';
 import { resolveCabinetMovement, canApplyCabinetMovement } from './cabinet-motion.js';
 import { canPlaceCabinet } from './engine.js';
@@ -11,6 +11,67 @@ const number = value => Number.isFinite(value) ? value : 0;
 const fmt = value => Math.round(value).toLocaleString('ru-RU');
 const color = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : '#bfcdbf';
 const legacyWalls = { back: 0, right: 1, front: 2, left: 3 };
+
+function raycastOutline(origin, direction, outline) {
+  let closest = null;
+  let minT = Infinity;
+  for (let i = 0; i < outline.length; i++) {
+    const a = outline[i], b = outline[(i + 1) % outline.length];
+    const edgeX = b.x - a.x, edgeZ = b.z - a.z;
+    const det = direction.x * edgeZ - direction.z * edgeX;
+    if (Math.abs(det) < 1e-7) continue;
+    const dx = a.x - origin.x, dz = a.z - origin.z;
+    const t = (dx * edgeZ - dz * edgeX) / det;
+    const s = (dx * direction.z - dz * direction.x) / det;
+    if (t > 1e-3 && s >= -1e-5 && s <= 1 + 1e-5 && t < minT) {
+      minT = t;
+      closest = { point: { x: origin.x + t * direction.x, z: origin.z + t * direction.z }, distance: t, edgeIndex: i };
+    }
+  }
+  return closest;
+}
+
+function raycastCabinets(origin, direction, cabinets, currentCabinetId) {
+  let closest = null;
+  let minT = Infinity;
+  for (const other of cabinets) {
+    if (!other || other.id === currentCabinetId || other.parentId) continue;
+    const poly = cabinetFootprint(other);
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const edgeX = b.x - a.x, edgeZ = b.z - a.z;
+      const det = direction.x * edgeZ - direction.z * edgeX;
+      if (Math.abs(det) < 1e-7) continue;
+      const dx = a.x - origin.x, dz = a.z - origin.z;
+      const t = (dx * edgeZ - dz * edgeX) / det;
+      const s = (dx * direction.z - dz * direction.x) / det;
+      if (t > 1e-3 && s >= -1e-5 && s <= 1 + 1e-5 && t < minT) {
+        minT = t;
+        closest = { point: { x: origin.x + t * direction.x, z: origin.z + t * direction.z }, distance: t, cabinet: other };
+      }
+    }
+  }
+  return closest;
+}
+
+function renderDimensionLine(p1, p2, distance, kind, font) {
+  const dx = p2.x - p1.x, dz = p2.z - p1.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 5) return '';
+  const nx = -dz / length, nz = dx / length;
+  const tickSize = Math.max(3, Math.min(8, font * 0.45));
+  const t1a = { x: p1.x - nx * tickSize, z: p1.z - nz * tickSize };
+  const t1b = { x: p1.x + nx * tickSize, z: p1.z + nz * tickSize };
+  const t2a = { x: p2.x - nx * tickSize, z: p2.z - nz * tickSize };
+  const t2b = { x: p2.x + nx * tickSize, z: p2.z + nz * tickSize };
+  const midX = (p1.x + p2.x) / 2, midZ = (p1.z + p2.z) / 2;
+  let angle = Math.atan2(dz, dx) * 180 / Math.PI;
+  if (angle > 90 || angle < -90) angle += 180;
+  const label = `${fmt(distance)} мм`;
+  const textWidth = Math.max(28, label.length * font * 0.62);
+  const textHeight = font * 1.3;
+  return `<g class="room-dimension-line" data-dimension-kind="${kind}" pointer-events="none"><line class="room-dim-tick" x1="${t1a.x}" y1="${t1a.z}" x2="${t1b.x}" y2="${t1b.z}" stroke="#486956" stroke-width="1.2" vector-effect="non-scaling-stroke"/><line class="room-dim-line" x1="${p1.x}" y1="${p1.z}" x2="${p2.x}" y2="${p2.z}" stroke="#486956" stroke-width="1.2" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/><line class="room-dim-tick" x1="${t2a.x}" y1="${t2a.z}" x2="${t2b.x}" y2="${t2b.z}" stroke="#486956" stroke-width="1.2" vector-effect="non-scaling-stroke"/><g transform="translate(${midX} ${midZ}) rotate(${angle})"><rect x="${-textWidth / 2}" y="${-textHeight / 2}" width="${textWidth}" height="${textHeight}" rx="${font * 0.2}" fill="#ffffff" fill-opacity="0.9"/><text class="room-dim-label" x="0" y="0" text-anchor="middle" dominant-baseline="middle" font-size="${font}" fill="#27473a" font-weight="500">${label}</text></g></g>`;
+}
 
 /** Small, independent 2D room plan. A pointer gesture commits only on release. */
 export class RoomEditor {
@@ -451,6 +512,31 @@ export class RoomEditor {
         drag.draft={x:result.x,z:result.z};
         this.hint=result.blocked?'Шкаф скользит вдоль препятствия. Монтажные отступы сохранены.':'';
       } else this.hint = 'Шкаф должен оставаться внутри комнаты с монтажными отступами от стен и потолка. Сохранено последнее допустимое положение.';
+
+      if (!event.altKey && cabinet) {
+        let current = { ...cabinet, ...drag.draft };
+        let didSnap = false;
+        // 1. First snap to adjacent cabinets
+        const neighbourSnapped = snapCabinetToNeighbour(current, this.project.cabinets || []);
+        if (neighbourSnapped && (neighbourSnapped.x !== current.x || neighbourSnapped.z !== current.z || (neighbourSnapped.rotation !== undefined && neighbourSnapped.rotation !== current.rotation))) {
+          current = { ...current, x: neighbourSnapped.x, z: neighbourSnapped.z, ...(neighbourSnapped.rotation !== undefined ? { rotation: neighbourSnapped.rotation } : {}) };
+          didSnap = true;
+        }
+        // 2. Then snap to wall
+        const wallSnapped = snapCabinetToWall(current, this.project.room || { outline: this.outline });
+        if (wallSnapped && (wallSnapped.x !== current.x || wallSnapped.z !== current.z || (wallSnapped.rotation !== undefined && wallSnapped.rotation !== current.rotation))) {
+          current = { ...current, x: wallSnapped.x, z: wallSnapped.z, ...(wallSnapped.rotation !== undefined ? { rotation: wallSnapped.rotation } : {}) };
+          didSnap = true;
+        }
+        if (didSnap) {
+          drag.draft = { x: current.x, z: current.z, ...(current.rotation !== undefined && current.rotation !== (cabinet.rotation || 0) ? { rotation: current.rotation } : {}) };
+          drag.snapped = true;
+        } else {
+          drag.snapped = false;
+        }
+      } else {
+        drag.snapped = false;
+      }
       drag.moved = drag.draft.x !== drag.original.x || drag.draft.z !== drag.original.z;
     }
     this.render();
@@ -507,7 +593,7 @@ export class RoomEditor {
     const outline = this.drag?.type === 'corner' || this.drag?.type === 'wall' ? this.drag.draft : this.outline;
     const cabinetData = (this.project.cabinets || []).map(c => {
       if (['cabinet','cabinet-resize'].includes(this.drag?.type) && c.id === this.drag.id) return { ...c, ...this.drag.draft };
-      if (this.drag?.type === 'cabinet' && c.parentId === this.drag.id) return { ...c, x: this.drag.draft.x, z: this.drag.draft.z };
+      if (this.drag?.type === 'cabinet' && c.parentId === this.drag.id) return { ...c, x: this.drag.draft.x, z: this.drag.draft.z, ...(this.drag.draft.rotation !== undefined ? { rotation: this.drag.draft.rotation } : {}) };
       if (this.drag?.type === 'cabinet-resize' && c.parentId === this.drag.id) return { ...c, width: this.drag.draft.width, depth: this.drag.draft.depth };
       return c;
     });
@@ -580,6 +666,58 @@ export class RoomEditor {
       const labelColor = isMezzanine ? '#546e61' : '#27473a';
       return `<g data-room-cabinet="${escape(c.id)}" data-i18n="off" class="room-cabinet${selected ? ' is-selected' : ''}" role="button" aria-label="${escape(c.name)}" style="${c.parentId ? 'cursor:pointer' : 'cursor:move'}"><title>${escape(c.name)}${c.parentId ? ' · привязана к основному шкафу' : ''} · лицевая сторона спереди</title><polygon points="${pointsText(points)}" fill="${color(material?.color)}" fill-opacity="${selected ? 0.9 : 0.6}" stroke="${selected ? '#148b7c' : '#788a7b'}" stroke-width="${selected ? 3 : 1}" vector-effect="non-scaling-stroke"/>${frontMark}<text x="${cx}" y="${textY}" class="room-cabinet-label" fill="${labelColor}" text-anchor="middle" dominant-baseline="middle" font-size="${labelSize}" font-weight="${isMezzanine ? 'normal' : '500'}" pointer-events="none">${escape((c.name || 'Модуль').slice(0, 25))}</text></g>`;
     }).join('');
+    let dimensionLines = '';
+    const activeCabinetId = this.drag?.type === 'cabinet' ? this.drag.id : this.selectedCabinetId;
+    const activeCabinet = activeCabinetId ? cabinetData.find(c => c.id === activeCabinetId) : null;
+    if (activeCabinet && !activeCabinet.parentId) {
+      const angle = (number(activeCabinet.rotation) || 0) * Math.PI / 180;
+      const cos = Math.cos(angle), sin = Math.sin(angle);
+      const w = number(activeCabinet.width, 0);
+      const d = number(activeCabinet.depth, 0);
+      const pLeft = { x: number(activeCabinet.x) - (d / 2) * sin, z: number(activeCabinet.z) + (d / 2) * cos };
+      const dirLeft = { x: -cos, z: -sin };
+      const pRight = { x: number(activeCabinet.x) + w * cos - (d / 2) * sin, z: number(activeCabinet.z) + w * sin + (d / 2) * cos };
+      const dirRight = { x: cos, z: sin };
+
+      const wallLeft = raycastOutline(pLeft, dirLeft, outline);
+      const cabLeft = raycastCabinets(pLeft, dirLeft, cabinetData, activeCabinet.id);
+      const wallRight = raycastOutline(pRight, dirRight, outline);
+      const cabRight = raycastCabinets(pRight, dirRight, cabinetData, activeCabinet.id);
+
+      const lines = [];
+      if (cabLeft && cabLeft.distance < (wallLeft?.distance ?? Infinity)) {
+        if (cabLeft.distance >= 1) {
+          lines.push(renderDimensionLine(pLeft, cabLeft.point, cabLeft.distance, 'neighbour-left', cabinetFont));
+        }
+      } else if (wallLeft && wallLeft.distance >= 1) {
+        lines.push(renderDimensionLine(pLeft, wallLeft.point, wallLeft.distance, 'wall-left', cabinetFont));
+      }
+
+      if (cabRight && cabRight.distance < (wallRight?.distance ?? Infinity)) {
+        if (cabRight.distance >= 1) {
+          lines.push(renderDimensionLine(pRight, cabRight.point, cabRight.distance, 'neighbour-right', cabinetFont));
+        }
+      } else if (wallRight && wallRight.distance >= 1) {
+        lines.push(renderDimensionLine(pRight, wallRight.point, wallRight.distance, 'wall-right', cabinetFont));
+      }
+
+      if (lines.length > 0) {
+        dimensionLines = `<g class="room-dimension-lines" pointer-events="none" data-room-dimensions="true">${lines.join('')}</g>`;
+      }
+    }
+
+    let snapGuidelines = '';
+    if (this.drag?.type === 'cabinet' && this.drag.snapped) {
+      const c = cabinetData.find(item => item.id === this.drag.id);
+      if (c) {
+        const angle = (number(c.rotation) || 0) * Math.PI / 180;
+        const co = Math.cos(angle), si = Math.sin(angle);
+        const bl = { x: number(c.x), z: number(c.z) };
+        const br = { x: bl.x + number(c.width) * co, z: bl.z + number(c.width) * si };
+        snapGuidelines = `<g class="room-snap-guidelines" pointer-events="none"><line class="room-snap-guide" x1="${bl.x}" y1="${bl.z}" x2="${br.x}" y2="${br.z}" stroke="#148b7c" stroke-width="3" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/></g>`;
+      }
+    }
+
     const selectedCorners=new Set(this.drag?.type==='selection'?this.drag.draftIndices:this.getSelectedCorners());
     const corners = outline.map((p, i) => `<circle class="room-corner${selectedCorners.has(i) ? ' is-selected' : ''}" data-room-corner="${i}" cx="${p.x}" cy="${p.z}" r="${handle}" fill="${selectedCorners.has(i) ? '#15897d' : '#ffffff'}" stroke="#15897d" stroke-width="2" vector-effect="non-scaling-stroke" tabindex="0" role="button" aria-label="Угол ${i + 1}, перетяните для изменения плана"/>`).join('');
     const rubberBand=this.drag?.type==='selection'?`<rect data-room-selection="true" x="${Math.min(this.drag.start.x,this.drag.end.x)}" y="${Math.min(this.drag.start.z,this.drag.end.z)}" width="${Math.abs(this.drag.end.x-this.drag.start.x)}" height="${Math.abs(this.drag.end.z-this.drag.start.z)}" fill="#17a695" fill-opacity=".08" stroke="#16877c" stroke-width="1.4" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" pointer-events="none"/>`:'';
@@ -590,7 +728,7 @@ export class RoomEditor {
     this.root.className=`room-editor${this.drag?.type==='pan'?' is-panning':this.spacePressed?' pan-ready':''}`;
     const displayCaption=captionCabinet?`<span data-i18n="off">${escape(caption)}</span>`:escape(caption);
     const frozenHeight=this.drag?.planHeight>0?`;height:${this.drag.planHeight}px;flex:0 0 ${this.drag.planHeight}px`:'';
-    this.root.innerHTML = `<div class="room-toolbar"><span class="room-selection-label">${displayCaption}</span><div class="room-zoom-tools" role="toolbar" aria-label="Масштаб плана"><button class="room-corner-action" data-room-zoom="out" aria-label="Отдалить" title="Отдалить"${this.zoom<=.25?' disabled':''}>−</button><output data-room-scale>${Math.round(this.zoom*100)}%</output><button class="room-corner-action" data-room-zoom="in" aria-label="Приблизить" title="Приблизить"${this.zoom>=16?' disabled':''}>+</button><button class="room-corner-action" data-room-zoom="fit" title="Вписать план">Вписать план</button></div></div><svg class="room-plan${invalid ? ' is-invalid' : ''}" viewBox="${box.x} ${box.z} ${box.width} ${box.depth}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="План помещения, размеры в миллиметрах" style="touch-action:none${frozenHeight}"><polygon class="room-floor" points="${pointsText(outline)}" fill="${invalid ? '#f7ddd4' : '#edf1e8'}"/>${cabinets}${walls}${windows}${corners}${rubberBand}${resizeHandles}</svg><p class="room-plan-hint${invalid || this.hint ? ' is-notice' : ''}" role="status"><span>${escape(hint)}</span> <span class="room-navigation-hint">Колесо — масштаб; средняя кнопка или Space + перетаскивание — сдвиг плана</span></p>`;
+    this.root.innerHTML = `<div class="room-toolbar"><span class="room-selection-label">${displayCaption}</span><div class="room-zoom-tools" role="toolbar" aria-label="Масштаб плана"><button class="room-corner-action" data-room-zoom="out" aria-label="Отдалить" title="Отдалить"${this.zoom<=.25?' disabled':''}>−</button><output data-room-scale>${Math.round(this.zoom*100)}%</output><button class="room-corner-action" data-room-zoom="in" aria-label="Приблизить" title="Приблизить"${this.zoom>=16?' disabled':''}>+</button><button class="room-corner-action" data-room-zoom="fit" title="Вписать план">Вписать план</button></div></div><svg class="room-plan${invalid ? ' is-invalid' : ''}" viewBox="${box.x} ${box.z} ${box.width} ${box.depth}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="План помещения, размеры в миллиметрах" style="touch-action:none${frozenHeight}"><polygon class="room-floor" points="${pointsText(outline)}" fill="${invalid ? '#f7ddd4' : '#edf1e8'}"/>${cabinets}${walls}${windows}${corners}${rubberBand}${resizeHandles}${snapGuidelines}${dimensionLines}</svg><p class="room-plan-hint${invalid || this.hint ? ' is-notice' : ''}" role="status"><span>${escape(hint)}</span> <span class="room-navigation-hint">Колесо — масштаб; средняя кнопка или Space + перетаскивание — сдвиг плана</span></p>`;
     if(typeof this.root.querySelectorAll==='function')applyTranslations(this.root,this.language||this.root.ownerDocument?.documentElement?.lang||'ru');
   }
 

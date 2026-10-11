@@ -73,7 +73,59 @@ function mat4Multiply(out, a, b) {
   return out;
 }
 
-const VERTEX_SHADER_SOURCE = `
+function mat4Invert(out, a) {
+  const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+  const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+  const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+  const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+
+  const b00 = a00 * a11 - a01 * a10;
+  const b01 = a00 * a12 - a02 * a10;
+  const b02 = a00 * a13 - a03 * a10;
+  const b03 = a01 * a12 - a02 * a11;
+  const b04 = a01 * a13 - a03 * a11;
+  const b05 = a02 * a13 - a03 * a12;
+  const b06 = a20 * a31 - a21 * a30;
+  const b07 = a20 * a32 - a22 * a30;
+  const b08 = a20 * a33 - a23 * a30;
+  const b09 = a21 * a32 - a22 * a31;
+  const b10 = a21 * a33 - a23 * a31;
+  const b11 = a22 * a33 - a23 * a32;
+
+  let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+  if (!det) return false;
+  const invDet = 1.0 / det;
+
+  out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * invDet;
+  out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * invDet;
+  out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * invDet;
+  out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * invDet;
+  out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * invDet;
+  out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * invDet;
+  out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * invDet;
+  out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * invDet;
+  out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * invDet;
+  out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * invDet;
+  out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * invDet;
+  out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * invDet;
+  out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * invDet;
+  out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * invDet;
+  out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * invDet;
+  out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * invDet;
+
+  return true;
+}
+
+function vec4Transform(v, m) {
+  return [
+    m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3],
+    m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3],
+    m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3],
+    m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3],
+  ];
+}
+
+export const VERTEX_SHADER_SOURCE = `
 attribute vec3 aPosition;
 attribute vec3 aNormal;
 attribute vec4 aColor;
@@ -96,7 +148,7 @@ void main() {
 }
 `;
 
-const FRAGMENT_SHADER_SOURCE = `
+export const FRAGMENT_SHADER_SOURCE = `
 precision mediump float;
 
 varying vec3 vPosition;
@@ -109,6 +161,7 @@ uniform vec3 uLightColor;
 uniform vec3 uCameraPos;
 uniform sampler2D uShadowMap;
 uniform bool uUseShadows;
+uniform int uLightingMode;
 
 float sampleShadow(vec4 lightSpacePos, vec3 norm, vec3 lightDir) {
   vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
@@ -151,14 +204,9 @@ void main() {
   // Direct ceiling light
   float diff = max(dot(norm, lightDir), 0.0);
 
-  // Directional key / angle light for 3D depth and shape definition
-  vec3 keyDir = normalize(vec3(0.35, 0.85, 0.4));
-  float keyDiff = max(dot(norm, keyDir), 0.0) * 0.22;
-
-  // Camera fill to prevent pure black back sides
+  // Camera view direction
   vec3 viewDir = normalize(uCameraPos - vPosition);
   vec3 halfDir = normalize(lightDir + viewDir);
-  float camFill = max(dot(norm, viewDir), 0.0) * 0.08;
 
   // Blinn-phong specular
   float isGlass = (vColor.a < 0.9) ? 1.0 : 0.0;
@@ -166,21 +214,49 @@ void main() {
   float specStrength = (isGlass > 0.5) ? 0.42 : 0.14;
   float spec = pow(max(dot(norm, halfDir), 0.0), shininess) * specStrength;
 
-  // Balanced Hemispheric Ambient (soft warm floor bounce + cool ceiling fill)
-  vec3 skyColor = vec3(0.36, 0.39, 0.42);
-  vec3 groundColor = vec3(0.28, 0.27, 0.25);
+  // Ambient lighting setup based on lighting mode (day vs evening)
+  vec3 skyColor;
+  vec3 groundColor;
+  if (uLightingMode == 1) {
+    skyColor = vec3(0.52, 0.56, 0.62);
+    groundColor = vec3(0.34, 0.33, 0.30);
+  } else {
+    skyColor = vec3(0.36, 0.39, 0.42);
+    groundColor = vec3(0.28, 0.27, 0.25);
+  }
   float hemi = norm.y * 0.5 + 0.5;
   vec3 ambient = mix(groundColor, skyColor, hemi);
 
   // Soft shadow from ceiling chandelier
   float shadowFactor = uUseShadows ? sampleShadow(vLightSpacePos, norm, lightDir) : 1.0;
 
-  // Direct light contribution
+  // Direct ceiling light contribution
   vec3 directDiffuse = diff * uLightColor * atten * shadowFactor;
   vec3 directSpec = spec * uLightColor * atten * shadowFactor;
 
-  // Composite lighting for opaque surfaces
-  vec3 lighting = ambient + directDiffuse + keyDiff + camFill;
+  // Day mode bright sunlight entering at an angle
+  vec3 sunContrib = vec3(0.0);
+  vec3 sunSpecContrib = vec3(0.0);
+  if (uLightingMode == 1) {
+    vec3 sunDir = normalize(vec3(0.5, 0.85, -0.4));
+    float sunDiff = max(dot(norm, sunDir), 0.0) * 0.75;
+    vec3 sunHalfDir = normalize(sunDir + viewDir);
+    float sunSpec = pow(max(dot(norm, sunHalfDir), 0.0), shininess) * specStrength * 0.75;
+    vec3 sunColor = vec3(1.0, 0.98, 0.92);
+    sunContrib = sunDiff * sunColor;
+    sunSpecContrib = sunSpec * sunColor;
+  }
+
+  // Directional key / angle light for 3D depth and shape definition
+  vec3 keyDir = normalize(vec3(0.35, 0.85, 0.4));
+  float keyDiff = (uLightingMode == 1) ? 0.0 : (max(dot(norm, keyDir), 0.0) * 0.22);
+
+  // Camera fill to prevent pure black back sides
+  float camFill = max(dot(norm, viewDir), 0.0) * 0.08;
+
+  // Composite lighting for surfaces
+  vec3 lighting = ambient + directDiffuse + sunContrib + keyDiff + camFill;
+  vec3 totalSpec = directSpec + sunSpecContrib;
 
   // Floor subtle contact darkening near base
   if (vPosition.y < 4.0) {
@@ -190,9 +266,43 @@ void main() {
   vec3 surfaceColor;
   if (isGlass > 0.5) {
     // Glass has high transparency and specular highlights
-    surfaceColor = vColor.rgb * (ambient * 0.6 + directSpec * 1.5) + directSpec;
+    surfaceColor = vColor.rgb * (ambient * 0.6 + totalSpec * 1.5) + totalSpec;
   } else {
-    surfaceColor = vColor.rgb * lighting + directSpec;
+    surfaceColor = vColor.rgb * lighting + totalSpec;
+
+    // Floor procedural texture: for floor faces (where vPosition.y < 2.0)
+    if (vPosition.y < 2.0 && norm.y > 0.5) {
+      float plankWidth = 200.0;
+      float plankLength = 1200.0;
+      float row = floor(vPosition.z / plankWidth);
+      float stagger = mod(row * 400.0, plankLength);
+      vec2 pCoord = vec2(vPosition.x + stagger, vPosition.z);
+      vec2 cell = mod(pCoord, vec2(plankLength, plankWidth));
+      float edgeX = min(cell.x, plankLength - cell.x);
+      float edgeZ = min(cell.y, plankWidth - cell.y);
+      float seam = 1.0 - smoothstep(0.8, 3.2, min(edgeX, edgeZ));
+
+      // Subtle per-plank tone variation
+      float plankId = sin(row * 127.1 + floor(pCoord.x / plankLength) * 311.7);
+      float plankTone = fract(plankId * 43758.5453) * 0.05 - 0.025;
+      surfaceColor = surfaceColor * (1.0 + plankTone) * (1.0 - seam * 0.16);
+    }
+
+    // Wood grain: for wooden materials / decors, add subtle procedural micro-grain along length of parts
+    bool isWood = (vPosition.y >= 2.0 && vColor.a > 0.9 &&
+                   vColor.r > vColor.b * 1.08 && (vColor.r - vColor.b) > 0.045 &&
+                   vColor.r > 0.22 && vColor.b < 0.88);
+    if (isWood) {
+      float u = (abs(norm.y) < 0.5) ? dot(vPosition.xz, vec2(-norm.z, norm.x)) : vPosition.x;
+      float v = (abs(norm.y) < 0.5) ? vPosition.y : vPosition.z;
+
+      float grainWave = sin(u * 0.45 + sin(v * 0.015) * 3.5);
+      float fineGrain = sin(u * 1.8 + sin(v * 0.04) * 4.0);
+      float microFibers = sin(u * 6.0 + v * 0.2) * 0.5 + 0.5;
+
+      float grain = grainWave * 0.035 + fineGrain * 0.02 + (microFibers - 0.5) * 0.02;
+      surfaceColor *= (1.0 + grain);
+    }
   }
 
   // Smooth, balanced filmic exposure curve (never overexposed, never washed out!)
@@ -222,7 +332,7 @@ void main() {
 }
 `;
 
-function createShader(gl, type, source) {
+export function createShader(gl, type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
@@ -234,7 +344,7 @@ function createShader(gl, type, source) {
   return shader;
 }
 
-function createProgram(gl, vsSource, fsSource) {
+export function createProgram(gl, vsSource, fsSource) {
   const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
   const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
   const prog = gl.createProgram();
@@ -252,11 +362,14 @@ function createProgram(gl, vsSource, fsSource) {
 export class RoomWebGLRenderer {
   constructor(canvas, { onSelect = () => {}, onChange = () => {} } = {}) {
     this.canvas = canvas;
+    this._defaultOnSelect = onSelect;
     this.onSelect = onSelect;
     this.onChange = onChange;
     this.project = null;
     this.doorsOpen = false;
     this.wallMode = 'cutaway'; // 'cutaway' | 'all'
+    this.lightingMode = 'evening'; // 'day' | 'evening'
+    this.cameraPreset = 'corner-1';
 
     // Camera parameters
     this.target = [2000, 1000, 1500];
@@ -281,8 +394,8 @@ export class RoomWebGLRenderer {
 
   initGL() {
     try {
-      this.gl = this.canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: true }) ||
-                this.canvas.getContext('experimental-webgl', { antialias: true, preserveDrawingBuffer: true });
+      this.gl = this.canvas ? (this.canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: true }) ||
+                this.canvas.getContext('experimental-webgl', { antialias: true, preserveDrawingBuffer: true })) : null;
     } catch {
       this.gl = null;
     }
@@ -310,6 +423,7 @@ export class RoomWebGLRenderer {
         cameraPos: gl.getUniformLocation(this.mainProgram, 'uCameraPos'),
         shadowMap: gl.getUniformLocation(this.mainProgram, 'uShadowMap'),
         useShadows: gl.getUniformLocation(this.mainProgram, 'uUseShadows'),
+        lightingMode: gl.getUniformLocation(this.mainProgram, 'uLightingMode'),
       };
 
       this.shadowProgram = createProgram(gl, SHADOW_VS, SHADOW_FS);
@@ -400,8 +514,127 @@ export class RoomWebGLRenderer {
     this.yaw = Math.PI * 0.28;
     this.pitch = 0.32;
     this.distance = Math.max(b.width, b.depth) * 0.95;
+    this.cameraPreset = 'corner-1';
     this.buildGeometry();
     this.render();
+  }
+
+  setCameraPreset(name) {
+    if (!this.roomCenter) this.updateRoomLighting();
+    const bounds = this.roomBounds || {
+      width: 4000, depth: 3000, height: 2700,
+      minX: 0, maxX: 4000, minZ: 0, maxZ: 3000
+    };
+    const cx = (bounds.minX + bounds.maxX) / 2;
+    const cz = (bounds.minZ + bounds.maxZ) / 2;
+    const cy = (bounds.height || 2700) * 0.45;
+
+    switch (name) {
+      case 'top': {
+        this.target = [cx, cy, cz];
+        this.yaw = 0;
+        this.pitch = Math.PI * 0.47;
+        this.distance = Math.max(bounds.width, bounds.depth) * 1.05;
+        break;
+      }
+      case 'door': {
+        const room = this.project?.room;
+        const outline = room?.outline || [
+          { x: bounds.minX, z: bounds.minZ },
+          { x: bounds.maxX, z: bounds.minZ },
+          { x: bounds.maxX, z: bounds.maxZ },
+          { x: bounds.minX, z: bounds.maxZ }
+        ];
+        const wallLookup = { back: 0, right: 1, front: 2, left: 3 };
+        const door = (room?.windows || []).find(w => w.kind === 'door');
+
+        let eyeX = cx;
+        let eyeY = 1500;
+        let eyeZ = bounds.maxZ;
+
+        if (door) {
+          const wallIdx = door.wallIndex !== undefined ? Number(door.wallIndex) : wallLookup[door.wall];
+          const safeIdx = (wallIdx >= 0 && wallIdx < outline.length) ? wallIdx : 0;
+          const a = outline[safeIdx];
+          const b = outline[(safeIdx + 1) % outline.length];
+          const wallLen = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+          const ux = (b.x - a.x) / wallLen;
+          const uz = (b.z - a.z) / wallLen;
+          const offset = Math.max(0, Math.min(wallLen, (Number(door.offset) || 0) + (Number(door.width) || 800) / 2));
+          const doorX = a.x + ux * offset;
+          const doorZ = a.z + uz * offset;
+
+          const toCx = cx - doorX;
+          const toCz = cz - doorZ;
+          const toLen = Math.hypot(toCx, toCz) || 1;
+          eyeX = doorX + (toCx / toLen) * 200;
+          eyeZ = doorZ + (toCz / toLen) * 200;
+          eyeY = 1500;
+        }
+
+        const targetX = cx;
+        const targetY = 1400;
+        const targetZ = cz;
+        this.target = [targetX, targetY, targetZ];
+
+        const dx = eyeX - targetX;
+        const dy = eyeY - targetY;
+        const dz = eyeZ - targetZ;
+        this.distance = Math.hypot(dx, dy, dz);
+        this.pitch = Math.asin(Math.max(-1, Math.min(1, dy / (this.distance || 1))));
+        this.yaw = Math.atan2(dx, dz);
+        break;
+      }
+      case 'corner-1': {
+        this.target = [cx, cy, cz];
+        this.yaw = Math.PI * 0.28;
+        this.pitch = 0.28;
+        this.distance = Math.max(bounds.width, bounds.depth) * 0.95;
+        break;
+      }
+      case 'corner-2': {
+        this.target = [cx, cy, cz];
+        this.yaw = -Math.PI * 0.28;
+        this.pitch = 0.28;
+        this.distance = Math.max(bounds.width, bounds.depth) * 0.95;
+        break;
+      }
+      case 'front': {
+        this.target = [cx, cy, cz];
+        this.yaw = 0;
+        this.pitch = 0.18;
+        this.distance = Math.max(bounds.width, bounds.depth) * 1.0;
+        break;
+      }
+      default: {
+        this.target = [cx, cy, cz];
+        this.yaw = Math.PI * 0.28;
+        this.pitch = 0.28;
+        this.distance = Math.max(bounds.width, bounds.depth) * 0.95;
+        break;
+      }
+    }
+
+    this.cameraPreset = name;
+    this.buildGeometry();
+    this.render();
+    return this.cameraPreset;
+  }
+
+  setLightingMode(mode) {
+    if (mode === 'day' || mode === 'evening') {
+      this.lightingMode = mode;
+    } else {
+      this.lightingMode = this.lightingMode === 'day' ? 'evening' : 'day';
+    }
+    if (this.lightingMode === 'day') {
+      this.lightColor = [0.35, 0.35, 0.35];
+    } else {
+      this.lightColor = [0.82, 0.80, 0.75];
+    }
+    this.buildGeometry();
+    this.render();
+    return this.lightingMode;
   }
 
   toggleWallMode() {
@@ -543,7 +776,7 @@ export class RoomWebGLRenderer {
       const r = 55;
       const count = 16;
       const trimColor = [0.82, 0.82, 0.80, 1.0];
-      const glowColor = [0.98, 0.96, 0.90, 1.0];
+      const glowColor = this.lightingMode === 'day' ? [0.85, 0.85, 0.82, 1.0] : [0.98, 0.96, 0.90, 1.0];
 
       for (let i = 0; i < count; i++) {
         const a1 = (i / count) * Math.PI * 2, a2 = ((i + 1) / count) * Math.PI * 2;
@@ -643,7 +876,11 @@ export class RoomWebGLRenderer {
     // 2. Main Render Pass
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     // Soft architectural neutral backdrop (studio lighting)
-    gl.clearColor(0.86, 0.88, 0.87, 1.0);
+    if (this.lightingMode === 'day') {
+      gl.clearColor(0.92, 0.94, 0.96, 1.0);
+    } else {
+      gl.clearColor(0.86, 0.88, 0.87, 1.0);
+    }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     gl.useProgram(this.mainProgram);
@@ -664,6 +901,7 @@ export class RoomWebGLRenderer {
     gl.uniform3fv(this.mainUniforms.lightColor, this.lightColor);
     gl.uniform3fv(this.mainUniforms.cameraPos, eye);
     gl.uniform1i(this.mainUniforms.useShadows, 1);
+    gl.uniform1i(this.mainUniforms.lightingMode, this.lightingMode === 'day' ? 1 : 0);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
@@ -696,7 +934,7 @@ export class RoomWebGLRenderer {
   }
 
   attachEvents() {
-    if (!this.canvas) return;
+    if (!this.canvas || typeof window === 'undefined') return;
 
     this.canvas.addEventListener('contextmenu', e => e.preventDefault());
 
@@ -739,8 +977,20 @@ export class RoomWebGLRenderer {
 
     window.addEventListener('pointerup', e => {
       if (this.drag) {
+        const dx = e.clientX - this.drag.startX;
+        const dy = e.clientY - this.drag.startY;
+        const dist = Math.hypot(dx, dy);
+        const wasClick = dist < 5 && this.drag.button === 0;
+
         this.canvas.releasePointerCapture?.(e.pointerId);
         this.drag = null;
+
+        if (wasClick) {
+          const pickedId = this.pickCabinet(e.clientX, e.clientY);
+          if (pickedId && (!this.onSelect || this.onSelect === this._defaultOnSelect)) {
+            this.toggleDoors();
+          }
+        }
       }
     });
 
@@ -782,6 +1032,116 @@ export class RoomWebGLRenderer {
       if (this.wallMode === 'cutaway') this.buildGeometry();
       this.render();
     });
+  }
+
+  getRayFromScreen(clientX, clientY) {
+    const canvas = this.canvas;
+    const rect = canvas?.getBoundingClientRect ? canvas.getBoundingClientRect() : {
+      left: 0,
+      top: 0,
+      width: canvas?.width || 800,
+      height: canvas?.height || 600,
+    };
+    const width = rect.width || canvas?.width || 800;
+    const height = rect.height || canvas?.height || 600;
+
+    const ndcX = ((clientX - rect.left) / width) * 2 - 1;
+    const ndcY = 1 - ((clientY - rect.top) / height) * 2;
+
+    const eye = this.getCameraEye();
+    const aspect = (canvas?.width || width) / ((canvas?.height || height) || 1);
+    const projMatrix = new Float32Array(16);
+    mat4Perspective(projMatrix, Math.PI / 3, aspect, 50, 45000);
+
+    const viewMatrix = new Float32Array(16);
+    mat4LookAt(viewMatrix, eye, this.target, [0, 1, 0]);
+
+    const viewProj = new Float32Array(16);
+    mat4Multiply(viewProj, projMatrix, viewMatrix);
+
+    const invViewProj = new Float32Array(16);
+    if (!mat4Invert(invViewProj, viewProj)) return null;
+
+    const nearPoint = vec4Transform([ndcX, ndcY, -1, 1], invViewProj);
+    const farPoint = vec4Transform([ndcX, ndcY, 1, 1], invViewProj);
+
+    if (Math.abs(nearPoint[3]) < 1e-6 || Math.abs(farPoint[3]) < 1e-6) return null;
+
+    const pNear = [nearPoint[0] / nearPoint[3], nearPoint[1] / nearPoint[3], nearPoint[2] / nearPoint[3]];
+    const pFar = [farPoint[0] / farPoint[3], farPoint[1] / farPoint[3], farPoint[2] / farPoint[3]];
+
+    const dir = [pFar[0] - pNear[0], pFar[1] - pNear[1], pFar[2] - pNear[2]];
+    const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+    return {
+      origin: pNear,
+      dir: [dir[0] / len, dir[1] / len, dir[2] / len],
+    };
+  }
+
+  intersectCabinet(ray, c) {
+    const angle = ((Number(c.rotation) || 0) * Math.PI) / 180;
+    const cosA = Math.cos(-angle);
+    const sinA = Math.sin(-angle);
+
+    const ox = ray.origin[0] - c.x;
+    const oy = ray.origin[1] - (c.y || 0);
+    const oz = ray.origin[2] - c.z;
+
+    const locOx = ox * cosA - oz * sinA;
+    const locOy = oy;
+    const locOz = ox * sinA + oz * cosA;
+
+    const locDx = ray.dir[0] * cosA - ray.dir[2] * sinA;
+    const locDy = ray.dir[1];
+    const locDz = ray.dir[0] * sinA + ray.dir[2] * cosA;
+
+    const w = Number(c.width) || 600;
+    const h = Number(c.height) || 800;
+    const d = (Number(c.depth) || 400) + (Number(c.frontThickness) || 18);
+
+    const boxMin = [-5, -5, -5];
+    const boxMax = [w + 5, h + 5, d + 5];
+
+    let tmin = -Infinity, tmax = Infinity;
+    const origins = [locOx, locOy, locOz];
+    const dirs = [locDx, locDy, locDz];
+
+    for (let i = 0; i < 3; i++) {
+      if (Math.abs(dirs[i]) < 1e-6) {
+        if (origins[i] < boxMin[i] || origins[i] > boxMax[i]) return null;
+      } else {
+        let t1 = (boxMin[i] - origins[i]) / dirs[i];
+        let t2 = (boxMax[i] - origins[i]) / dirs[i];
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1);
+        tmax = Math.min(tmax, t2);
+        if (tmin > tmax) return null;
+      }
+    }
+    if (tmax < 0) return null;
+    return tmin >= 0 ? tmin : tmax;
+  }
+
+  pickCabinet(clientX, clientY) {
+    if (!this.project?.cabinets?.length) return null;
+    const ray = this.getRayFromScreen(clientX, clientY);
+    if (!ray) return null;
+
+    let closestDist = Infinity;
+    let closestId = null;
+
+    for (const c of this.project.cabinets) {
+      const t = this.intersectCabinet(ray, c);
+      if (t !== null && t < closestDist) {
+        closestDist = t;
+        closestId = c.id;
+      }
+    }
+
+    if (closestId) {
+      this.onSelect?.(closestId);
+    }
+    return closestId;
   }
 
   toggleDoors() {

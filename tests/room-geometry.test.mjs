@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getRoomOutline, normalizeRoomOutline, polygonArea, pointInPolygon, polygonIsSimple, roomBounds, wallLength, getCabinetFootprint, cabinetFootprint, polygonContained, polygonBoundaryDistance, pointSegmentDistance, polygonsOverlap, remapWindows } from '../src/room-geometry.js';
+import { getRoomOutline, normalizeRoomOutline, polygonArea, pointInPolygon, polygonIsSimple, roomBounds, wallLength, getCabinetFootprint, cabinetFootprint, polygonContained, polygonBoundaryDistance, pointSegmentDistance, polygonsOverlap, remapWindows, snapCabinetToWall, snapCabinetToNeighbour } from '../src/room-geometry.js';
 
 const rectangle = (x, z, width, depth) => [{ x, z }, { x: x + width, z }, { x: x + width, z: z + depth }, { x, z: z + depth }];
 const roomU = [{ x: 0, z: 0 }, { x: 3000, z: 0 }, { x: 3000, z: 3000 }, { x: 2000, z: 3000 }, { x: 2000, z: 1000 }, { x: 1000, z: 1000 }, { x: 1000, z: 3000 }, { x: 0, z: 3000 }];
@@ -154,4 +154,72 @@ test('explicit opening-list overload and reversed unchanged walls preserve world
   assert.equal(door.offset, 1100);
   assert.equal(openings[0].offset, 100);
   assert.deepEqual(room.windows, []);
+});
+
+test('snapCabinetToWall correctly aligns position and rotation against wall within threshold', () => {
+  const room = { outline: [{ x: 0, z: 0 }, { x: 4000, z: 0 }, { x: 4000, z: 3000 }, { x: 0, z: 3000 }] };
+
+  // 1. Straight wall: near wall 0 (z = 0) within 45 mm threshold
+  const cab1 = { id: 'c1', x: 500, z: 25, width: 600, depth: 400, rotation: 0 };
+  const snapped1 = snapCabinetToWall(cab1, room, 45);
+  assert.equal(snapped1.x, 500);
+  assert.equal(snapped1.z, 0);
+  assert.equal(snapped1.rotation, 0);
+
+  // 2. Beyond threshold (50 mm > 45 mm): does not snap
+  const cab2 = { id: 'c2', x: 500, z: 50, width: 600, depth: 400, rotation: 0 };
+  const snapped2 = snapCabinetToWall(cab2, room, 45);
+  assert.equal(snapped2.x, 500);
+  assert.equal(snapped2.z, 50);
+  assert.equal(snapped2.rotation, 0);
+
+  // 3. Wall 1 (vertical wall at x = 4000): cabinet rotated near 90° aligns flush and snaps rotation to 90°
+  const cab3 = { id: 'c3', x: 3980, z: 500, width: 600, depth: 400, rotation: 88 };
+  const snapped3 = snapCabinetToWall(cab3, room, 45);
+  assert.equal(snapped3.x, 4000);
+  assert.equal(snapped3.z, 500);
+  assert.equal(snapped3.rotation, 90);
+
+  // 4. Angled wall: 45° wall from (0, 0) to (2000, 2000)
+  const angledRoom = { outline: [{ x: 0, z: 0 }, { x: 2000, z: 2000 }, { x: 0, z: 2000 }] };
+  const cab4 = { id: 'c4', x: 100, z: 120, width: 600, depth: 400, rotation: 40 };
+  const snapped4 = snapCabinetToWall(cab4, angledRoom, 45);
+  assert.equal(snapped4.rotation, 45);
+  // Check that the back-left corner sits on the angled line x = z
+  close(snapped4.x, snapped4.z);
+});
+
+test('snapCabinetToNeighbour correctly aligns cabinets side-by-side', () => {
+  const existing = [
+    { id: 'base', x: 1000, z: 500, width: 600, depth: 600, rotation: 0 }
+  ];
+
+  // 1. Dragged to the right of base within 40mm threshold
+  const cabRight = { id: 'dragged', x: 1625, z: 510, width: 600, depth: 600, rotation: 0 };
+  const snappedRight = snapCabinetToNeighbour(cabRight, existing, 40);
+  assert.equal(snappedRight.x, 1600); // 1000 + 600
+  assert.equal(snappedRight.z, 500);
+  assert.equal(snappedRight.rotation, 0);
+
+  // 2. Dragged to the left of base within 40mm threshold
+  const cabLeft = { id: 'dragged', x: 380, z: 495, width: 600, depth: 600, rotation: 0 };
+  const snappedLeft = snapCabinetToNeighbour(cabLeft, existing, 40);
+  assert.equal(snappedLeft.x, 400); // 1000 - 600
+  assert.equal(snappedLeft.z, 500);
+  assert.equal(snappedLeft.rotation, 0);
+
+  // 3. Different depths (base depth 600, cab depth 400): front facades align
+  const cabDiffDepth = { id: 'dragged', x: 1615, z: 705, width: 500, depth: 400, rotation: 0 };
+  const snappedDiff = snapCabinetToNeighbour(cabDiffDepth, existing, 40);
+  assert.equal(snappedDiff.x, 1600);
+  assert.equal(snappedDiff.z, 700); // 500 + (600 - 400) = 700
+  // Base front facade is at z = 500 + 600 = 1100
+  // Snapped front facade is at z = 700 + 400 = 1100 -> exactly aligned!
+  assert.equal(snappedDiff.z + cabDiffDepth.depth, existing[0].z + existing[0].depth);
+
+  // 4. Outside threshold (50mm > 40mm): does not snap
+  const cabFar = { id: 'dragged', x: 1650, z: 500, width: 600, depth: 600, rotation: 0 };
+  const snappedFar = snapCabinetToNeighbour(cabFar, existing, 40);
+  assert.equal(snappedFar.x, 1650);
+  assert.equal(snappedFar.z, 500);
 });
