@@ -44,3 +44,30 @@ test('3D hinge symbols match the hardware count including section overrides and 
     assert.deepEqual(generateParts(project), parts); assert.deepEqual(project, before);
   } finally { viewport.destroy(); }
 });
+
+test('twin doors mounted on a shared partition receive half-overlay hinges with 9mm crank geometry in schedule and 3D', () => {
+  const project = createDefaultProject('ru'), cabinet = project.cabinets[0];
+  cabinet.layout = {
+    id: 'shared-columns', kind: 'split', axis: 'vertical', sizes: [1, 1], children: [
+      { ...createSection('doors'), id: 'col-left', doors: 1, doorOpenings: ['right'], hingesPerDoor: 3 },
+      { ...createSection('doors'), id: 'col-right', doors: 1, doorOpenings: ['left'], hingesPerDoor: 3 },
+    ]
+  };
+  const schedule = getHardwareSchedule(cabinet, project);
+  const hingeRows = schedule.rows.filter(row => row.kind === 'hinge');
+  assert.equal(hingeRows.length, 2);
+  assert.ok(hingeRows.every(row => row.hingeType === 'half-overlay' && row.sharedPartition === true), 'both doors sharing the partition must specify half-overlay hinges');
+
+  const viewport = new FurnitureViewport(canvas());
+  try {
+    viewport.setProject(project, cabinet.id);
+    viewport.setOptions({ room: false, focusCabinet: true, doorsOpen: false });
+    const halfHinges = viewport.hits.filter(hit => hit.component === 'hinge' && hit.hingeType === 'half-overlay');
+    assert.ok(halfHinges.length > 0, 'half-overlay hinge components rendered in 3D');
+    const cranks = viewport.hits.filter(hit => hit.component === 'hinge' && hit.hingePart === 'arm-crank');
+    const crankHinges = new Set(cranks.map(hit => `${hit.sectionId}-${hit.frontIndex}-${hit.hingeIndex}`));
+    assert.equal(crankHinges.size, 6, 'all 6 half-overlay hinges must have distinct 9mm crank arm geometry');
+  } finally {
+    viewport.destroy();
+  }
+});

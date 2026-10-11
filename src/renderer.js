@@ -1,7 +1,7 @@
 import * as engine from './engine.js';
 import { getRoomOutline } from './room-geometry.js';
 import { printLanguage, printNumber, translatePrintText, translatePartName, translateMaterialName, translateBuiltInName } from './print-i18n.js';
-import { getProjectHardwareSchedule, getHardwareSchedule } from './hardware.js';
+import { getProjectHardwareSchedule, getHardwareSchedule, isDoorOnSharedPartition } from './hardware.js';
 import { createDoorHingeSymbols } from './hinge-preview.js';
 import { generateCostHTML as renderCostSummary } from './pricing.js';
 import { productionPartCode } from './production-id.js';
@@ -621,12 +621,13 @@ export function makeScene(project, options = {}, direction = null) {
       const wallRight = section && section.x + section.width < w - t ? x + section.x + section.width + t : x + w;
       const wallTop = section && section.y + section.height < bodyH - t ? bodyY + section.y + section.height + t : y + h;
       if (f.kind === 'door' && showHinges && !options.interior) {
+        const sharedPartitionHinge = isDoorOnSharedPartition(f, fronts, layout, w);
         const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? (f.hingesPerDoor || (fh >= 2000 ? 5 : fh >= 1600 ? 4 : fh >= 900 ? 3 : 2));
         const rightHinge = opening === 'right', topHinge = opening === 'up';
         const hingeSymbols = createDoorHingeSymbols({ width: fw, height: fh, thickness: frontT, opening, opened: Boolean(options.doorsOpen), count });
         for (const hinge of hingeSymbols) {
           const world = p => [fx + p[0], fy + p[1], fz + p[2]];
-          const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, schematic: true, stroke: '#53605e' };
+          const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, hingeType: sharedPartitionHinge ? 'half-overlay' : 'full-overlay', sharedPartition: sharedPartitionHinge, schematic: true, stroke: '#53605e' };
           const stationY = fy + (hinge.cup[1] !== undefined ? hinge.cup[1] : fh / 2);
 
           if (topHinge) {
@@ -635,33 +636,73 @@ export function makeScene(project, options = {}, direction = null) {
             rawBox(hx - 14, wallTop - t, fz - 44, 28, 4, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
             rawBox(hx - 7.5, wallTop - t - 10, fz - 32, 15, 12, 34, '#c5ced2', id, { ...extras, hingePart: 'arm' });
           } else if (rightHinge) {
-            if (options.doorsOpen) {
-              const cupZ = fz + 22;
-              const cupRing = Array.from({ length: 20 }, (_, step) => [wallRight - frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
-              face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-              face([[wallRight - t - 2, stationY - 4, fz + 2], [wallRight - t - 2, stationY + 4, fz + 2], [wallRight - frontT - 2, stationY + 4, cupZ], [wallRight - frontT - 2, stationY - 4, cupZ]], '#dce4e7', [-1, 0, 0], id, { ...extras, hingePart: 'linkage' });
+            if (sharedPartitionHinge) {
+              // Half-overlay hinge (cranked neck 9mm, twin application on shared partition)
+              if (options.doorsOpen) {
+                const cupZ = fz + 22;
+                const cupRing = Array.from({ length: 20 }, (_, step) => [wallRight - frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
+                face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+                face([[wallRight - t - 8, stationY - 4, fz + 2], [wallRight - t - 8, stationY + 4, fz + 2], [wallRight - frontT - 2, stationY + 4, cupZ], [wallRight - frontT - 2, stationY - 4, cupZ]], '#dce4e7', [-1, 0, 0], id, { ...extras, hingePart: 'linkage' });
+              } else {
+                face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+              }
+              // Base on mounting plate
+              rawBox(wallRight - t - 5, stationY - 7.5, fz - 38, 4.5, 15, 16, '#b5bfc4', id, { ...extras, hingePart: 'arm-base' });
+              // Crank step 9mm into the door opening
+              rawBox(wallRight - t - 13.5, stationY - 7, fz - 24, 9, 14, 13, '#c5ced2', id, { ...extras, hingePart: 'arm-crank' });
+              rawBox(wallRight - t - 12.5, stationY + 7, fz - 20, 4, 2, 7, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
+              // Arm nose connecting to cup
+              rawBox(wallRight - t - 14, stationY - 6.5, fz - 14, 5, 13, 16, '#d2dbe0', id, { ...extras, hingePart: 'arm-nose' });
             } else {
-              face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+              // Full-overlay hinge (straight arm, 0mm crank)
+              if (options.doorsOpen) {
+                const cupZ = fz + 22;
+                const cupRing = Array.from({ length: 20 }, (_, step) => [wallRight - frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
+                face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+                face([[wallRight - t - 2, stationY - 4, fz + 2], [wallRight - t - 2, stationY + 4, fz + 2], [wallRight - frontT - 2, stationY + 4, cupZ], [wallRight - frontT - 2, stationY - 4, cupZ]], '#dce4e7', [-1, 0, 0], id, { ...extras, hingePart: 'linkage' });
+              } else {
+                face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+              }
+              rawBox(wallRight - t - 11, stationY - 7.5, fz - 34, 10, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
+              rawBox(wallRight - t - 9, stationY + 7.5, fz - 22, 6, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
             }
             rawBox(wallRight - t - 4, stationY - 16, fz - 44, 4, 32, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
             rawBox(wallRight - t - 4.5, stationY - 9, fz - 38, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
             rawBox(wallRight - t - 4.5, stationY + 4, fz - 24, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
-            rawBox(wallRight - t - 11, stationY - 7.5, fz - 34, 10, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
-            rawBox(wallRight - t - 9, stationY + 7.5, fz - 22, 6, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
           } else {
-            if (options.doorsOpen) {
-              const cupZ = fz + 22;
-              const cupRing = Array.from({ length: 20 }, (_, step) => [wallLeft + frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
-              face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
-              face([[wallLeft + t + 2, stationY - 4, fz + 2], [wallLeft + t + 2, stationY + 4, fz + 2], [wallLeft + frontT + 2, stationY + 4, cupZ], [wallLeft + frontT + 2, stationY - 4, cupZ]], '#dce4e7', [1, 0, 0], id, { ...extras, hingePart: 'linkage' });
+            if (sharedPartitionHinge) {
+              // Half-overlay hinge (cranked neck 9mm, twin application on shared partition)
+              if (options.doorsOpen) {
+                const cupZ = fz + 22;
+                const cupRing = Array.from({ length: 20 }, (_, step) => [wallLeft + frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
+                face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+                face([[wallLeft + t + 8, stationY - 4, fz + 2], [wallLeft + t + 8, stationY + 4, fz + 2], [wallLeft + frontT + 2, stationY + 4, cupZ], [wallLeft + frontT + 2, stationY - 4, cupZ]], '#dce4e7', [1, 0, 0], id, { ...extras, hingePart: 'linkage' });
+              } else {
+                face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+              }
+              // Base on mounting plate
+              rawBox(wallLeft + t + 0.5, stationY - 7.5, fz - 38, 4.5, 15, 16, '#b5bfc4', id, { ...extras, hingePart: 'arm-base' });
+              // Crank step 9mm into the door opening
+              rawBox(wallLeft + t + 4.5, stationY - 7, fz - 24, 9, 14, 13, '#c5ced2', id, { ...extras, hingePart: 'arm-crank' });
+              rawBox(wallLeft + t + 8.5, stationY + 7, fz - 20, 4, 2, 7, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
+              // Arm nose connecting to cup
+              rawBox(wallLeft + t + 9, stationY - 6.5, fz - 14, 5, 13, 16, '#d2dbe0', id, { ...extras, hingePart: 'arm-nose' });
             } else {
-              face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+              // Full-overlay hinge (straight arm, 0mm crank)
+              if (options.doorsOpen) {
+                const cupZ = fz + 22;
+                const cupRing = Array.from({ length: 20 }, (_, step) => [wallLeft + frontT, stationY + Math.sin(step * Math.PI / 10) * 17.5, cupZ + Math.cos(step * Math.PI / 10) * 17.5]);
+                face(cupRing, '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+                face([[wallLeft + t + 2, stationY - 4, fz + 2], [wallLeft + t + 2, stationY + 4, fz + 2], [wallLeft + frontT + 2, stationY + 4, cupZ], [wallLeft + frontT + 2, stationY - 4, cupZ]], '#dce4e7', [1, 0, 0], id, { ...extras, hingePart: 'linkage' });
+              } else {
+                face(hinge.cupOutline.map(world), '#b0b8bc', null, id, { ...extras, hingePart: 'cup' });
+              }
+              rawBox(wallLeft + t + 1, stationY - 7.5, fz - 34, 10, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
+              rawBox(wallLeft + t + 3, stationY + 7.5, fz - 22, 6, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
             }
             rawBox(wallLeft + t, stationY - 16, fz - 44, 4, 32, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
             rawBox(wallLeft + t + 3.5, stationY - 9, fz - 38, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
             rawBox(wallLeft + t + 3.5, stationY + 4, fz - 24, 1, 5, 5, '#768085', id, { ...extras, hingePart: 'plate-screw' });
-            rawBox(wallLeft + t + 1, stationY - 7.5, fz - 34, 10, 15, 36, '#c5ced2', id, { ...extras, hingePart: 'arm' });
-            rawBox(wallLeft + t + 3, stationY + 7.5, fz - 22, 6, 2, 8, '#707a7f', id, { ...extras, hingePart: 'arm-cam' });
           }
 
           // Lines for 2D schematic mode compatibility

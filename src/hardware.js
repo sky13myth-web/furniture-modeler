@@ -15,6 +15,45 @@ const explicitHinges = value => Number.isInteger(value) && value >= 2 && value <
 const emptyTotals = () => ({ handles: 0, guideSets: 0, hinges: 0, rods: 0, rodHolders: 0, rodLengthMeters: 0 });
 const mechanism = node => node?.openingMechanism === 'push' ? 'push' : 'handle';
 
+export function isDoorOnSharedPartition(front, allFronts, layout, cabinetWidth) {
+  if (front?.kind !== 'door') return false;
+  const section = layout?.sections?.find(s => s.id === front.sectionId);
+  if (!section) return false;
+  const opening = front.opening || (Number(front.index) % 2 === 1 ? 'right' : 'left');
+  if (opening === 'up') return false;
+
+  const t = layout.thickness || 18;
+  const w = Number(cabinetWidth) || (section.x + section.width + t);
+  const EPSILON = 2.5;
+
+  if (opening === 'left') {
+    if (section.x <= t + EPSILON) return false;
+    const partitionX = section.x - t;
+    return allFronts.some(other => {
+      if (other === front || other.kind !== 'door') return false;
+      const otherSection = layout.sections.find(s => s.id === other.sectionId);
+      if (!otherSection) return false;
+      const otherOpening = other.opening || (Number(other.index) % 2 === 1 ? 'right' : 'left');
+      if (otherOpening !== 'right') return false;
+      if (Math.abs((otherSection.x + otherSection.width) - partitionX) > EPSILON) return false;
+      return Math.max(front.y, other.y) < Math.min(front.y + front.height, other.y + other.height) - EPSILON;
+    });
+  } else if (opening === 'right') {
+    if (section.x + section.width >= w - t - EPSILON) return false;
+    const partitionRight = section.x + section.width + t;
+    return allFronts.some(other => {
+      if (other === front || other.kind !== 'door') return false;
+      const otherSection = layout.sections.find(s => s.id === other.sectionId);
+      if (!otherSection) return false;
+      const otherOpening = other.opening || (Number(other.index) % 2 === 1 ? 'right' : 'left');
+      if (otherOpening !== 'left') return false;
+      if (Math.abs(otherSection.x - partitionRight) > EPSILON) return false;
+      return Math.max(front.y, other.y) < Math.min(front.y + front.height, other.y + other.height) - EPSILON;
+    });
+  }
+  return false;
+}
+
 export function getHardwareSchedule(cabinet, project = { materials: [] }) {
   const rows = [], totals = emptyTotals(), layout = getCabinetLayout(cabinet, project);
   const add = (kind, quantity, source, metadata = {}) => {
@@ -23,7 +62,8 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
     rows.push({ id: `${cabinet.id}-hardware-${rows.length + 1}`, cabinetId: cabinet.id, cabinetName: cabinet.name,
       kind, quantity, unit: kind === 'guide-set' ? 'sets' : 'pcs', source, planned: false, ...metadata });
   };
-  for (const front of getFrontLayout(cabinet, project)) {
+  const allFronts = getFrontLayout(cabinet, project);
+  for (const front of allFronts) {
     const node = layout.sections.find(section => section.id === front.sectionId)?.node ?? cabinet;
     const source = front.kind === 'door' ? 'door' : 'drawer';
     const metadata = { ...(front.sectionId ? { sectionId: front.sectionId } : {}), index: front.index, ...(front.opening ? { opening: front.opening } : {}) };
@@ -31,7 +71,13 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
     if (front.kind === 'drawer') add('guide-set', 1, source, metadata);
     else {
       const override = explicitHinges(node.hingesPerDoor) ? node.hingesPerDoor : explicitHinges(cabinet.hingesPerDoor) ? cabinet.hingesPerDoor : null;
-      add('hinge', override ?? defaultHingesPerDoor(front.height), source, { ...metadata, planned: override === null });
+      const shared = isDoorOnSharedPartition(front, allFronts, layout, cabinet.width);
+      add('hinge', override ?? defaultHingesPerDoor(front.height), source, {
+        ...metadata,
+        hingeType: shared ? 'half-overlay' : 'full-overlay',
+        sharedPartition: shared,
+        planned: override === null
+      });
     }
   }
   for (const front of getInternalDrawerLayout(cabinet, project)) {
