@@ -1,5 +1,5 @@
 import {createDefaultProject,createCabinet,duplicateCabinet,createSection,convertLegacyLayout,getCabinetLayout,getSectionMountingAxes,getFrontLayout,getInternalDrawerLayout,getApplianceFit,getRodLayout,findFreeRodPosition,findLayoutNode,splitSection,removeSection,deleteMaterial,getMaterialUsage,extendCabinetSide,canPlaceCabinet,canEditCabinetPlacement,syncMezzanines,getPartEdgeBanding,getEdgeBandingSummary,generateParts,optimizeCutting,validateProject} from './engine.js';
-import {applyQuickFix} from './quick-fix.js';
+import {applyQuickFix,adjustCabinetToFitAppliance} from './quick-fix.js';
 import {getApplianceDefaultDimensions,getApplianceGapDefaults,APPLIANCE_PRESETS} from './kitchen-appliances.js';
 import {constrainCabinetEdit,resizeApplianceSection,resizeApplianceDivider,setApplianceSectionDepth,resizeConstrainedInteriorSection,resizeConstrainedInteriorDivider} from './appliance-constraints.js';
 import {resizeCabinetOnPlan} from './cabinet-plan-resize.js';
@@ -1172,8 +1172,8 @@ function applianceAllowed(c,type){return type==='hood-builtin'?cabinetMountKind(
 function applianceRuleMessage(type){return type==='hood-builtin'?'Вытяжку можно встроить только в навесной шкаф.':'Варочную панель и раковину можно поставить только в напольный шкаф.';}
 
 function applianceDialog(forcedType=null){
- const section=selectedSection();if(!section)return;
- const c=selectedCabinet(),g=getCabinetLayout(c,project),atFloor=section.floorEligible;
+ let section=selectedSection();if(!section)return;
+ let c=selectedCabinet(),g=getCabinetLayout(c,project),atFloor=section.floorEligible;
  const a=section.node.appliance || (section.node.sink ? {
   type: (section.node.sink.shape==='round'||section.node.sink.sinkShape==='round') ? 'sink-round' : 'sink-rectangular',
   label: section.node.sink.label || ((section.node.sink.shape==='round'||section.node.sink.sinkShape==='round') ? 'Раковина круглая' : 'Раковина прямоугольная'),
@@ -1258,7 +1258,25 @@ function applianceDialog(forcedType=null){
   const labels={width:'ширине',height:'высоте',depth:'глубине'};
   const failed=Object.keys(labels).filter(k=>fit.deficits[k]>.001);
   $('#appliance-fit').classList.toggle('has-warning',failed.length>0);
-  $('#appliance-fit').innerHTML=`<strong>Нужна ниша: ${fmt(fit.required.width,1)} × ${fmt(fit.required.height,1)} × ${fmt(fit.required.depth,1)} мм</strong><small>Доступно: ${fmt(fit.available.width,1)} × ${fmt(fit.available.height,1)} × ${fmt(fit.available.depth,1)} мм</small>${failed.length?failed.map(k=>`<p>Не помещается по ${labels[k]}: не хватает ${fmt(fit.deficits[k],1)} мм.</p>`).join(''):'<p>Техника помещается с указанными зазорами.</p>'}`;
+  $('#appliance-fit').innerHTML=`<strong>Нужна ниша: ${fmt(fit.required.width,1)} × ${fmt(fit.required.height,1)} × ${fmt(fit.required.depth,1)} мм</strong><small>Доступно: ${fmt(fit.available.width,1)} × ${fmt(fit.available.height,1)} × ${fmt(fit.available.depth,1)} мм</small>${failed.length?failed.map(k=>`<p>Не помещается по ${labels[k]}: не хватает ${fmt(fit.deficits[k],1)} мм.</p>`).join('')+`<button type="button" class="button" id="appliance-auto-fit-btn" style="margin-top:10px;width:100%;font-weight:600;">Изменить размер</button>`:'<p>Техника помещается с указанными зазорами.</p>'}`;
+  const fitBtn=$('#appliance-auto-fit-btn');
+  if(fitBtn){
+   fitBtn.onclick=()=>{
+    const app=read();
+    const ok=change(()=>{
+     const targetCabinet=project.cabinets.find(cab=>cab.id===c.id);
+     if(!targetCabinet)return false;
+     return adjustCabinetToFitAppliance(targetCabinet,section.id,app,project);
+    });
+    if(ok){
+     c=selectedCabinet();
+     g=getCabinetLayout(c,project);
+     section=g.sections.find(s=>s.id===section.id)||g.sections[0]||section;
+     toast('Размер шкафа изменён под технику');
+     preview();
+    }
+   };
+  }
  };
  form.addEventListener('input',preview);
  if(form.elements.sinkDiameter){

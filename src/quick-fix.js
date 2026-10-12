@@ -93,6 +93,62 @@ export function quickFixAdjustCabinetDepth(cabinet, options = 50) {
   return true;
 }
 
+function containsNode(parent, targetId) {
+  if (!parent || !targetId) return false;
+  if (parent.id === targetId) return true;
+  if (parent.kind === 'split' && Array.isArray(parent.children)) {
+    return parent.children.some(child => containsNode(child, targetId));
+  }
+  return false;
+}
+
+/**
+ * Adjusts cabinet and section layout dimensions so an appliance fits with required clearances.
+ */
+export function adjustCabinetToFitAppliance(cabinet, sectionId, appliance, project) {
+  if (!cabinet || !sectionId || !appliance) return false;
+  cabinet.layout ??= convertLegacyLayout(cabinet);
+  const geom = getCabinetLayout(cabinet, project);
+  const section = geom.sections.find(s => s.id === sectionId);
+  if (!section) return false;
+  const fit = getApplianceFit(section, appliance);
+  const defW = Math.ceil(Math.max(0, fit.deficits.width || 0));
+  const defH = Math.ceil(Math.max(0, fit.deficits.height || 0));
+  const defD = Math.ceil(Math.max(0, fit.deficits.depth || 0));
+  if (!defW && !defH && !defD) return false;
+
+  const expandTree = (node, axis, delta) => {
+    if (!node || node.kind !== 'split' || !delta) return;
+    if (node.axis === axis && Array.isArray(node.children)) {
+      node.sizes = node.children.map(child => {
+        const childGeom = geom.nodes.find(n => n.id === child.id);
+        const curSize = childGeom ? (node.axis === 'horizontal' ? childGeom.height : childGeom.width) : 1;
+        return Math.round(curSize + (containsNode(child, sectionId) ? delta : 0));
+      });
+    }
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        if (containsNode(child, sectionId)) expandTree(child, axis, delta);
+      }
+    }
+  };
+
+  if (defW > 0) {
+    cabinet.width = Math.round(Number(cabinet.width) + defW);
+    expandTree(cabinet.layout, 'vertical', defW);
+  }
+  if (defH > 0) {
+    cabinet.height = Math.round(Number(cabinet.height) + defH);
+    expandTree(cabinet.layout, 'horizontal', defH);
+  }
+  if (defD > 0) {
+    cabinet.depth = Math.round(Number(cabinet.depth) + defD);
+    const secNode = findLayoutNode(cabinet.layout, sectionId);
+    if (secNode && secNode.depth != null) secNode.depth = Math.round(Number(secNode.depth) + defD);
+  }
+  return true;
+}
+
 /**
  * Adjusts cabinet dimensions so that the appliance fits with required manufacturer clearances.
  */
@@ -100,22 +156,7 @@ export function quickFixFitAppliance(cabinet, sectionId, project) {
   const layout = getCabinetLayout(cabinet, project);
   const section = layout.sections.find(s => s.id === sectionId);
   if (!section || !section.node.appliance) return false;
-
-  const fit = getApplianceFit(section, section.node.appliance);
-  let changed = false;
-  if (fit.deficits.width > 0) {
-    cabinet.width = Math.round(cabinet.width + fit.deficits.width);
-    changed = true;
-  }
-  if (fit.deficits.height > 0) {
-    cabinet.height = Math.round(cabinet.height + fit.deficits.height);
-    changed = true;
-  }
-  if (fit.deficits.depth > 0) {
-    cabinet.depth = Math.round(cabinet.depth + fit.deficits.depth);
-    changed = true;
-  }
-  return changed;
+  return adjustCabinetToFitAppliance(cabinet, sectionId, section.node.appliance, project);
 }
 
 /**
