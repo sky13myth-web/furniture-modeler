@@ -1911,6 +1911,15 @@ export function validateProject(project) {
           const vDeficit = Math.ceil(appliance.depth + 50 - section.usableDepth);
           warn(`для встроенной техники «${appliance.label ?? appliance.type}» в секции «${sectionName}» требуется задний вентиляционный зазор ≥ 45–50 мм (доступно ${Math.max(0, Math.round(section.usableDepth - appliance.depth))} мм).`, { sectionId: section.id, type: 'appliance-oven-ventilation', fix: { type: 'adjust-cabinet-depth', cabinetId: cabinet.id, deficit: vDeficit, label: 'Увеличить глубину корпуса (+50 мм)' } });
         }
+        if (appliance.type === 'microwave') {
+          const elev = number(cabinet.y) + (cabinet.sidesToFloor ? 0 : number(cabinet.plinth)) + section.y;
+          if (elev > 1500) {
+            warn(`микроволновая печь в секции «${sectionName}» установлена на высоте ${Math.round(elev)} мм от пола (рекомендуемый максимум безопасности — 1500 мм для защиты от ожогов).`, { sectionId: section.id, type: 'microwave-height' });
+          }
+        }
+        if (appliance.type === 'fridge-builtin' || appliance.type === 'fridge') {
+          warn(`встраиваемый холодильник в секции «${sectionName}» требует вентиляционную решётку в цоколе (сечение ≥ 200 см²) и вентиляционный зазор сзади.`, { sectionId: section.id, type: 'fridge-ventilation' });
+        }
         if (appliance.type === 'hood-builtin') {
           const shelfCount = integer(section.node.shelves);
           const hoodTop = section.y + number(appliance.height);
@@ -1923,6 +1932,54 @@ export function validateProject(project) {
         const machineX = section.x + (section.width - appliance.width) / 2;
         const machineZ = backThickness(cabinet, project) + section.rearOffset + Math.max(0, section.usableDepth - appliance.depth);
         for (const panel of bracePanels) if (machineX < panel.x + panel.width - EPSILON && machineX + appliance.width > panel.x + EPSILON && section.y < panel.y + panel.height - EPSILON && section.y + appliance.height > panel.y + EPSILON && machineZ < panel.z + panel.thickness - EPSILON && machineZ + appliance.depth > panel.z + EPSILON) error(`задняя перемычка пересекает технику «${appliance.label ?? appliance.type}» в секции «${sectionName}».`, { sectionId: section.id });
+        if (cabinet.cutout) {
+          for (const cut of getCabinetCutouts(cabinet)) {
+            const cutMinX = cut.corner.includes('right') ? number(cabinet.width) - cut.width : 0;
+            const cutMaxX = cutMinX + cut.width;
+            const cutMinZ = number(cabinet.depth) - cut.depth;
+            const cutMaxZ = number(cabinet.depth);
+            if (cutMaxX > machineX + EPSILON && cutMinX < machineX + appliance.width - EPSILON &&
+                cutMaxZ > machineZ + EPSILON && cutMinZ < machineZ + appliance.depth - EPSILON) {
+              error(`задний вырез корпуса под коммуникации пересекает встроенную технику «${appliance.label ?? appliance.type}» в секции «${sectionName}».`, { sectionId: section.id, type: 'cutout-appliance-collision' });
+            }
+          }
+        }
+      }
+      if (section.node.cooktop) {
+        const ct = section.node.cooktop;
+        if (ct.width > section.width + EPSILON) {
+          error(`ширина варочной панели (${ct.width} мм) превышает ширину секции «${sectionName}» (${Math.round(section.width)} мм).`, { sectionId: section.id });
+        }
+        const extDrawers = getExternalDrawerLayout(cabinet, project);
+        const secDrawers = extDrawers.filter(d => d.sectionId === section.id || (!cabinet.layout && section.id === `${cabinet.id}-layout`));
+        if (secDrawers.length > 0) {
+          const highestBox = Math.max(...secDrawers.map(d => d.box.y + d.box.height));
+          const clearanceToTop = bodyHeight - highestBox;
+          if (clearanceToTop < 45) {
+            warn(`варочная панель в секции «${sectionName}» опускается в корпус; верхний ящик расположен слишком близко к столешнице (зазор ${Math.round(clearanceToTop)} мм < 45 мм). Верхний короб ящика может задевать корпус варочной панели.`, { sectionId: section.id, type: 'cooktop-drawer-collision' });
+          }
+        }
+      }
+      if (section.node.sink) {
+        const sink = section.node.sink;
+        const bowlW = positive(sink.bowlWidth) ? number(sink.bowlWidth) : (sink.shape === 'round' || sink.sinkShape === 'round' ? number(sink.bowlDiameter || sink.diameter || sink.width, 410) : number(sink.width, 780));
+        const bowlD = positive(sink.bowlDepth) ? number(sink.bowlDepth) : (sink.shape === 'round' || sink.sinkShape === 'round' ? number(sink.bowlDiameter || sink.diameter || sink.depth, 410) : number(sink.depth, 500));
+        if (bowlW > section.width) {
+          error(`чаша раковины (${bowlW} мм) не помещается в секцию «${sectionName}» по ширине (${Math.round(section.width)} мм).`, { sectionId: section.id });
+        }
+        if (bowlD > section.usableDepth) {
+          error(`чаша раковины (${bowlD} мм) не помещается в секцию «${sectionName}» по глубине (${Math.round(section.usableDepth)} мм).`, { sectionId: section.id });
+        }
+        const shelfCount = integer(section.node.shelves);
+        if (shelfCount > 0) {
+          const highestShelf = shelfPanelY(section.y, section.height, shelfCount, shelfCount - 1, thickness);
+          if (highestShelf > section.y + section.height - 350) {
+            error(`полка в секции «${sectionName}» пересекает чашу раковины или сифон (требуется свободная зона 350 мм под столешницей).`, { sectionId: section.id, fix: { type: 'remove-shelves', cabinetId: cabinet.id, sectionId: section.id, label: 'Убрать полки под мойкой' } });
+          }
+        }
+        if (section.node.front === 'drawers') {
+          warn(`секция с мойкой «${sectionName}» имеет фасад с ящиками; для сифона и коммуникаций требуется ящик с U-образным вырезом или распашные двери.`, { sectionId: section.id, type: 'sink-drawers' });
+        }
       }
     }
     for (const front of getFrontLayout(cabinet, project)) if (front.width <= 0 || front.height <= 0) error('фасады не помещаются при заданном числе и зазорах.');
@@ -1982,12 +2039,16 @@ export function validateProject(project) {
   // Kitchen ergonomics and safety: check minimum distance between sink and cooktop (EN 1116)
   const cooktops = [];
   const sinks = [];
+  const tallCabinets = [];
   for (const cabinet of cabinets) {
+    if (cabinet.type === 'tall' || cabinet.type === 'corner-tall' || Number(cabinet.height) >= 1600) {
+      tallCabinets.push(cabinet);
+    }
     const layout = cabinet.layout ? getCabinetLayout(cabinet, project) : null;
     const sections = layout?.sections ?? [];
     for (const sec of sections) {
-      if (sec.node.appliance?.type === 'cooktop') cooktops.push({ cabinet, sec });
-      if (sec.node.appliance?.type?.startsWith('sink')) sinks.push({ cabinet, sec });
+      if (sec.node.cooktop || sec.node.appliance?.type === 'cooktop') cooktops.push({ cabinet, sec });
+      if (sec.node.sink || sec.node.appliance?.type?.startsWith('sink')) sinks.push({ cabinet, sec });
     }
   }
   for (const cItem of cooktops) {
@@ -2006,6 +2067,23 @@ export function validateProject(project) {
         if (clearDist < 400) {
           add('warning', `Кухня: варочная панель в «${cItem.cabinet.name}» и мойка в «${sItem.cabinet.name}» расположены на расстоянии менее 400 мм; по нормам EN 1116 требуется защитная зона ≥ 400 мм.`, cItem.cabinet.id, { type: 'en1116-cooktop-sink' });
         }
+      }
+    }
+    const cCab = cItem.cabinet;
+    const cWidth = cItem.sec.node.cooktop?.width || cItem.sec.node.appliance?.width || 590;
+    const cCenterLocalX = cItem.sec.x + cItem.sec.width / 2;
+    const cRad = (number(cCab.rotation) * Math.PI) / 180, cCos = Math.cos(cRad), cSin = Math.sin(cRad);
+    const cWorldX = number(cCab.x) + cCenterLocalX * cCos;
+    const cWorldZ = number(cCab.z) + cCenterLocalX * cSin;
+    for (const tall of tallCabinets) {
+      if (tall.id === cCab.id) continue;
+      const tallMinX = number(tall.x), tallMaxX = tallMinX + number(tall.width);
+      const tallMinZ = number(tall.z), tallMaxZ = tallMinZ + number(tall.depth);
+      const dx = Math.max(0, tallMinX - (cWorldX + cWidth / 2), (cWorldX - cWidth / 2) - tallMaxX);
+      const dz = Math.max(0, tallMinZ - (cWorldZ + number(cCab.depth) / 2), (cWorldZ - number(cCab.depth) / 2) - tallMaxZ);
+      const dist = Math.hypot(dx, dz);
+      if (dist < 100 && Math.abs(number(tall.y) - number(cCab.y)) < 200) {
+        add('warning', `Кухня: варочная панель в «${cCab.name}» расположена на расстоянии менее 100 мм от высокого шкафа «${tall.name}»; по нормам пожарной безопасности требуется термозазор ≥ 100 мм.`, cCab.id, { type: 'cooktop-fire-clearance' });
       }
     }
   }
@@ -2037,7 +2115,38 @@ export function validateProject(project) {
     add('error', obstacle ? 'У трубы или короба должна быть выбрана стена.' : 'У оконного проёма должна быть выбрана стена.');
   }
   for (const conflict of findObstacleConflicts({ ...project, room, cabinets }, { physical: cabinet => physicalCabinet(cabinet, project) })) {
-    add('warning', `«${conflict.cabinet.name}» ${conflict.obstacle.kind === 'pipe' ? 'упирается в трубу' : 'упирается в короб'}; ${conflict.suggestion ? 'сделайте вырез корпуса сзади или сдвиньте шкаф.' : 'сдвиньте шкаф или уменьшите его глубину.'}`, conflict.cabinet.id);
+    const cab = conflict.cabinet;
+    const layout = cab.layout ? getCabinetLayout(cab, project) : null;
+    let applianceCollision = false;
+    if (layout) {
+      const rad = (number(cab.rotation) * Math.PI) / 180, cos = Math.cos(rad), sin = Math.sin(rad);
+      const localPts = conflict.obstacle.footprint.map(p => {
+        const dx = p.x - number(cab.x), dz = p.z - number(cab.z);
+        return { x: dx * cos + dz * sin, z: -dx * sin + dz * cos };
+      });
+      const obsMinX = Math.min(...localPts.map(p => p.x)), obsMaxX = Math.max(...localPts.map(p => p.x));
+      const obsMinZ = Math.min(...localPts.map(p => p.z)), obsMaxZ = Math.max(...localPts.map(p => p.z));
+      const obsMinY = conflict.obstacle.bottom, obsMaxY = conflict.obstacle.top;
+
+      for (const sec of layout.sections) {
+        const app = sec.node.appliance;
+        if (app) {
+          const appW = number(app.width), appH = number(app.height), appD = number(app.depth);
+          const machX = sec.x + (sec.width - appW) / 2;
+          const machY = number(cab.y) + (cab.sidesToFloor ? 0 : number(cab.plinth)) + sec.y;
+          const machZ = backThickness(cab, project) + sec.rearOffset + Math.max(0, sec.usableDepth - appD);
+          if (obsMaxX > machX + EPSILON && obsMinX < machX + appW - EPSILON &&
+              obsMaxY > machY + EPSILON && obsMinY < machY + appH - EPSILON &&
+              obsMaxZ > machZ + EPSILON && obsMinZ < machZ + appD - EPSILON) {
+            add('error', `«${cab.name}»: ${conflict.obstacle.kind === 'pipe' ? 'труба' : 'короб'} пересекает встроенную технику «${app.label ?? app.type}». Встраивание техники в месте прохождения коммуникаций невозможно без переноса шкафа или трубы.`, cab.id, { type: 'obstacle-appliance-collision', sectionId: sec.id });
+            applianceCollision = true;
+          }
+        }
+      }
+    }
+    if (!applianceCollision) {
+      add('warning', `«${conflict.cabinet.name}» ${conflict.obstacle.kind === 'pipe' ? 'упирается в трубу' : 'упирается в короб'}; ${conflict.suggestion ? 'сделайте вырез корпуса сзади или сдвиньте шкаф.' : 'сдвиньте шкаф или уменьшите его глубину.'}`, conflict.cabinet.id);
+    }
   }
   return warnings;
 }

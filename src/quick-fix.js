@@ -208,6 +208,15 @@ export function applyQuickFix(project, fix) {
       }
       return quickFixObstacleCutout(cabinet, fix.obstacleId, project);
 
+    case 'remove-shelves': {
+      if (!cabinet || !fix.sectionId) return false;
+      cabinet.layout ??= convertLegacyLayout(cabinet);
+      const node = findLayoutNode(cabinet.layout, fix.sectionId);
+      if (!node) return false;
+      node.shelves = 0;
+      return true;
+    }
+
     default:
       return false;
   }

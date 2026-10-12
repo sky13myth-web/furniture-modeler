@@ -14,7 +14,7 @@ export function defaultHingesPerDoor(height) {
 const explicitHinges = value => Number.isInteger(value) && value >= 2 && value <= 12;
 const emptyTotals = () => {
   const totals = { handles: 0, guideSets: 0, hinges: 0, rods: 0, rodHolders: 0, rodLengthMeters: 0 };
-  const extra = { pushLatches: 0, confirmats: 0, plinthLegs: 0, shelfSupports: 0, cornerBrackets: 0 };
+  const extra = { pushLatches: 0, confirmats: 0, plinthLegs: 0, shelfSupports: 0, cornerBrackets: 0, ventGrilles: 0 };
   for (const [key, initial] of Object.entries(extra)) {
     let val = initial;
     Object.defineProperty(totals, key, {
@@ -79,6 +79,7 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
       'plinth-leg': 'plinthLegs',
       'shelf-support': 'shelfSupports',
       'corner-bracket': 'cornerBrackets',
+      'vent-grille': 'ventGrilles',
       rod: 'rods',
       'rod-holder': 'rodHolders'
     }[kind];
@@ -141,6 +142,14 @@ export function getHardwareSchedule(cabinet, project = { materials: [] }) {
   if (hasPlinth && isFloorCab && includeLegs) {
     const legCount = Number(cabinet.width) > 1000 ? 6 : 4;
     add('plinth-leg', legCount, 'plinth', { planned: true });
+  }
+  const hasBuiltinFridge = (layout?.sections || []).some(s => s.node?.appliance?.type === 'fridge-builtin' || s.node?.appliance?.type === 'fridge') || cabinet.appliance?.type === 'fridge-builtin';
+  if (hasBuiltinFridge) {
+    add('vent-grille', 1, 'plinth-ventilation', {
+      name: 'Вентиляционная решётка цоколя (для встраиваемого холодильника)',
+      areaCm2: 200,
+      planned: true
+    });
   }
   return { cabinetId: cabinet.id, cabinetName: cabinet.name, rows, totals };
 }

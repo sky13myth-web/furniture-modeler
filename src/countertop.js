@@ -6,6 +6,7 @@
  */
 
 import { polygonBoundaryDistance } from './room-geometry.js';
+import { getCabinetLayout } from './engine.js';
 
 function number(value, fallback = 0) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -198,11 +199,99 @@ export function getCountertopRuns(project, { defaultThickness = 38, frontOverhan
         cabinets: component,
         wings,
         isCorner: wings.length > 1,
+        cutouts: getCountertopCutoutsForCabinets(component, project),
       });
     }
   }
 
   return runs;
+}
+
+/**
+ * Calculate CNC cutouts for sinks and cooktops on countertop slabs.
+ */
+export function getCountertopCutoutsForCabinets(cabinets = [], project = {}) {
+  const cutouts = [];
+  for (const cab of cabinets) {
+    if (!cab || !isBaseCabinet(cab)) continue;
+    let sections = [];
+    if (cab.layout) {
+      try {
+        const layout = getCabinetLayout(cab, project);
+        sections = layout?.sections || [];
+      } catch {
+        sections = [];
+      }
+    }
+    for (const sec of sections) {
+      const node = sec.node;
+      if (node.cooktop) {
+        const ct = node.cooktop;
+        const w = positiveNumber(ct.width, 590), d = positiveNumber(ct.depth, 520);
+        const cutW = Math.max(100, w - 30), cutD = Math.max(100, d - 30);
+        cutouts.push({
+          cabinetId: cab.id,
+          cabinetName: cab.name,
+          sectionId: sec.id,
+          applianceType: 'cooktop',
+          label: ct.label || 'Варочная панель',
+          shape: 'rect',
+          width: cutW,
+          depth: cutD,
+          applianceWidth: w,
+          applianceDepth: d,
+          x: number(cab.x, 0) + sec.x + (sec.width - cutW) / 2,
+          y: number(cab.y, 0) + positiveNumber(cab.height, 860),
+          z: number(cab.z, 0) + (positiveNumber(cab.depth, 600) - cutD) / 2
+        });
+      }
+      if (node.sink) {
+        const sink = node.sink;
+        const isRound = sink.shape === 'round' || sink.sinkShape === 'round';
+        if (isRound) {
+          const diam = positiveNumber(sink.diameter || sink.width, 510);
+          const cutDiam = Math.max(100, diam - 20);
+          cutouts.push({
+            cabinetId: cab.id,
+            cabinetName: cab.name,
+            sectionId: sec.id,
+            applianceType: 'sink-round',
+            label: sink.label || 'Раковина круглая',
+            shape: 'round',
+            diameter: cutDiam,
+            applianceDiameter: diam,
+            x: number(cab.x, 0) + sec.x + sec.width / 2,
+            y: number(cab.y, 0) + positiveNumber(cab.height, 860),
+            z: number(cab.z, 0) + positiveNumber(cab.depth, 600) / 2
+          });
+        } else {
+          const w = positiveNumber(sink.width, 780), d = positiveNumber(sink.depth, 500);
+          const cutW = Math.max(100, w - 20), cutD = Math.max(100, d - 20);
+          cutouts.push({
+            cabinetId: cab.id,
+            cabinetName: cab.name,
+            sectionId: sec.id,
+            applianceType: 'sink-rectangular',
+            label: sink.label || 'Раковина прямоугольная',
+            shape: 'rect',
+            width: cutW,
+            depth: cutD,
+            applianceWidth: w,
+            applianceDepth: d,
+            x: number(cab.x, 0) + sec.x + (sec.width - cutW) / 2,
+            y: number(cab.y, 0) + positiveNumber(cab.height, 860),
+            z: number(cab.z, 0) + (positiveNumber(cab.depth, 600) - cutD) / 2
+          });
+        }
+      }
+    }
+  }
+  return cutouts;
+}
+
+export function getCountertopCutouts(project = {}) {
+  const cabinets = (project?.cabinets || []).filter(isBaseCabinet);
+  return getCountertopCutoutsForCabinets(cabinets, project);
 }
 
 /**
