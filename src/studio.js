@@ -1292,7 +1292,7 @@ function applianceDialog(forcedType=null){
  };
  form.onsubmit=e=>{
   e.preventDefault();
-  if(!form.reportValidity())return;
+  {const hiddenInputs=[...form.querySelectorAll('[hidden] input')].filter(el=>!el.disabled);hiddenInputs.forEach(el=>{el.disabled=true;});const valid=form.reportValidity();hiddenInputs.forEach(el=>{el.disabled=false;});if(!valid)return;}
   const t=form.elements.type.value;
   if(t==='cooktop'){
    const cw=form.elements.width.valueAsNumber,cd=form.elements.depth.valueAsNumber;
