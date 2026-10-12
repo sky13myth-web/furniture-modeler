@@ -418,20 +418,115 @@ function layoutParent(layout, id, parent = null) {
   return null;
 }
 
-export function splitSection(cabinet, id, axis) {
+export function splitSection(cabinet, id, axis, project = { materials: [] }) {
   if (!['horizontal', 'vertical'].includes(axis)) return false;
   cabinet.layout ??= convertLegacyLayout(cabinet);
   const found = layoutParent(cabinet.layout, id);
   if (!found || found.node.kind !== 'section') return false;
+
+  const geom = getCabinetLayout(cabinet, project);
+  const currentSection = geom.sections.find(s => s.id === id);
+  const thickness = geom.thickness || bodyThickness(cabinet, project) || 18;
+
   const first = { ...found.node, id: uid('section') };
   const second = createSection('open');
-  if (axis === 'horizontal' && first.plinthHeight !== undefined) { second.plinthHeight = first.plinthHeight; delete first.plinthHeight; }
-  if (axis === 'horizontal' && first.floor === 'open') {
-    first.floor = 'inherit'; second.floor = 'open';
-    second.back = first.back ?? 'inherit'; second.depth = first.depth ?? null;
-    if (first.appliance) { second.appliance = first.appliance; delete first.appliance; }
+
+  if (axis === 'horizontal') {
+    if (first.plinthHeight !== undefined) { second.plinthHeight = first.plinthHeight; delete first.plinthHeight; }
+    if (first.floor === 'open') {
+      first.floor = 'inherit';
+      second.floor = 'open';
+      second.back = first.back ?? 'inherit';
+      second.depth = first.depth ?? null;
+      if (first.appliance) { second.appliance = first.appliance; delete first.appliance; }
+    } else if (first.appliance) {
+      second.appliance = first.appliance;
+      second.back = first.back ?? 'inherit';
+      second.depth = first.depth ?? null;
+      delete first.appliance;
+    }
   }
-  const split = { id: found.node.id, kind: 'split', axis, sizes: [1, 1], children: [first, second] };
+
+  let sizes = [1, 1];
+  const targetAppliance = second.appliance || first.appliance;
+  const targetCooktop = first.cooktop || second.cooktop;
+  const targetSink = first.sink || second.sink;
+
+  if (targetAppliance && targetAppliance.type !== 'hood-builtin') {
+    const appNode = second.appliance ? second : first;
+    appNode.shelves = 0;
+    appNode.front = 'open';
+    appNode.back = 'none';
+    delete appNode.pullOutShelf;
+    delete appNode.internalDrawerCount;
+    delete appNode.interiorLayout;
+    delete appNode.rods;
+  }
+
+  if (currentSection && (targetAppliance || targetCooktop || targetSink)) {
+    if (targetAppliance) {
+      const fit = getApplianceFit(currentSection, targetAppliance);
+      if (axis === 'horizontal') {
+        const reqH = Math.ceil(fit.required.height);
+        const availH = Math.max(0, currentSection.height - thickness);
+        if (availH >= reqH + 60) {
+          const smallH = Math.round(availH - reqH);
+          sizes = second.appliance ? [smallH, reqH] : [reqH, smallH];
+        } else {
+          const minSmallH = 250;
+          const neededExtra = Math.ceil((reqH + minSmallH + thickness) - currentSection.height);
+          if (neededExtra > 0 && Number(cabinet.height) + neededExtra <= 6000) {
+            cabinet.height = Math.round(Number(cabinet.height) + neededExtra);
+          }
+          sizes = second.appliance ? [minSmallH, reqH] : [reqH, minSmallH];
+        }
+      } else if (axis === 'vertical') {
+        const reqW = Math.ceil(fit.required.width);
+        const availW = Math.max(0, currentSection.width - thickness);
+        if (availW >= reqW + 60) {
+          const smallW = Math.round(availW - reqW);
+          sizes = first.appliance ? [reqW, smallW] : [smallW, reqW];
+        } else {
+          const minSmallW = 150;
+          const neededExtra = Math.ceil((reqW + minSmallW + thickness) - currentSection.width);
+          if (neededExtra > 0 && Number(cabinet.width) + neededExtra <= 6000) {
+            cabinet.width = Math.round(Number(cabinet.width) + neededExtra);
+          }
+          sizes = first.appliance ? [reqW, minSmallW] : [minSmallW, reqW];
+        }
+      }
+    } else if (targetCooktop) {
+      if (axis === 'horizontal') {
+        const reqH = 100;
+        const availH = Math.max(0, currentSection.height - thickness);
+        if (availH >= reqH + 60) {
+          sizes = [reqH, Math.round(availH - reqH)];
+        }
+      } else if (axis === 'vertical') {
+        const reqW = Math.ceil(targetCooktop.width || 590);
+        const availW = Math.max(0, currentSection.width - thickness);
+        if (availW >= reqW + 60) {
+          sizes = [reqW, Math.round(availW - reqW)];
+        }
+      }
+    } else if (targetSink) {
+      if (axis === 'horizontal') {
+        const reqH = Math.ceil(targetSink.height || 200) + 40;
+        const availH = Math.max(0, currentSection.height - thickness);
+        if (availH >= reqH + 60) {
+          sizes = [reqH, Math.round(availH - reqH)];
+        }
+      } else if (axis === 'vertical') {
+        const reqW = Math.ceil(targetSink.width || 780);
+        const availW = Math.max(0, currentSection.width - thickness);
+        if (availW >= reqW + 60) {
+          sizes = [reqW, Math.round(availW - reqW)];
+        }
+      }
+    }
+  }
+
+  const split = { id: found.node.id, kind: 'split', axis, sizes, children: [first, second] };
   if (found.parent) found.parent.children[found.parent.children.indexOf(found.node)] = split; else cabinet.layout = split;
   return true;
 }
