@@ -1816,7 +1816,14 @@ export function validateProject(project) {
           const vDeficit = Math.ceil(appliance.depth + 50 - section.usableDepth);
           warn(`для встроенной техники «${appliance.label ?? appliance.type}» в секции «${sectionName}» требуется задний вентиляционный зазор ≥ 45–50 мм (доступно ${Math.max(0, Math.round(section.usableDepth - appliance.depth))} мм).`, { sectionId: section.id, type: 'appliance-oven-ventilation', fix: { type: 'adjust-cabinet-depth', cabinetId: cabinet.id, deficit: vDeficit, label: 'Увеличить глубину корпуса (+50 мм)' } });
         }
-        if (section.node.front !== 'open' || integer(section.node.shelves) > 0) error(`для техники в секции «${sectionName}» требуется открытая ниша без полок.`, { sectionId: section.id });
+        if (appliance.type === 'hood-builtin') {
+          const shelfCount = integer(section.node.shelves);
+          const hoodTop = section.y + number(appliance.height);
+          const lowest = shelfCount > 0 ? shelfPanelY(section.y, section.height, shelfCount, 0, thickness) : Infinity;
+          if (lowest < hoodTop - EPSILON) error(`полка секции «${sectionName}» пересекает встроенную вытяжку: нижняя полка на ${Math.round(lowest - section.y)} мм, корпус вытяжки до ${Math.round(number(appliance.height))} мм. Уменьшите число полок или высоту вытяжки.`, { sectionId: section.id });
+          else if (shelfCount > 0) warn(`в полках над вытяжкой в секции «${sectionName}» нужен вырез под воздуховод.`, { sectionId: section.id, type: 'hood-duct-cutout' });
+          if (section.node.front !== 'open') warn(`секция «${sectionName}» с вытяжкой закрыта дверцами: обеспечьте выход воздуховода (отверстие в крыше или задней стенке) или режим рециркуляции с решёткой.`, { sectionId: section.id, type: 'hood-airflow' });
+        } else if (section.node.front !== 'open' || integer(section.node.shelves) > 0) error(`для техники в секции «${sectionName}» требуется открытая ниша без полок.`, { sectionId: section.id });
         if (section.node.pullOutShelf) error(`выдвижная полка секции «${sectionName}» пересекает основание техники; поместите её в отдельный проём.`, { sectionId: section.id });
         const machineX = section.x + (section.width - appliance.width) / 2;
         const machineZ = backThickness(cabinet, project) + section.rearOffset + Math.max(0, section.usableDepth - appliance.depth);

@@ -1252,7 +1252,7 @@ function applianceDialog(forcedType=null){
   if([...form.querySelectorAll('input[type="number"]')].some(el=>!el.disabled&&!el.closest('[hidden]')&&!el.checkValidity())){$('#appliance-fit').classList.add('has-warning');$('#appliance-fit').textContent='Заполните размеры и зазоры допустимыми числами.';return;}
   const draft=clone(c);draft.layout??=convertLegacyLayout(draft);const node=findLayoutNode(draft.layout,section.id);
   const isBuiltinHood=form.elements.type.value==='hood-builtin';
-  if(node){if(!isBuiltinHood){node.front='open';node.back='none';}node.shelves=0;if(atFloor)node.floor=form.elements.onFloor.checked?'open':'inherit';}
+  if(node){if(!isBuiltinHood){node.front='open';node.back='none';node.shelves=0;}if(atFloor)node.floor=form.elements.onFloor.checked?'open':'inherit';}
   const opening=getCabinetLayout(draft,project).sections.find(s=>s.id===section.id)||section;
   const fit=getApplianceFit(opening,read());
   const labels={width:'ширине',height:'высоте',depth:'глубине'};
@@ -1339,8 +1339,8 @@ function applianceDialog(forcedType=null){
   const saved=change(()=>{
    const s=editableSection();s.node.appliance=appliance;
    if(t!=='hood-builtin'){s.node.front='open';s.node.back='none';}
-   s.node.shelves=0;
-   delete s.node.pullOutShelf;delete s.node.internalDrawerCount;delete s.node.interiorLayout;delete s.node.hingesPerDoor;delete s.node.rods;
+   if(t==='hood-builtin'){const th=Number(g.thickness)||18,h=Number(appliance.height)||0,maxN=Math.max(0,Math.floor((section.height-h)/(h+th)));s.node.shelves=Math.min(Number(s.node.shelves)||0,maxN);}else s.node.shelves=0;
+   delete s.node.pullOutShelf;delete s.node.internalDrawerCount;delete s.node.interiorLayout;if(t!=='hood-builtin')delete s.node.hingesPerDoor;delete s.node.rods;
    if(!getFrontLayout(c,project).some(front=>front.kind==='door'))delete c.hingesPerDoor;
    if(atFloor)s.node.floor=form.elements.onFloor.checked?'open':'inherit';
   });
