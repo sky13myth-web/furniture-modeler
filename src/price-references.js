@@ -64,6 +64,16 @@ const confirmats = [hardwareSample('Samet · Konfirmat vida 7x50 · 1 adet', 1.5
 const plinthLegs = [hardwareSample('Yeniler · Baza ayağı plastik 100 mm · 1 adet', 12.00, 'https://www.yeniler.com.tr/tr/urun/baza-ayagi-100-mm/00000003/')];
 const shelfSupports = [hardwareSample('Häfele · Raf pimi çelik 5 mm · 1 adet', 2.00, 'https://www.hafele.com.tr/tr/urun/raf-pimi-5-mm/00000004/')];
 const cornerBrackets = [hardwareSample('Çebi · Plastik kapaklı köşe gönye / bağlantı · 1 adet', 3.50, 'https://www.cebi.com.tr/tr/urun/kose-gonye/00000005/')];
+const countertopSamples = [
+  hardwareSample('Kastamonu · 38 mm Postforming Tezgah · 1 tül metre', 1350, 'https://www.kastamonuentegre.com/tr/urun/tezgahlar'),
+  hardwareSample('Gentaş · 38 mm HPL Tezgah · 1 tül metre', 1420, 'https://www.gentas.com.tr/urunler/hpl-tezgah/'),
+];
+const countertopSqmSamples = [
+  hardwareSample('Kastamonu · 38 mm Postforming Tezgah · 1 m²', 2250, 'https://www.kastamonuentegre.com/tr/urun/tezgahlar'),
+];
+const cutoutSamples = [
+  hardwareSample('Atölye · Evye / Ocak yeri açma işçiliği · 1 adet', 350, 'https://www.arkutorman.com/hizmetler/tezgah-kesim'),
+];
 
 export const HARDWARE_PRICE_REFERENCES = {
   handlePrice: { price: averageVatIncluded(handles), samples: handles },
@@ -75,5 +85,9 @@ export const HARDWARE_PRICE_REFERENCES = {
   plinthLegPrice: { price: averageVatIncluded(plinthLegs), samples: plinthLegs },
   shelfSupportPrice: { price: averageVatIncluded(shelfSupports), samples: shelfSupports },
   cornerBracketPrice: { price: averageVatIncluded(cornerBrackets), samples: cornerBrackets },
+  countertopPricePerMeter: { price: averageVatIncluded(countertopSamples), samples: countertopSamples },
+  countertopPricePerSquareMeter: { price: 2250, samples: countertopSqmSamples },
+  sinkCutoutPrice: { price: 350, samples: cutoutSamples },
+  cooktopCutoutPrice: { price: 350, samples: cutoutSamples },
 };
 

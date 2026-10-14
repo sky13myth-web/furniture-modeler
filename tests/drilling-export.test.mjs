@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDefaultProject } from '../src/engine.js';
-import { generateFactoryCSV } from '../src/factory-export.js';
+import { createDefaultProject, validateProject } from '../src/engine.js';
+import { checkFactoryProject, generateFactoryCSV } from '../src/factory-export.js';
+import { applyQuickFix } from '../src/quick-fix.js';
 import { generateDrillingPlan } from '../src/drilling.js';
 import { DRILLING_COLUMNS, checkDrillingExport, generateDrillingCSV, buildDrillingFiles, generateDrillingZip, createDrillingPartSvg, layoutDrillingCallouts } from '../src/drilling-export.js';
 import { crc32 } from '../src/zip-store.js';
@@ -381,3 +382,24 @@ test('the common archive contains self-contained per-cabinet maps and a navigabl
   assert.equal(info.SELECTED_CABINET_ID, project.cabinets[1].id);
   assert.equal(info.DOCUMENT_ID, table(files.find(file => file.path === 'document-info.csv').content)[0].DOCUMENT_ID, 'cabinet handoff and whole-project handoff retain the same project revision identity');
 });
+
+test('room window boundary errors do not block cabinet drilling and can be clamped via quick-fix', () => {
+  const project = projectForDrilling('ru');
+  const cabId = project.cabinets[0].id;
+  project.room.windows = [{ id: 'win-overrun', kind: 'window', wallIndex: 0, offset: 3500, width: 1500, height: 1200, sill: 900 }];
+  const issues = validateProject(project);
+  const winIssue = issues.find(i => i.windowId === 'win-overrun');
+  assert.ok(winIssue);
+  assert.equal(winIssue.scope, 'room');
+  assert.equal(winIssue.fix?.type, 'fit-window-to-wall');
+
+  const scopedFactory = checkFactoryProject(project, { cabinetId: cabId });
+  assert.equal(scopedFactory.valid, true);
+  const scopedDrilling = checkDrillingExport(project, { cabinetId: cabId });
+  assert.equal(scopedDrilling.valid, true);
+  assert.equal(scopedDrilling.errors.length, 0);
+
+  assert.equal(applyQuickFix(project, winIssue.fix), true);
+  assert.ok(!validateProject(project).some(i => i.windowId === 'win-overrun' && i.level === 'error'));
+});
+

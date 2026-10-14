@@ -6,6 +6,7 @@ import {
   getApplianceFit
 } from './engine.js';
 import { suggestCabinetCutout } from './room-obstacles.js';
+import { wallLength } from './room-geometry.js';
 
 const num = v => Number(v) || 0;
 
@@ -172,6 +173,24 @@ export function quickFixObstacleCutout(cabinet, obstacleId, project) {
 }
 
 /**
+ * Clamps a room window, door, or obstacle so that its offset/width and sill/height fit within its wall.
+ */
+export function quickFixFitWindowToWall(project, windowId) {
+  const room = project?.room;
+  if (!room || !Array.isArray(room.windows)) return false;
+  const w = room.windows.find(item => item.id === windowId);
+  if (!w) return false;
+  const wallIndex = w.wallIndex ?? ({ back: 0, right: 1, front: 2, left: 3 })[w.wall] ?? 0;
+  const maxLen = Math.max(100, wallLength(room, wallIndex));
+  const maxH = Math.max(100, num(room.height) || 2600);
+  w.width = Math.min(Math.max(50, num(w.width) || 600), maxLen);
+  w.offset = Math.min(Math.max(0, num(w.offset)), Math.max(0, maxLen - w.width));
+  w.height = Math.min(Math.max(50, num(w.height) || 1000), maxH);
+  w.sill = w.kind === 'door' ? 0 : Math.min(Math.max(0, num(w.sill)), Math.max(0, maxH - w.height));
+  return true;
+}
+
+/**
  * Master dispatcher for applying quick-fixes to a project.
  * Returns true if a mutation was made, false otherwise.
  */
@@ -180,6 +199,9 @@ export function applyQuickFix(project, fix) {
   const cabinet = (project.cabinets || []).find(c => c.id === fix.cabinetId);
 
   switch (fix.type) {
+    case 'fit-window-to-wall':
+      return quickFixFitWindowToWall(project, fix.windowId);
+
     case 'split-vertical':
       if (!cabinet || !fix.sectionId) return false;
       return quickFixSplitShelfSpan(cabinet, fix.sectionId);

@@ -481,7 +481,11 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
     return String(unit ?? '');
   };
 
-  // Header template for pages 2-4
+  const allCabinets = geometry.cabinets ?? [];
+  const specPagesCount = Math.max(1, Math.ceil(allCabinets.length / 8));
+  const totalPages = 1 + 1 + specPagesCount + 1;
+
+  // Header template for pages 2..N
   const pageHeader = pageNum => `
     <header class="page-header">
       <div class="header-left">
@@ -501,7 +505,7 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
   const pageFooter = pageNum => `
     <footer class="page-footer">
       <div class="footer-left">ATÖLYE Furniture Studio · ${t('clientPresentation')}</div>
-      <div class="footer-center">${t('page')} ${pageNum} / 4</div>
+      <div class="footer-center">${t('page')} ${pageNum} / ${totalPages}</div>
       <div class="footer-right">${escape(printDocumentText('notToScale', lang))}</div>
     </footer>
   `;
@@ -681,30 +685,7 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
     </section>
   `;
 
-  // --- PAGE 3: Furniture & Material Specifications ---
-  const cabinetRows = geometry.cabinets.length > 0
-    ? geometry.cabinets.map((cab, index) => {
-        const rawCab = cabinets[index] ?? cab;
-        const carcassMat = materials.find(m => m.id === rawCab.materialId);
-        const frontMat = materials.find(m => m.id === (rawCab.frontMaterialId ?? rawCab.materialId));
-
-        const cabName = translateBuiltInName(cab.name, lang, 'cabinet');
-        const carcassName = carcassMat ? translateMaterialName(carcassMat.name, lang) : '—';
-        const frontName = frontMat ? translateMaterialName(frontMat.name, lang) : '—';
-
-        return `
-          <tr>
-            <td class="col-code">${cab.number}</td>
-            <td class="col-title">${escape(cabName)}</td>
-            <td class="col-num">${formatNumber(cab.width, lang)} × ${formatNumber(cab.height, lang)} × ${formatNumber(cab.depth, lang)}</td>
-            <td class="col-num">${formatNumber(cab.y, lang)}</td>
-            <td>${escape(carcassName)}</td>
-            <td>${escape(frontName)}</td>
-          </tr>
-        `;
-      }).join('')
-    : `<tr><td colspan="6" class="empty-cell">${t('noCabinets')}</td></tr>`;
-
+  // --- PAGE 3..: Furniture & Material Specifications ---
   const materialRows = materials.length > 0
     ? materials.map(mat => {
         const localizedName = translateMaterialName(mat.name, lang);
@@ -733,38 +714,41 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
       }).join('')
     : `<tr><td colspan="7" class="empty-cell">${t('noMaterials')}</td></tr>`;
 
-  const page3 = `
-    <section class="page page-3 specs-page">
-      ${pageHeader(3)}
+  const specPages = [];
+  for (let pageIdx = 0; pageIdx < specPagesCount; pageIdx++) {
+    const pageNum = 3 + pageIdx;
+    const startIndex = pageIdx * 8;
+    const sliceCabinets = allCabinets.slice(startIndex, startIndex + 8);
+    const isLastSpecPage = pageIdx === specPagesCount - 1;
 
-      <div class="page-title-bar">
-        <h2>${t('furnitureSpecsTitle')}</h2>
-      </div>
+    const sliceRows = (sliceCabinets.length > 0 || (allCabinets.length === 0 && pageIdx === 0))
+      ? (sliceCabinets.length > 0
+          ? sliceCabinets.map((cab, localIdx) => {
+              const globalIndex = startIndex + localIdx;
+              const rawCab = cabinets[globalIndex] ?? cab;
+              const carcassMat = materials.find(m => m.id === rawCab.materialId);
+              const frontMat = materials.find(m => m.id === (rawCab.frontMaterialId ?? rawCab.materialId));
 
-      <div class="specs-section">
-        <div class="section-title-row">
-          <h3>${t('cabinetSchedule')}</h3>
-          <span class="count-badge">${geometry.cabinets.length}</span>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table cabinet-table">
-            <thead>
-              <tr>
-                <th class="col-code">${t('cabinetNumber')}</th>
-                <th>${t('cabinetName')}</th>
-                <th class="col-num">${t('dimensions')}</th>
-                <th class="col-num">${t('elevationY')}</th>
-                <th>${t('carcassMaterial')}</th>
-                <th>${t('frontMaterial')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${cabinetRows}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              const cabName = translateBuiltInName(cab.name, lang, 'cabinet');
+              const carcassName = carcassMat ? translateMaterialName(carcassMat.name, lang) : '—';
+              const frontName = frontMat ? translateMaterialName(frontMat.name, lang) : '—';
 
+              return `
+          <tr>
+            <td class="col-code">${cab.number}</td>
+            <td class="col-title">${escape(cabName)}</td>
+            <td class="col-num">${formatNumber(cab.width, lang)} × ${formatNumber(cab.height, lang)} × ${formatNumber(cab.depth, lang)}</td>
+            <td class="col-num">${formatNumber(cab.y, lang)}</td>
+            <td>${escape(carcassName)}</td>
+            <td>${escape(frontName)}</td>
+          </tr>
+        `;
+            }).join('')
+          : `<tr><td colspan="6" class="empty-cell">${t('noCabinets')}</td></tr>`)
+      : '';
+
+    const materialsBlock = isLastSpecPage
+      ? `
       <div class="specs-section">
         <div class="section-title-row">
           <h3>${t('materialsPaletteTitle')}</h3>
@@ -788,13 +772,51 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
             </tbody>
           </table>
         </div>
+      </div>`
+      : '';
+
+    const specPage = `
+    <section class="page page-${pageNum} specs-page">
+      ${pageHeader(pageNum)}
+
+      <div class="page-title-bar">
+        <h2>${t('furnitureSpecsTitle')}</h2>
       </div>
 
-      ${pageFooter(3)}
+      <div class="specs-section">
+        <div class="section-title-row">
+          <h3>${t('cabinetSchedule')}</h3>
+          <span class="count-badge">${allCabinets.length}</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table cabinet-table">
+            <thead>
+              <tr>
+                <th class="col-code">${t('cabinetNumber')}</th>
+                <th>${t('cabinetName')}</th>
+                <th class="col-num">${t('dimensions')}</th>
+                <th class="col-num">${t('elevationY')}</th>
+                <th>${t('carcassMaterial')}</th>
+                <th>${t('frontMaterial')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sliceRows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      ${materialsBlock}
+
+      ${pageFooter(pageNum)}
     </section>
   `;
+    specPages.push(specPage);
+  }
 
-  // --- PAGE 4: Commercial Cost & Hardware Summary ---
+  // --- PAGE Cost: Commercial Cost & Hardware Summary ---
+  const costPageNum = 3 + specPagesCount;
   const fastenersCount = (estimate.rearHardware?.screws ?? 0) + (estimate.rearHardware?.nails ?? 0);
 
   const costRows = estimate.rows.map(row => {
@@ -830,9 +852,9 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
   const totalLabel = estimate.complete ? t('grandTotal') : t('totalKnown');
   const totalAmount = `${formatNumber(estimate.knownTotal, lang, 2)} ₺`;
 
-  const page4 = `
-    <section class="page page-4 cost-page">
-      ${pageHeader(4)}
+  const pageCost = `
+    <section class="page page-${costPageNum} cost-page">
+      ${pageHeader(costPageNum)}
 
       <div class="page-title-bar">
         <h2>${t('commercialSummaryTitle')}</h2>
@@ -918,7 +940,7 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
 
       <p class="commercial-disclaimer">${t('estimateNotice')}</p>
 
-      ${pageFooter(4)}
+      ${pageFooter(costPageNum)}
     </section>
   `;
 
@@ -1494,8 +1516,8 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
   <main class="presentation-document" data-i18n="off" lang="${escape(lang)}">
     ${page1}
     ${page2}
-    ${page3}
-    ${page4}
+    ${specPages.join('\n')}
+    ${pageCost}
   </main>
 </body>
 </html>`;

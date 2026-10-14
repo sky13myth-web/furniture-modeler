@@ -1,7 +1,7 @@
 /** Quantity schedule only. Hardware model, loading, drilling and compatibility
  * must be selected from the actual hinge/runner/lift manufacturer's passport. */
 import { getCabinetLayout, getFrontLayout, getInternalDrawerLayout, getRodLayout } from './engine.js';
-import { getRearFasteningSchedule } from './drilling.js';
+import { getRearFasteningSchedule, generateDrillingPlan } from './drilling.js';
 
 /** Our editable preliminary height estimate, never a universal hardware rule.
  * Door width, mass, material and the chosen mechanism remain to be checked. */
@@ -11,10 +11,24 @@ export function defaultHingesPerDoor(height) {
   return Math.min(12, 7 + Math.ceil((h - 2800) / 400));
 }
 
+export function getSystem32HardwareCounts(project) {
+  const plan = generateDrillingPlan({ ...project, settings: { ...project.settings, drilling: { ...project.settings?.drilling, enabled: true, system32: true } } });
+  return {
+    shelfPins: plan.holes.filter(h => h.fastenerType === 'shelf-pin-system32').length,
+    slideScrews: plan.holes.filter(h => h.fastenerType === 'drawer-slide-system32').length,
+    hingePlates: plan.holes.filter(h => h.fastenerType === 'hinge-plate-system32').length,
+    hingeCups: plan.holes.filter(h => h.fastenerType === 'hinge-cup-35mm').length,
+    totalHoles: plan.holes.filter(h => h.system32).length
+  };
+}
+
 const explicitHinges = value => Number.isInteger(value) && value >= 2 && value <= 12;
 const emptyTotals = () => {
   const totals = { handles: 0, guideSets: 0, hinges: 0, rods: 0, rodHolders: 0, rodLengthMeters: 0 };
-  const extra = { pushLatches: 0, confirmats: 0, plinthLegs: 0, shelfSupports: 0, cornerBrackets: 0, ventGrilles: 0 };
+  const extra = {
+    pushLatches: 0, confirmats: 0, plinthLegs: 0, shelfSupports: 0, cornerBrackets: 0, ventGrilles: 0,
+    system32ShelfPins: 0, system32SlideScrews: 0, system32HingePlates: 0, system32HingeCups: 0
+  };
   for (const [key, initial] of Object.entries(extra)) {
     let val = initial;
     Object.defineProperty(totals, key, {
@@ -212,9 +226,16 @@ export function getProjectHardwareSchedule(project) {
   const totals = emptyTotals();
   for (const schedule of cabinets) {
     for (const key of Object.keys(totals)) totals[key] += schedule.totals[key] || 0;
-    for (const key of ['pushLatches', 'confirmats', 'plinthLegs', 'shelfSupports', 'cornerBrackets']) {
+    for (const key of ['pushLatches', 'confirmats', 'plinthLegs', 'shelfSupports', 'cornerBrackets', 'system32ShelfPins', 'system32SlideScrews', 'system32HingePlates', 'system32HingeCups']) {
       totals[key] += schedule.totals[key] || 0;
     }
+  }
+  if (project?.settings?.drilling?.enabled && project?.settings?.drilling?.system32) {
+    const s32 = getSystem32HardwareCounts(project);
+    totals.system32ShelfPins = s32.shelfPins;
+    totals.system32SlideScrews = s32.slideScrews;
+    totals.system32HingePlates = s32.hingePlates;
+    totals.system32HingeCups = s32.hingeCups;
   }
   return { cabinets, rows: cabinets.flatMap(schedule => schedule.rows), totals,
     rearTotals: rear.totals, rearFastenings: rear.rows, rearIssues: rear.errors,

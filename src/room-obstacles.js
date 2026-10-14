@@ -6,7 +6,7 @@
 // of it and occupy floor space that furniture has to respect.
 import { getRoomOutline, polygonArea, polygonsOverlap, cabinetFootprint } from './room-geometry.js';
 
-export const OBSTACLE_KINDS = Object.freeze(['pipe', 'box']);
+export const OBSTACLE_KINDS = Object.freeze(['pipe', 'box', 'pillar', 'column']);
 export const OPENING_KINDS = Object.freeze(['window', 'door']);
 export const ROOM_ELEMENT_KINDS = Object.freeze([...OPENING_KINDS, ...OBSTACLE_KINDS]);
 
@@ -19,22 +19,37 @@ const num = (value, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-export const isObstacle = element => OBSTACLE_KINDS.includes(element?.kind);
+export const isObstacle = element =>
+  OBSTACLE_KINDS.includes(element?.kind) ||
+  OBSTACLE_KINDS.includes(element?.type) ||
+  element?.freestanding === true ||
+  element?.kind === 'pillar' ||
+  element?.kind === 'column' ||
+  element?.type === 'pillar' ||
+  element?.type === 'column';
 export const isOpening = element => !isObstacle(element);
 export const roomOpenings = room => (room?.windows || []).filter(isOpening);
 export const roomObstacles = room => (room?.windows || []).filter(isObstacle);
-export const wallIndexOf = element => Number.isInteger(element?.wallIndex) ? element.wallIndex : LEGACY_WALLS[element?.wall];
+export const wallIndexOf = element => {
+  if (element?.freestanding === true) return null;
+  if (Number.isInteger(element?.wallIndex)) return element.wallIndex;
+  if (element?.wall && LEGACY_WALLS[element.wall] !== undefined) return LEGACY_WALLS[element.wall];
+  return null;
+};
 
-/** Depth an obstacle occupies in front of the wall surface (mm). */
+/** Depth an obstacle occupies in front of the wall surface or in freestanding floor space (mm). */
 export function obstacleDepth(element) {
-  if (element?.kind === 'pipe') return Math.max(0, num(element.standoff, 0)) + Math.max(1, num(element.diameter, 32));
-  if (element?.kind === 'box') return Math.max(1, num(element.depth, 200));
-  return 0;
+  if (element?.kind === 'pipe' || element?.type === 'pipe') return Math.max(0, num(element.standoff, 0)) + Math.max(1, num(element.diameter, 32));
+  if (element?.kind === 'box' || element?.type === 'box') return Math.max(1, num(element.depth, 200));
+  if (element?.kind === 'pillar' || element?.kind === 'column' || element?.type === 'pillar' || element?.type === 'column' || element?.freestanding) {
+    return Math.max(1, num(element.depth, 300));
+  }
+  return Math.max(0, num(element?.depth, 0));
 }
 
 /** Keep the plan envelope (width × height) consistent with the pipe diameter. */
 export function normalizeObstacle(element) {
-  if (!element || element.kind !== 'pipe') return element;
+  if (!element || (element.kind !== 'pipe' && element.type !== 'pipe')) return element;
   const diameter = Math.max(1, num(element.diameter, 32));
   const next = { ...element, diameter, standoff: Math.max(0, num(element.standoff, 20)), orientation: element.orientation === 'horizontal' ? 'horizontal' : 'vertical' };
   if (next.orientation === 'vertical') next.width = diameter;
@@ -42,22 +57,27 @@ export function normalizeObstacle(element) {
   return next;
 }
 
-/** Create a new obstacle record with sensible defaults for the given wall. */
-export function createObstacle(kind, { id, wallIndex = 0, wallLength = 3000, roomHeight = 2700, orientation = 'vertical' } = {}) {
-  const height = Math.max(100, num(roomHeight, 2700));
+/** Create a new obstacle record with sensible defaults for the given wall or freestanding position. */
+export function createObstacle(kind, { id, wallIndex = 0, wallLength = 3000, roomHeight = 2700, orientation = 'vertical', x = 1000, z = 1000, width: customWidth, depth: customDepth, height: customHeight, rotation = 0, sill = 0 } = {}) {
+  const height = Math.max(100, num(customHeight ?? roomHeight, 2700));
+  if (kind === 'pillar' || kind === 'column') {
+    const width = Math.max(1, num(customWidth, 400));
+    const depth = Math.max(1, num(customDepth, 400));
+    return { id, kind, freestanding: true, x: num(x, 1000), z: num(z, 1000), width, depth, height, sill: num(sill, 0), rotation: num(rotation, 0) };
+  }
   if (kind === 'pipe') {
     const diameter = 32, standoff = 20;
     const vertical = orientation !== 'horizontal';
     const width = vertical ? diameter : Math.min(1200, Math.max(100, wallLength - 200));
     return normalizeObstacle({ id, kind: 'pipe', wallIndex, orientation: vertical ? 'vertical' : 'horizontal', diameter, standoff, offset: Math.max(0, Math.round(vertical ? Math.min(150, wallLength - width) : (wallLength - width) / 2)), width, height: vertical ? height : diameter, sill: vertical ? 0 : 150 });
   }
-  const width = Math.min(400, Math.max(50, wallLength / 4));
-  return { id, kind: 'box', wallIndex, offset: Math.max(0, Math.round(wallLength - width)), width, height, sill: 0, depth: 250 };
+  const width = customWidth ? Math.max(1, num(customWidth)) : Math.min(400, Math.max(50, wallLength / 4));
+  return { id, kind: 'box', wallIndex, offset: Math.max(0, Math.round(wallLength - width)), width, height, sill: 0, depth: num(customDepth, 250) };
 }
 
 /** Switch a pipe between riser and horizontal run, keeping it on its wall. */
 export function setPipeOrientation(element, orientation, { wallLength = 3000, roomHeight = 2700 } = {}) {
-  if (element?.kind !== 'pipe') return element;
+  if (element?.kind !== 'pipe' && element?.type !== 'pipe') return element;
   const vertical = orientation !== 'horizontal';
   const diameter = Math.max(1, num(element.diameter, 32));
   if (vertical) {
@@ -70,7 +90,7 @@ export function setPipeOrientation(element, orientation, { wallLength = 3000, ro
 
 /**
  * Frame of the wall an element belongs to. `inward` points into the room.
- * Returns null for missing or degenerate walls.
+ * Returns null for missing or degenerate walls, or freestanding obstacles.
  */
 export function wallFrame(room, element) {
   const outline = getRoomOutline(room || {});
@@ -88,23 +108,106 @@ export function wallFrame(room, element) {
 /**
  * World geometry of an obstacle.
  * footprint: floor polygon used for collisions and the plan symbol.
+ * bounds: axis-aligned bounding box { minX, maxX, minZ, maxZ, width, depth }.
  * bottom / top: vertical extent (mm from floor).
  * pipe: { axis: 'y' | 'wall', center, radius, start, end } for cylinder rendering.
  */
 export function obstacleGeometry(room, element) {
   if (!isObstacle(element)) return null;
   const frame = wallFrame(room, element);
-  if (!frame) return null;
+  const roomHeight = Math.max(1, num(room?.height, 2700));
+
+  if (!frame) {
+    // Freestanding obstacle (column / pillar or element lacking wallIndex)
+    const item = normalizeObstacle(element);
+    const x = num(item.x, 0);
+    const z = num(item.z, 0);
+    const width = Math.max(1, num(item.width, 300));
+    const depth = obstacleDepth(item);
+    const bottom = Math.max(0, num(item.sill));
+    const height = num(item.height) > 0 ? num(item.height) : roomHeight;
+    const top = Math.min(roomHeight, bottom + height);
+    const rotation = num(item.rotation, 0);
+    const rad = rotation * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+
+    const localCorners = [
+      { x: 0, z: 0 },
+      { x: width, z: 0 },
+      { x: width, z: depth },
+      { x: 0, z: depth }
+    ];
+    const footprint = localCorners.map(p => ({
+      x: x + p.x * cos - p.z * sin,
+      z: z + p.x * sin + p.z * cos
+    }));
+
+    const xs = footprint.map(p => p.x);
+    const zs = footprint.map(p => p.z);
+    const bounds = {
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      minZ: Math.min(...zs),
+      maxZ: Math.max(...zs),
+      width: Math.max(...xs) - Math.min(...xs),
+      depth: Math.max(...zs) - Math.min(...zs)
+    };
+
+    const u = { x: cos, z: sin };
+    const inward = { x: -sin, z: cos };
+    const virtualFrame = {
+      freestanding: true,
+      index: null,
+      a: { x, z },
+      b: { x: x + width * cos, z: z + width * sin },
+      length: width,
+      u,
+      inward,
+      point: (along, d = 0) => ({
+        x: x + along * cos - d * sin,
+        z: z + along * sin + d * cos
+      })
+    };
+
+    return {
+      id: item.id,
+      kind: item.kind || item.type || 'column',
+      element: item,
+      frame: virtualFrame,
+      freestanding: true,
+      x,
+      z,
+      rotation,
+      start: 0,
+      end: width,
+      width,
+      depth,
+      bottom,
+      top,
+      footprint,
+      bounds
+    };
+  }
+
   const item = normalizeObstacle(element);
   const start = num(item.offset), width = Math.max(1, num(item.width, 1));
   const end = start + width;
   const depth = obstacleDepth(item);
-  const roomHeight = Math.max(1, num(room?.height, 2700));
   const bottom = Math.max(0, num(item.sill));
   const top = Math.min(roomHeight, bottom + Math.max(1, num(item.height, roomHeight)));
   const nearDepth = item.kind === 'pipe' ? num(item.standoff) : 0;
   const footprint = [frame.point(start, nearDepth), frame.point(end, nearDepth), frame.point(end, depth), frame.point(start, depth)];
-  const geometry = { id: item.id, kind: item.kind, element: item, frame, start, end, width, depth, bottom, top, footprint };
+  const xs = footprint.map(p => p.x);
+  const zs = footprint.map(p => p.z);
+  const bounds = {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minZ: Math.min(...zs),
+    maxZ: Math.max(...zs),
+    width: Math.max(...xs) - Math.min(...xs),
+    depth: Math.max(...zs) - Math.min(...zs)
+  };
+  const geometry = { id: item.id, kind: item.kind, element: item, frame, start, end, width, depth, bottom, top, footprint, bounds };
   if (item.kind === 'pipe') {
     const radius = item.diameter / 2, axisDepth = item.standoff + radius;
     if (item.orientation === 'vertical') {
@@ -124,8 +227,9 @@ export function obstacleGeometry(room, element) {
 }
 
 export function obstacleLabel(element, translate = text => text) {
-  if (element?.kind === 'pipe') return translate(element.orientation === 'horizontal' ? 'Труба горизонтальная' : 'Труба вертикальная');
-  if (element?.kind === 'box') return translate('Короб / выступ');
+  if (element?.kind === 'pipe' || element?.type === 'pipe') return translate(element.orientation === 'horizontal' ? 'Труба горизонтальная' : 'Труба вертикальная');
+  if (element?.kind === 'pillar' || element?.kind === 'column' || element?.type === 'pillar' || element?.type === 'column') return translate('Колонна / пилон');
+  if (element?.kind === 'box' || element?.type === 'box') return translate('Короб / выступ');
   return '';
 }
 

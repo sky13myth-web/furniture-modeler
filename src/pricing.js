@@ -2,6 +2,7 @@ import {generateParts,optimizeCutting,getEdgeBandingSummary} from './engine.js';
 import {getProjectHardwareSchedule} from './hardware.js';
 import {PRICING_SNAPSHOT,MATERIAL_PRICE_REFERENCES,HARDWARE_PRICE_REFERENCES} from './price-references.js';
 import {translatePrintText,translateMaterialName,translateBuiltInName} from './print-i18n.js';
+import {getCountertopRuns} from './countertop.js';
 
 const money=value=>Math.round((value+Number.EPSILON)*100)/100;
 const validPrice=value=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
@@ -24,9 +25,16 @@ export function getMaterialPrice(material,{thickness=material.thickness}={}){
 }
 
 export function getPriceSettings(project){
-  return Object.fromEntries(['handlePrice','guideSetPrice','hingePrice','edgeBandPricePerMeter','rodPricePerMeter','rodHolderPrice','rearScrewPrice','rearNailPrice','confirmatPrice','plinthLegPrice','shelfSupportPrice','cornerBracketPrice','pushLatchPrice'].map(key=>{
-    const manual=validPrice(project.settings?.pricing?.[key]);
-    const value=manual?project.settings.pricing[key]:HARDWARE_PRICE_REFERENCES[key]?.price??null;
+  return Object.fromEntries([
+    'handlePrice','guideSetPrice','hingePrice','edgeBandPricePerMeter','rodPricePerMeter','rodHolderPrice',
+    'rearScrewPrice','rearNailPrice','confirmatPrice','plinthLegPrice','shelfSupportPrice','cornerBracketPrice',
+    'pushLatchPrice',
+    'countertopPricePerMeter','countertopPricePerSquareMeter','sinkCutoutPrice','cooktopCutoutPrice'
+  ].map(key=>{
+    const hasManual = project.settings?.pricing && Object.hasOwn(project.settings.pricing, key);
+    const manual = hasManual && validPrice(project.settings.pricing[key]);
+    const isExplicitNull = hasManual && project.settings.pricing[key] === null;
+    const value = manual ? project.settings.pricing[key] : (isExplicitNull ? null : (HARDWARE_PRICE_REFERENCES[key]?.price ?? null));
     return [key,{price:value===null?null:money(value),manual,reference:manual?null:HARDWARE_PRICE_REFERENCES[key]??null}];
   }));
 }
@@ -66,6 +74,78 @@ export function getProjectCostEstimate(project,{cabinetId=null}={}){
     add('cornerBrackets','Уголки',hardware.totals.cornerBrackets??0,'pcs',prices.cornerBracketPrice);
   }
   add('edge','Кромка',edge.lengthMeters,'meter',prices.edgeBandPricePerMeter);
+
+  const runs = getCountertopRuns(source);
+  if (runs.length > 0) {
+    const totalLengthMm = runs.reduce((sum, run) => sum + (run.wings || []).reduce((wSum, w) => wSum + (w.length || 0), 0), 0);
+    const totalAreaMm2 = runs.reduce((sum, run) => sum + (run.wings || []).reduce((wSum, w) => wSum + ((w.length || 0) * (w.depth || 0)), 0), 0);
+    const linearMeters = Math.round(totalLengthMm / 10) / 100;
+    const squareMeters = Math.round(totalAreaMm2 / 1000) / 1000;
+
+    const pricingMode = project.settings?.pricing?.countertopPricingMode || 'linear-meter';
+    const isSqm = pricingMode === 'square-meter';
+
+    const slabRate = isSqm ? prices.countertopPricePerSquareMeter : prices.countertopPricePerMeter;
+    const slabQuantity = isSqm ? squareMeters : linearMeters;
+    const slabUnit = isSqm ? 'sqm' : 'meter';
+    const slabLabel = isSqm ? 'Столешница (кв. метры)' : 'Столешница (погонные метры)';
+
+    if (slabQuantity > 0) {
+      rows.push({
+        kind: 'countertop',
+        id: 'countertopSlab',
+        label: slabLabel,
+        quantity: slabQuantity,
+        unit: slabUnit,
+        unitPrice: slabRate?.price ?? null,
+        manual: slabRate?.manual ?? false,
+        reference: slabRate?.reference ?? null
+      });
+    }
+
+    const allCutouts = runs.flatMap(run => run.cutouts ?? []);
+    for (const run of runs) {
+      for (const cab of run.cabinets || []) {
+        const alreadyHasCutout = allCutouts.some(c => c.cabinetId === cab.id);
+        if (!alreadyHasCutout) {
+          const isCooktop = cab.cooktop || cab.appliance?.type === 'cooktop' || cab.appliance?.type === 'hob';
+          const isSink = cab.sink || String(cab.appliance?.type ?? '').startsWith('sink');
+          if (isCooktop) allCutouts.push({ cabinetId: cab.id, applianceType: 'cooktop' });
+          if (isSink) allCutouts.push({ cabinetId: cab.id, applianceType: 'sink-rectangular' });
+        }
+      }
+    }
+
+    const sinkCount = allCutouts.filter(c => String(c.applianceType ?? '').startsWith('sink')).length;
+    const cooktopCount = allCutouts.filter(c => c.applianceType === 'cooktop').length;
+
+    if (sinkCount > 0) {
+      rows.push({
+        kind: 'service',
+        id: 'sinkCutouts',
+        label: 'Вырез под мойку',
+        quantity: sinkCount,
+        unit: 'pcs',
+        unitPrice: prices.sinkCutoutPrice?.price ?? null,
+        manual: prices.sinkCutoutPrice?.manual ?? false,
+        reference: prices.sinkCutoutPrice?.reference ?? null
+      });
+    }
+
+    if (cooktopCount > 0) {
+      rows.push({
+        kind: 'service',
+        id: 'cooktopCutouts',
+        label: 'Вырез под варочную панель',
+        quantity: cooktopCount,
+        unit: 'pcs',
+        unitPrice: prices.cooktopCutoutPrice?.price ?? null,
+        manual: prices.cooktopCutoutPrice?.manual ?? false,
+        reference: prices.cooktopCutoutPrice?.reference ?? null
+      });
+    }
+  }
+
   for(const row of rows)row.cost=row.unitPrice===null?null:money(row.quantity*row.unitPrice);
   const knownTotal=money(rows.reduce((sum,row)=>sum+(row.cost??0),0));
   const missingPrices=rows.filter(row=>row.cost===null),complete=!missingPrices.length&&!cutting.unplaced.length&&hardware.rearValid;
@@ -75,9 +155,9 @@ export function getProjectCostEstimate(project,{cabinetId=null}={}){
 export function generateCostHTML(project,{cabinetId=null,language=project.settings?.printLanguage??'tr'}={}){
   const estimate=getProjectCostEstimate(project,{cabinetId}),t=text=>escape(translatePrintText(text,language));
   const number=(value,digits=2)=>Number(value).toLocaleString({ru:'ru-RU',tr:'tr-TR',en:'en-US'}[language]??'tr-TR',{maximumFractionDigits:digits,minimumFractionDigits:digits});
-  const units={sheet:'лист',pcs:'шт.',pair:'компл. (пара)',meter:'м'};
+  const units={sheet:'лист',pcs:'шт.',pair:'компл. (пара)',meter:'м',sqm:'м²'};
   const sources=new Map();
   for(const row of estimate.rows)for(const sample of row.reference?.samples??[])if(/^https?:\/\//.test(sample.url))sources.set(sample.url,sample);
   const title=translateBuiltInName(project.cabinets.find(c=>c.id===cabinetId)?.name??project.name,language,cabinetId?'cabinet':'project');
-  return `<section class="cost-summary" data-i18n="off" lang="${escape(language)}"><h2>${t('Смета материалов и фурнитуры')} · ${escape(title)}</h2><p>${t('Ориентиры цен в Турции')} · ${estimate.date} · TRY (₺)</p><table><thead><tr>${['Материал / фурнитура','Количество','Ед.','Цена за единицу, ₺','Сумма, ₺'].map(label=>`<th>${t(label)}</th>`).join('')}</tr></thead><tbody>${estimate.rows.map(row=>`<tr><td>${row.kind==='material'?escape(translateMaterialName(row.label,language))+(row.thickness!==Number(project.materials.find(m=>m.id===row.id)?.thickness)?` · ${t('Толщина, мм')}: ${number(row.thickness,1)}`:''):t(row.label)}${row.manual?` <small>(${t('Вручную')})</small>`:''}</td><td>${number(row.quantity,row.unit==='meter'?3:0)}</td><td>${t(units[row.unit])}</td><td>${row.unitPrice===null?'—':number(row.unitPrice)}</td><td>${row.cost===null?'—':number(row.cost)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="4">${t(estimate.complete?'Итого':'Учтённая сумма')}${estimate.complete?'':` · ${t('Смета неполная')}`}</th><th>${number(estimate.knownTotal)} ₺</th></tr></tfoot></table>${estimate.missingPrices.some(row=>!row.materialMismatch)?`<p class="cost-notice">${t('Для строк с «—» задайте цену вручную.')}</p>`:''}${estimate.rows.some(row=>row.materialMismatch)?`<p class="cost-notice">${t('Толщина детали отличается от выбранного материала. Выберите материал нужной толщины; цена другого листа не применяется.')}</p>`:''}${estimate.rearUnresolved?`<p class="cost-notice">${t('Крепление некоторых задников не рассчитано. Уточните опорные планки, паз или параметры крепежа; смета пока неполная.')}</p>`:''}${estimate.plannedHinges?`<p class="hint">${t('Количество петель по высоте — предварительный расчёт. Нагрузку и механизм подъёмной двери проверьте по выбранной фурнитуре.')}</p>`:''}${estimate.unplacedCount?`<p class="cost-notice">${t('Не все детали размещены на листах; итоговая стоимость ещё не определена.')}</p>`:''}<p class="hint">${t('Листы считаются целиком по карте раскроя. Цены — среднее доступных предложений, а не гарантированная цена покупки. Доставка, работа и монтаж не включены.')}</p><p class="hint">${t('Для фурнитуры указан расход по проекту; минимальные упаковки поставщика не учитываются. Исходная цена кромки приведена с НДС 20%.')}</p>${sources.size?`<details><summary>${t('Источники цен')}</summary><ul>${Array.from(sources,([url,sample])=>`<li><a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${escape(sample.label)}</a> · ${sample.date??estimate.date}${sample.includesVat===false?` · ${t('Без НДС')}`:sample.includesVat===true?` · ${t('С НДС')}`:` · ${t('НДС не указан')}`}</li>`).join('')}</ul></details>`:''}</section>`;
+  return `<section class="cost-summary" data-i18n="off" lang="${escape(language)}"><h2>${t('Смета материалов и фурнитуры')} · ${escape(title)}</h2><p>${t('Ориентиры цен в Турции')} · ${estimate.date} · TRY (₺)</p><table><thead><tr>${['Материал / фурнитура','Количество','Ед.','Цена за единицу, ₺','Сумма, ₺'].map(label=>`<th>${t(label)}</th>`).join('')}</tr></thead><tbody>${estimate.rows.map(row=>`<tr><td>${row.kind==='material'?escape(translateMaterialName(row.label,language))+(row.thickness!==Number(project.materials.find(m=>m.id===row.id)?.thickness)?` · ${t('Толщина, мм')}: ${number(row.thickness,1)}`:''):t(row.label)}${row.manual?` <small>(${t('Вручную')})</small>`:''}</td><td>${number(row.quantity,row.unit==='sqm'?2:(row.unit==='meter'?3:0))}</td><td>${t(units[row.unit])}</td><td>${row.unitPrice===null?'—':number(row.unitPrice)}</td><td>${row.cost===null?'—':number(row.cost)}</td></tr>`).join('')}</tbody><tfoot><tr><th colspan="4">${t(estimate.complete?'Итого':'Учтённая сумма')}${estimate.complete?'':` · ${t('Смета неполная')}`}</th><th>${number(estimate.knownTotal)} ₺</th></tr></tfoot></table>${estimate.missingPrices.some(row=>!row.materialMismatch)?`<p class="cost-notice">${t('Для строк с «—» задайте цену вручную.')}</p>`:''}${estimate.rows.some(row=>row.materialMismatch)?`<p class="cost-notice">${t('Толщина детали отличается от выбранного материала. Выберите материал нужной толщины; цена другого листа не применяется.')}</p>`:''}${estimate.rearUnresolved?`<p class="cost-notice">${t('Крепление некоторых задников не рассчитано. Уточните опорные планки, паз или параметры крепежа; смета пока неполная.')}</p>`:''}${estimate.plannedHinges?`<p class="hint">${t('Количество петель по высоте — предварительный расчёт. Нагрузку и механизм подъёмной двери проверьте по выбранной фурнитуре.')}</p>`:''}${estimate.unplacedCount?`<p class="cost-notice">${t('Не все детали размещены на листах; итоговая стоимость ещё не определена.')}</p>`:''}<p class="hint">${t('Листы считаются целиком по карте раскроя. Цены — среднее доступных предложений, а не гарантированная цена покупки. Доставка, работа и монтаж не включены.')}</p><p class="hint">${t('Для фурнитуры указан расход по проекту; минимальные упаковки поставщика не учитываются. Исходная цена кромки приведена с НДС 20%.')}</p>${sources.size?`<details><summary>${t('Источники цен')}</summary><ul>${Array.from(sources,([url,sample])=>`<li><a href="${escape(url)}" target="_blank" rel="noopener noreferrer">${escape(sample.label)}</a> · ${sample.date??estimate.date}${sample.includesVat===false?` · ${t('Без НДС')}`:sample.includesVat===true?` · ${t('С НДС')}`:` · ${t('НДС не указан')}`}</li>`).join('')}</ul></details>`:''}</section>`;
 }

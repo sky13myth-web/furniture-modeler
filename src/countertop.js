@@ -115,25 +115,55 @@ export function getCountertopRuns(project, { defaultThickness = 38, frontOverhan
       const thickness = Math.max(20, Math.min(60, number(project.settings?.worktopThickness ?? component[0]?.worktopThickness, defaultThickness)));
       const color = project.settings?.worktopColor || '#e8e2d5';
 
-      // Group cabinets within this connected component by orientation (modulo 180°)
+      // Group cabinets within this connected component by orientation (full 360° rotation)
       const orientationMap = new Map();
       for (const cab of component) {
         const rot = Math.round(number(cab.rotation, 0) % 360 + 360) % 360;
-        const normRot = rot % 180;
         let matchedRot = null;
         for (const r of orientationMap.keys()) {
-          if (Math.abs(r - normRot) <= 2) {
+          if (Math.abs(r - rot) <= 2 || Math.abs(r - rot) >= 358) {
             matchedRot = r;
             break;
           }
         }
-        const key = matchedRot ?? normRot;
+        const key = matchedRot ?? rot;
         if (!orientationMap.has(key)) orientationMap.set(key, []);
         orientationMap.get(key).push(cab);
       }
 
+      // Partition disconnected parallel cabinet clusters into separate wings
+      const wingGroups = [];
+      for (const cabs of orientationMap.values()) {
+        if (cabs.length <= 1) {
+          wingGroups.push(cabs);
+          continue;
+        }
+        const visitedCabs = new Set();
+        for (let i = 0; i < cabs.length; i++) {
+          if (visitedCabs.has(i)) continue;
+          const cluster = [cabs[i]];
+          visitedCabs.add(i);
+          const queue = [i];
+          while (queue.length) {
+            const curr = queue.shift();
+            const currFp = footprints[group.indexOf(cabs[curr])];
+            for (let j = 0; j < cabs.length; j++) {
+              if (!visitedCabs.has(j)) {
+                const otherFp = footprints[group.indexOf(cabs[j])];
+                if (polygonBoundaryDistance(currFp, otherFp) <= 35) {
+                  visitedCabs.add(j);
+                  cluster.push(cabs[j]);
+                  queue.push(j);
+                }
+              }
+            }
+          }
+          wingGroups.push(cluster);
+        }
+      }
+
       const wings = [];
-      for (const [normRot, wingCabinets] of orientationMap.entries()) {
+      for (const wingCabinets of wingGroups) {
         const refRot = Math.round(number(wingCabinets[0].rotation, 0) % 360 + 360) % 360;
         const rad = refRot * Math.PI / 180;
         const cos = Math.cos(rad), sin = Math.sin(rad);
@@ -157,9 +187,9 @@ export function getCountertopRuns(project, { defaultThickness = 38, frontOverhan
         // Check if ends meet another wing in this run
         let hasCornerMin = false;
         let hasCornerMax = false;
-        if (orientationMap.size > 1) {
-          for (const [otherRot, otherCabs] of orientationMap.entries()) {
-            if (otherRot === normRot) continue;
+        if (wingGroups.length > 1) {
+          for (const otherCabs of wingGroups) {
+            if (otherCabs === wingCabinets) continue;
             for (const oc of otherCabs) {
               for (const pt of getCabinetCorners(oc)) {
                 const u = pt.x * cos + pt.z * sin;

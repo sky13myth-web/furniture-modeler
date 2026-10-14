@@ -3,7 +3,14 @@ import { isDefaultBackMaterial } from './material-defaults.js';
 
 /** Reusable manual quotes belong to an exact stock, rather than a historical
  * material ID alone. All stored values are data; unknown fields are ignored. */
-const PRICE_KEYS = ['handlePrice', 'guideSetPrice', 'hingePrice', 'edgeBandPricePerMeter', 'rodPricePerMeter', 'rodHolderPrice', 'rearScrewPrice', 'rearNailPrice', 'confirmatPrice', 'plinthLegPrice', 'shelfSupportPrice', 'cornerBracketPrice', 'pushLatchPrice'];
+const PRICE_KEYS = [
+  'handlePrice', 'guideSetPrice', 'hingePrice', 'edgeBandPricePerMeter',
+  'rodPricePerMeter', 'rodHolderPrice', 'rearScrewPrice', 'rearNailPrice',
+  'confirmatPrice', 'plinthLegPrice', 'shelfSupportPrice', 'cornerBracketPrice',
+  'pushLatchPrice',
+  'countertopPricePerMeter', 'countertopPricePerSquareMeter',
+  'sinkCutoutPrice', 'cooktopCutoutPrice'
+];
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validPrice = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1e9;
 const positive = value => typeof value === 'number' && Number.isFinite(value) && value > 0;

@@ -1,8 +1,35 @@
 /** Optional carcass butt-joint drilling. Millimetres; no hardware postprocessor. */
-import { generateParts } from './engine.js';
+import { generateParts, getCabinetLayout, getFrontLayout, getExternalDrawerLayout, getInternalDrawerLayout } from './engine.js';
 import { polygonContained, pointInPolygon } from './room-geometry.js';
 import { productionPartCode } from './production-id.js';
 import { REAR_FASTENING_DEFAULTS, normalizeRearFasteningSettings, getRearFasteningContacts, isRearPanel } from './rear-fastening.js';
+import { defaultHingesPerDoor } from './hardware.js';
+
+export const SYSTEM32_DEFAULTS = Object.freeze({
+  system32: false,
+  shelfPins: true,
+  shelfPinDiameter: 5,
+  shelfPinDepth: 11,
+  shelfPinPitch: 32,
+  shelfPinFrontSetback: 37,
+  shelfPinRearSetback: 37,
+  shelfPinMode: 'centered',
+  shelfPinHolesPerShelf: 3,
+  drawerSlides: true,
+  drawerSlideDiameter: 5,
+  drawerSlideDepth: 11,
+  drawerSlideFrontSetback: 37,
+  drawerSlidePitch: 32,
+  hinges: true,
+  hingeCupDiameter: 35,
+  hingeCupDepth: 12.5,
+  hingeCupSetback: 22,
+  hingePlateDiameter: 5,
+  hingePlateDepth: 11,
+  hingePlateSetback: 37,
+  hingePlateSpacing: 32,
+  hingeEdgeOffset: 100
+});
 
 export const DRILLING_DEFAULTS = Object.freeze({
   enabled: false, screwDiameter: 7, screwLength: 50, clearanceDiameter: 7,
@@ -10,7 +37,8 @@ export const DRILLING_DEFAULTS = Object.freeze({
   countersinkDiameter: 10, countersinkDepth: null, screwsPerJoint: 'auto', measureFromFinishedEdge: false,
   crossJointFastener: 'bracket', bracketScrewDiameter: 3.5, bracketScrewLength: 16,
   bracketPilotDiameter: 3, bracketPilotDepth: 10, bracketHoles: false,
-  ...REAR_FASTENING_DEFAULTS
+  ...REAR_FASTENING_DEFAULTS,
+  ...SYSTEM32_DEFAULTS
 });
 const EPS = .002;
 // Cut dimensions and operation coordinates are recorded to 0.001 mm, while
@@ -34,6 +62,15 @@ export function normalizeDrillingSettings(settings = {}) {
   for (const [key, value] of Object.entries(DRILLING_DEFAULTS)) {
     if (key === 'enabled') continue;
     if (key === 'measureFromFinishedEdge' || key === 'bracketHoles') { result[key] = settings[key] === true; continue; }
+    if (key === 'system32') { result[key] = settings[key] === true; continue; }
+    if (key === 'shelfPins' || key === 'drawerSlides' || key === 'hinges') {
+      result[key] = settings[key] === undefined ? value : settings[key] !== false;
+      continue;
+    }
+    if (key === 'shelfPinMode') {
+      result[key] = settings[key] === 'full' ? 'full' : 'centered';
+      continue;
+    }
     if (key === 'crossJointFastener') {
       result[key] = settings[key] === 'error' ? 'error' : 'bracket';
       continue;
@@ -101,13 +138,23 @@ function coordinates(desc, point) {
 }
 function localDirection(desc, direction) { return { a: dot(direction, desc.basis.a), b: dot(direction, desc.basis.b), t: dot(direction, desc.basis.t) }; }
 
+function isPartitionPart(part) {
+  return !part ? false : (
+    part.component === 'partition' ||
+    part.component === 'interior-partition' ||
+    part.role === 'partition' ||
+    part.role === 'interior-partition' ||
+    Boolean(part.partitionId)
+  );
+}
+
 function structural(part) {
   if (!['horizontal', 'vertical-depth'].includes(part.orientation)) return false;
-  if (part.component && !['bottom', 'interior-partition', 'corner-post'].includes(part.component)) return false;
-  if (part.role && !['bottom', 'interior-partition', 'corner-post'].includes(part.role)) return false;
+  if (part.component && !['bottom', 'interior-partition', 'partition', 'corner-post'].includes(part.component)) return false;
+  if (part.role && !['bottom', 'interior-partition', 'partition', 'corner-post'].includes(part.role)) return false;
   if (part.orientation === 'horizontal' && part.role !== 'bottom' && !part.partitionId && part.name !== 'Крышка') return false;
   // Loose shelves intentionally have a 2 mm side gap and are not screw fixed.
-  return !part.sectionId || part.role === 'bottom' || part.component === 'interior-partition' || part.component === 'corner-post' || Boolean(part.partitionId);
+  return !part.sectionId || part.role === 'bottom' || isPartitionPart(part) || part.component === 'corner-post';
 }
 
 function finishedBounds(part) {
@@ -257,7 +304,10 @@ function conflicts(newHoles, existing, partThickness, screwDiameter) {
     // Reserve the screw envelope as well as the actual machined hole.
     const diameterA = Math.max(hole.diameter, hole.kind === 'pilot' ? (hole.screwDiameter ?? screwDiameter) : 0);
     const diameterB = Math.max(other.diameter, other.kind === 'pilot' ? (other.screwDiameter ?? screwDiameter) : 0);
-    return segmentDistance(a, b, c, d) < (diameterA + diameterB) / 2 - EPS;
+    const isOpposingCoaxial = dot(hole.cabinetDirection, other.cabinetDirection) < -0.9 &&
+      length(sub(sub(c, a), scale(hole.cabinetDirection, dot(sub(c, a), hole.cabinetDirection)))) < EPS;
+    const threshold = isOpposingCoaxial ? EPS : (diameterA + diameterB) / 2 - EPS;
+    return segmentDistance(a, b, c, d) < threshold;
   }));
 }
 
@@ -328,6 +378,258 @@ function addRearFastenings(project, descriptors, selected, result, thicknesses, 
     if (supports.size >= 2) continue;
     const problem = issue('rear-insufficient-support', 'У задника менее двух доступных поддерживающих контактов; нужны дополнительные опоры или другой способ крепления.', { partId: row.partId, partCode: row.partCode, cabinetId: row.cabinetId });
     (row.method === 'screw' ? result.errors : result.warnings).push(problem); row.issues.push(problem); row.unsupported = true;
+  }
+}
+
+function makeSystem32Hole(desc, entry, direction, face, kind, diameter, depth, pairId, fastenerType, settings) {
+  const local = coordinates(desc, entry);
+  const dir = localDirection(desc, direction);
+  return {
+    id: '',
+    pairId,
+    partId: desc.part.id,
+    partCode: desc.part.partCode,
+    cabinetId: desc.part.cabinetId,
+    face,
+    fastenerType,
+    type: fastenerType,
+    screwDiameter: diameter,
+    screwLength: depth,
+    a: round(local.a),
+    b: round(local.b),
+    thicknessCoordinate: round(local.t),
+    worldEntry: rounded(worldPoint(entry, desc.cabinet)),
+    direction: preciseVector(worldVector(direction, desc.cabinet)),
+    cabinetEntry: rounded(entry),
+    cabinetDirection: { ...direction },
+    localDirection: rounded(dir),
+    diameter,
+    depth: round(depth),
+    kind,
+    system32: true
+  };
+}
+
+export function generateSystem32Matrix(descriptors, outputParts, project, settings, result, thicknesses) {
+  const cabinets = new Map((project?.cabinets ?? []).map(cabinet => [cabinet.id, cabinet]));
+  const holes = result.holes;
+  
+  for (const [cabinetId, cabinet] of cabinets) {
+    const layout = getCabinetLayout(cabinet, project);
+    const cabParts = descriptors.filter(d => d && d.part.cabinetId === cabinetId);
+    const sidePanels = cabParts.filter(d => d.part.orientation === 'vertical-depth');
+    const backThick = number(cabinet.backThickness, 3);
+    
+    // --- 1. SHELF PINS ---
+    if (settings.shelfPins !== false) {
+      const looseShelves = outputParts.filter(p => p.cabinetId === cabinetId && p.role === 'shelf');
+      
+      const tryAddShelfPin = (panelDesc, entry, direction, face, pairId) => {
+        const isPartition = isPartitionPart(panelDesc.part);
+        const maxDepth = isPartition ? Math.min(8, Math.floor((panelDesc.part.thickness - 2) / 2)) : panelDesc.part.thickness - 2;
+        const depth = Math.min(settings.shelfPinDepth, maxDepth);
+        const radius = settings.shelfPinDiameter / 2;
+        if (!boreContained(panelDesc, entry, direction, depth, radius)) return;
+        const hole = makeSystem32Hole(panelDesc, entry, direction, face, 'shelf-pin', settings.shelfPinDiameter, depth, pairId, 'shelf-pin-system32', settings);
+        if (conflicts([hole], holes, thicknesses, settings.shelfPinDiameter)) return;
+        hole.id = `H${String(holes.length + 1).padStart(5, '0')}`;
+        holes.push(hole);
+      };
+      
+      if (settings.shelfPinMode === 'full') {
+        for (const section of layout.sections) {
+          const leftPanel = sidePanels.find(d => Math.abs((d.part.position.x + d.part.thickness) - section.x) < 2);
+          const rightPanel = sidePanels.find(d => Math.abs(d.part.position.x - (section.x + section.width)) < 2);
+          if (!leftPanel && !rightPanel) continue;
+          
+          const yMin = section.y + 64;
+          const yMax = section.y + section.height - 64;
+          const pairId = `S32-SHLF-${cabinetId}-${section.id}`;
+          
+          for (let y = yMin; y <= yMax + EPS; y += settings.shelfPinPitch) {
+            if (leftPanel) {
+              const zFront = leftPanel.part.position.z + leftPanel.part.finishedWidth - settings.shelfPinFrontSetback;
+              const zRear = leftPanel.part.position.z + backThick + settings.shelfPinRearSetback;
+              const xEntry = leftPanel.part.position.x + leftPanel.part.thickness;
+              tryAddShelfPin(leftPanel, xyz(xEntry, y, zFront), xyz(-1, 0, 0), 'face-t-max', pairId);
+              tryAddShelfPin(leftPanel, xyz(xEntry, y, zRear), xyz(-1, 0, 0), 'face-t-max', pairId);
+            }
+            if (rightPanel) {
+              const zFront = rightPanel.part.position.z + rightPanel.part.finishedWidth - settings.shelfPinFrontSetback;
+              const zRear = rightPanel.part.position.z + backThick + settings.shelfPinRearSetback;
+              const xEntry = rightPanel.part.position.x;
+              tryAddShelfPin(rightPanel, xyz(xEntry, y, zFront), xyz(1, 0, 0), 'face-t-min', pairId);
+              tryAddShelfPin(rightPanel, xyz(xEntry, y, zRear), xyz(1, 0, 0), 'face-t-min', pairId);
+            }
+          }
+        }
+      } else {
+        const holesPerShelf = settings.shelfPinHolesPerShelf === 5 ? 5 : 3;
+        const offsets = holesPerShelf === 5 ? [-64, -32, 0, 32, 64] : [-32, 0, 32];
+        
+        looseShelves.forEach((shelf, sIdx) => {
+          const section = layout.sections.find(s => s.id === shelf.sectionId) ?? layout.sections[0];
+          if (!section) return;
+          const leftPanel = sidePanels.find(d => Math.abs((d.part.position.x + d.part.thickness) - section.x) < 2);
+          const rightPanel = sidePanels.find(d => Math.abs(d.part.position.x - (section.x + section.width)) < 2);
+          if (!leftPanel && !rightPanel) return;
+          
+          const shelfNominalY = shelf.position.y;
+          const pairId = `S32-SHLF-${cabinetId}-${sIdx + 1}`;
+          
+          for (const dy of offsets) {
+            const y = shelfNominalY + dy;
+            if (y < section.y + 10 || y > section.y + section.height - 10) continue;
+            if (leftPanel) {
+              const zFront = leftPanel.part.position.z + leftPanel.part.finishedWidth - settings.shelfPinFrontSetback;
+              const zRear = leftPanel.part.position.z + backThick + settings.shelfPinRearSetback;
+              const xEntry = leftPanel.part.position.x + leftPanel.part.thickness;
+              tryAddShelfPin(leftPanel, xyz(xEntry, y, zFront), xyz(-1, 0, 0), 'face-t-max', pairId);
+              tryAddShelfPin(leftPanel, xyz(xEntry, y, zRear), xyz(-1, 0, 0), 'face-t-max', pairId);
+            }
+            if (rightPanel) {
+              const zFront = rightPanel.part.position.z + rightPanel.part.finishedWidth - settings.shelfPinFrontSetback;
+              const zRear = rightPanel.part.position.z + backThick + settings.shelfPinRearSetback;
+              const xEntry = rightPanel.part.position.x;
+              tryAddShelfPin(rightPanel, xyz(xEntry, y, zFront), xyz(1, 0, 0), 'face-t-min', pairId);
+              tryAddShelfPin(rightPanel, xyz(xEntry, y, zRear), xyz(1, 0, 0), 'face-t-min', pairId);
+            }
+          }
+        });
+      }
+    }
+    
+    // --- 2. DRAWER RUNNERS ---
+    if (settings.drawerSlides !== false) {
+      const extDrawers = getExternalDrawerLayout(cabinet, project);
+      const intDrawers = getInternalDrawerLayout(cabinet, project);
+      const allDrawers = [...extDrawers, ...intDrawers];
+      
+      allDrawers.forEach((drawer, dIdx) => {
+        const section = layout.sections.find(s => s.id === drawer.sectionId) ?? layout.sections[0];
+        if (!section) return;
+        const leftPanel = sidePanels.find(d => Math.abs((d.part.position.x + d.part.thickness) - section.x) < 2);
+        const rightPanel = sidePanels.find(d => Math.abs(d.part.position.x - (section.x + section.width)) < 2);
+        if (!leftPanel && !rightPanel) return;
+        
+        const yRunner = drawer.box.y + 16;
+        const runnerL = drawer.runnerLength || 450;
+        const pairId = `S32-RUNNER-${cabinetId}-${dIdx + 1}`;
+        
+        const zDistances = [
+          settings.drawerSlideFrontSetback,
+          settings.drawerSlideFrontSetback + (runnerL >= 350 ? 128 : 96),
+          settings.drawerSlideFrontSetback + Math.floor((runnerL - 50) / settings.drawerSlidePitch) * settings.drawerSlidePitch
+        ];
+        
+        const tryAddSlideHole = (panelDesc, zDist, dir, face, xEntry) => {
+          const zPos = panelDesc.part.position.z + panelDesc.part.finishedWidth - zDist;
+          const entry = xyz(xEntry, yRunner, zPos);
+          const isPartition = isPartitionPart(panelDesc.part);
+          const maxDepth = isPartition ? Math.min(8, Math.floor((panelDesc.part.thickness - 2) / 2)) : panelDesc.part.thickness - 2;
+          const depth = Math.min(settings.drawerSlideDepth, maxDepth);
+          const radius = settings.drawerSlideDiameter / 2;
+          if (!boreContained(panelDesc, entry, dir, depth, radius)) return;
+          const hole = makeSystem32Hole(panelDesc, entry, dir, face, 'runner-mount', settings.drawerSlideDiameter, depth, pairId, 'drawer-slide-system32', settings);
+          if (conflicts([hole], holes, thicknesses, settings.drawerSlideDiameter)) return;
+          hole.id = `H${String(holes.length + 1).padStart(5, '0')}`;
+          holes.push(hole);
+        };
+        
+        for (const zDist of zDistances) {
+          if (leftPanel) {
+            const xEntry = leftPanel.part.position.x + leftPanel.part.thickness;
+            tryAddSlideHole(leftPanel, zDist, xyz(-1, 0, 0), 'face-t-max', xEntry);
+          }
+          if (rightPanel) {
+            const xEntry = rightPanel.part.position.x;
+            tryAddSlideHole(rightPanel, zDist, xyz(1, 0, 0), 'face-t-min', xEntry);
+          }
+        }
+      });
+    }
+    
+    // --- 3. HINGES (DOOR CUPS & CARCASS MOUNTING PLATES) ---
+    if (settings.hinges !== false) {
+      const fronts = getFrontLayout(cabinet, project);
+      const doors = fronts.filter(f => f.kind === 'door');
+      const doorDescs = cabParts.filter(d => d.part.orientation === 'vertical-width' && (d.part.role === 'door' || /Дверь/i.test(d.part.name)));
+      
+      doors.forEach((door, doorIndex) => {
+        const doorDesc = doorDescs.find(d => Math.abs(d.part.position.x - door.x) < 2) ?? doorDescs[doorIndex];
+        if (!doorDesc) return;
+        
+        const opening = door.opening || (doorIndex % 2 === 1 ? 'right' : 'left');
+        const hingeCount = (cabinet.hingesPerDoor && Number.isInteger(cabinet.hingesPerDoor) && cabinet.hingesPerDoor >= 2) ? cabinet.hingesPerDoor : defaultHingesPerDoor(door.height);
+        
+        let adjacentPanel = null;
+        let plateDirection = null;
+        let plateFace = null;
+        let plateX = null;
+        
+        if (opening === 'left') {
+          adjacentPanel = sidePanels.find(d => Math.abs((d.part.position.x + d.part.thickness) - door.x) <= Math.max(12, d.part.thickness) || (door.x <= d.part.thickness + 5 && d.part.position.x < 1));
+          if (adjacentPanel) {
+            plateDirection = xyz(-1, 0, 0);
+            plateFace = 'face-t-max';
+            plateX = adjacentPanel.part.position.x + adjacentPanel.part.thickness;
+          }
+        } else if (opening === 'right') {
+          const doorRight = door.x + door.width;
+          adjacentPanel = sidePanels.find(d => Math.abs(d.part.position.x - doorRight) <= Math.max(12, d.part.thickness) || (doorRight >= cabinet.width - d.part.thickness - 5 && d.part.position.x >= cabinet.width - d.part.thickness - 1));
+          if (adjacentPanel) {
+            plateDirection = xyz(1, 0, 0);
+            plateFace = 'face-t-min';
+            plateX = adjacentPanel.part.position.x;
+          }
+        }
+        
+        const hOffset = Math.min(settings.hingeEdgeOffset || 100, Math.floor(door.height / 3));
+        const bBottom = hOffset;
+        const bTop = door.height - hOffset;
+        
+        for (let hIdx = 0; hIdx < hingeCount; hIdx++) {
+          const b = hingeCount === 1 ? door.height / 2 : bBottom + (bTop - bBottom) * hIdx / (hingeCount - 1);
+          const hingePairId = `HNG-${cabinetId}-${doorIndex + 1}-${hIdx + 1}`;
+          
+          // 3A. Door hinge cup (35mm)
+          let aCup = settings.hingeCupSetback;
+          if (opening === 'right') aCup = doorDesc.part.finishedWidth - settings.hingeCupSetback;
+          const entryCup = xyz(doorDesc.part.position.x + aCup, doorDesc.part.position.y + b, doorDesc.part.position.z);
+          const depthCup = Math.min(settings.hingeCupDepth, doorDesc.part.thickness - 2);
+          const radiusCup = settings.hingeCupDiameter / 2;
+          
+          if (boreContained(doorDesc, entryCup, xyz(0, 0, 1), depthCup, radiusCup)) {
+            const cupHole = makeSystem32Hole(doorDesc, entryCup, xyz(0, 0, 1), 'face-t-min', 'hinge-cup', settings.hingeCupDiameter, depthCup, hingePairId, 'hinge-cup-35mm', settings);
+            if (!conflicts([cupHole], holes, thicknesses, settings.hingeCupDiameter)) {
+              cupHole.id = `H${String(holes.length + 1).padStart(5, '0')}`;
+              holes.push(cupHole);
+            }
+          }
+          
+          // 3B. Carcass mounting plate (2x 5mm holes at 32mm vertical spacing)
+          if (adjacentPanel && plateDirection && plateFace) {
+            const zPlate = adjacentPanel.part.position.z + adjacentPanel.part.finishedWidth - settings.hingePlateSetback;
+            const yCenter = door.y + b;
+            const isPartition = isPartitionPart(adjacentPanel.part);
+            const maxPlateDepth = isPartition ? Math.min(8, Math.floor((adjacentPanel.part.thickness - 2) / 2)) : (adjacentPanel.part.thickness < 20 ? 9 : adjacentPanel.part.thickness - 2);
+            const plateDepth = Math.min(settings.hingePlateDepth, maxPlateDepth);
+            const plateRadius = settings.hingePlateDiameter / 2;
+            
+            for (const dy of [-settings.hingePlateSpacing / 2, settings.hingePlateSpacing / 2]) {
+              const entryPlate = xyz(plateX, yCenter + dy, zPlate);
+              if (boreContained(adjacentPanel, entryPlate, plateDirection, plateDepth, plateRadius)) {
+                const plateHole = makeSystem32Hole(adjacentPanel, entryPlate, plateDirection, plateFace, 'hinge-plate', settings.hingePlateDiameter, plateDepth, hingePairId, 'hinge-plate-system32', settings);
+                if (!conflicts([plateHole], holes, thicknesses, settings.hingePlateDiameter)) {
+                  plateHole.id = `H${String(holes.length + 1).padStart(5, '0')}`;
+                  holes.push(plateHole);
+                }
+              }
+            }
+          }
+        }
+      });
+    }
   }
 }
 
@@ -455,8 +757,12 @@ export function generateDrillingPlan(project, { parts } = {}) {
       }
     }
   }
+
   if (rearSettingsValid) addRearFastenings(project, descriptors, selected, result, thicknesses, serial);
-  if (!joints.length && !errors.length) warnings.push(issue('no-joints', 'В проекте нет поддерживаемых неподвижных соединений корпуса.'));
+  if (settings.system32 === true) {
+    generateSystem32Matrix(descriptors, outputParts, project, settings, result, thicknesses);
+  }
+  if (!joints.length && !errors.length && !result.holes.length) warnings.push(issue('no-joints', 'В проекте нет поддерживаемых неподвижных соединений корпуса.'));
   result.valid = errors.length === 0;
   return result;
 }

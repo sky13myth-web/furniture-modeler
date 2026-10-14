@@ -11,6 +11,7 @@ import { createCuttingSheetPrintPages } from './cutting-sheet.js';
 import { getDocumentInfo, documentMetadataLine, printDocumentText } from './print-document.js';
 import { createWorkshopXlsx } from './workshop-xlsx.js';
 import { getSheetPlanTables, createSheetLayoutDxf, createCutSequenceDxf, createCutSequenceCSV, createRegionsCSV, createSheetLayoutCSV, createCutSequenceHTML } from './factory-sheet-export.js';
+import { generateDrillingPlan } from './drilling.js';
 
 const EPS = .001;
 const n = value => String(Math.round(Number(value) * 1000) / 1000);
@@ -42,7 +43,7 @@ export function checkFactoryProject(project, { cabinetId = null } = {}) {
   // Put the selection first for validation only, so a collision involving it
   // remains visible in either project order. Part IDs use the untouched order.
   const validationProject = selectedCabinet ? { ...production, cabinets: [selectedCabinet, ...production.cabinets.filter(cabinet => cabinet !== selectedCabinet)] } : production;
-  const issues = validateProject(validationProject).filter(issue => cabinetId === null || !issue.cabinetId || issue.cabinetId === cabinetId);
+  const issues = validateProject(validationProject).filter(issue => (cabinetId === null || issue.scope !== 'room') && (cabinetId === null || !issue.cabinetId || issue.cabinetId === cabinetId));
   if (cabinetId !== null && !selectedCabinet) issues.push({ level: 'error', message: 'Шкаф не найден.', cabinetId });
   if (!selectedParts.length) issues.push({ level: 'error', message: 'В проекте нет деталей для раскроя.', ...(cabinetId !== null ? { cabinetId } : {}) });
   for (const part of selectedParts) {
@@ -132,10 +133,26 @@ export function generateFactoryXLSX(project, options = {}) {
   return createWorkshopXlsx(getWorkshopTable(project, options));
 }
 
-/** AutoCAD 2000 ASCII DXF. Only CUT geometry is an entity: band annotations
- * stay in the CSV/SVG, so a CAM importer cannot mistake them for more cuts.
+export const CAM_LAYER_COLORS = Object.freeze({
+  CUT: 7,
+  DRILL_FACE_D5: 1,
+  DRILL_FACE_D8: 4,
+  DRILL_FACE_D15: 3,
+  DRILL_FACE_D35: 6,
+  DRILL_EDGE_D5: 30,
+  DRILL_EDGE_D8: 2
+});
+
+export function getHoleCamLayer(hole) {
+  const isEdge = String(hole?.face ?? '').startsWith('edge-') || hole?.kind === 'pilot';
+  const dia = Math.round(Number(hole?.diameter) || 5);
+  return isEdge ? `DRILL_EDGE_D${dia}` : `DRILL_FACE_D${dia}`;
+}
+
+/** AutoCAD 2000 ASCII DXF. Only CUT and designated CAM drilling geometries are entities:
+ * band annotations stay in CSV/SVG so CAM importers do not mistake them for cuts.
  * The SVG's down-positive Y is reflected to DXF's up-positive Y. */
-export function createPartDxf(part, { code = 'PART' } = {}) {
+export function createPartDxf(part, { code = 'PART', holes = part.holes ?? [] } = {}) {
   if (![part.width, part.height].every(value => Number.isFinite(value) && value > 0)) throw new Error('Invalid DXF dimensions.');
   const outline = contourOf(part), points = outline.map(point => ({ x: point.x, z: point.y }));
   if (!polygonIsSimple(points) || Math.abs(polygonArea(points)) <= EPS || outline.some(point => point.x < -EPS || point.y < -EPS || point.x > part.width + EPS || point.y > part.height + EPS)) throw new Error('Invalid DXF contour.');
@@ -145,12 +162,72 @@ export function createPartDxf(part, { code = 'PART' } = {}) {
   pair(9, '$LUNITS'); pair(70, 2); pair(9, '$LUPREC'); pair(70, 3);
   pair(9, '$EXTMIN'); pair(10, 0); pair(20, 0); pair(30, 0);
   pair(9, '$EXTMAX'); pair(10, n(part.width)); pair(20, n(part.height)); pair(30, 0); pair(0, 'ENDSEC');
-  pair(0, 'SECTION'); pair(2, 'TABLES'); pair(0, 'TABLE'); pair(2, 'LAYER'); pair(5, '10'); pair(100, 'AcDbSymbolTable'); pair(70, 1);
-  pair(0, 'LAYER'); pair(5, '11'); pair(100, 'AcDbSymbolTableRecord'); pair(100, 'AcDbLayerTableRecord'); pair(2, 'CUT'); pair(70, 0); pair(62, 7); pair(6, 'CONTINUOUS'); pair(0, 'ENDTAB'); pair(0, 'ENDSEC');
+
+  const validHoles = Array.isArray(holes) ? holes.filter(h => Number.isFinite(h.a) && Number.isFinite(h.b) && Number.isFinite(h.diameter) && h.diameter > 0) : [];
+
+  if (!validHoles.length) {
+    pair(0, 'SECTION'); pair(2, 'TABLES'); pair(0, 'TABLE'); pair(2, 'LAYER'); pair(5, '10'); pair(100, 'AcDbSymbolTable'); pair(70, 1);
+    pair(0, 'LAYER'); pair(5, '11'); pair(100, 'AcDbSymbolTableRecord'); pair(100, 'AcDbLayerTableRecord'); pair(2, 'CUT'); pair(70, 0); pair(62, 7); pair(6, 'CONTINUOUS'); pair(0, 'ENDTAB'); pair(0, 'ENDSEC');
+    pair(0, 'SECTION'); pair(2, 'ENTITIES');
+    pair(999, `${String(code).replace(/[^A-Za-z0-9_-]/g, '_')} CUT_BLANK MM; NO TOOL COMPENSATION; NO DRILLING`);
+    pair(0, 'LWPOLYLINE'); pair(5, '12'); pair(100, 'AcDbEntity'); pair(8, 'CUT'); pair(100, 'AcDbPolyline'); pair(90, outline.length); pair(70, 1);
+    for (const point of outline) { pair(10, n(point.x)); pair(20, n(part.height - point.y)); }
+    pair(0, 'ENDSEC'); pair(0, 'EOF');
+    return lines.join('\r\n') + '\r\n';
+  }
+
+  const layerMap = new Map();
+  layerMap.set('CUT', 7);
+  for (const hole of validHoles) {
+    const layer = getHoleCamLayer(hole);
+    if (!layerMap.has(layer)) {
+      const isEdge = layer.startsWith('DRILL_EDGE_');
+      const color = CAM_LAYER_COLORS[layer] ?? (isEdge ? 2 : 1);
+      layerMap.set(layer, color);
+    }
+  }
+
+  pair(0, 'SECTION'); pair(2, 'TABLES'); pair(0, 'TABLE'); pair(2, 'LAYER'); pair(5, '10'); pair(100, 'AcDbSymbolTable');
+  pair(70, layerMap.size);
+  let handle = 0x11;
+  for (const [layerName, color] of layerMap.entries()) {
+    pair(0, 'LAYER');
+    pair(5, handle.toString(16).toUpperCase());
+    pair(100, 'AcDbSymbolTableRecord');
+    pair(100, 'AcDbLayerTableRecord');
+    pair(2, layerName);
+    pair(70, 0);
+    pair(62, color);
+    pair(6, 'CONTINUOUS');
+    handle++;
+  }
+  pair(0, 'ENDTAB'); pair(0, 'ENDSEC');
+
   pair(0, 'SECTION'); pair(2, 'ENTITIES');
-  pair(999, `${String(code).replace(/[^A-Za-z0-9_-]/g, '_')} CUT_BLANK MM; NO TOOL COMPENSATION; NO DRILLING`);
-  pair(0, 'LWPOLYLINE'); pair(5, '12'); pair(100, 'AcDbEntity'); pair(8, 'CUT'); pair(100, 'AcDbPolyline'); pair(90, outline.length); pair(70, 1);
+  pair(999, `${String(code).replace(/[^A-Za-z0-9_-]/g, '_')} CUT_BLANK MM; CAM DRILLING LAYERS INCLUDED; HOLE_COUNT=${validHoles.length}`);
+  pair(0, 'LWPOLYLINE'); pair(5, handle.toString(16).toUpperCase()); pair(100, 'AcDbEntity'); pair(8, 'CUT'); pair(100, 'AcDbPolyline'); pair(90, outline.length); pair(70, 1);
+  handle++;
   for (const point of outline) { pair(10, n(point.x)); pair(20, n(part.height - point.y)); }
+
+  for (const hole of validHoles) {
+    const layerName = getHoleCamLayer(hole);
+    const radius = hole.diameter / 2;
+    const depth = Number.isFinite(hole.depth) && hole.depth > 0 ? hole.depth : (part.thickness || 18);
+    const x = hole.a;
+    const y = part.height - hole.b;
+
+    pair(0, 'CIRCLE');
+    pair(5, handle.toString(16).toUpperCase());
+    pair(100, 'AcDbEntity');
+    pair(8, layerName);
+    pair(100, 'AcDbCircle');
+    pair(10, n(x));
+    pair(20, n(y));
+    pair(30, 0);
+    pair(40, n(radius));
+    pair(39, n(depth));
+    handle++;
+  }
   pair(0, 'ENDSEC'); pair(0, 'EOF');
   return lines.join('\r\n') + '\r\n';
 }
@@ -237,7 +314,21 @@ export function buildFactoryFiles(project, { language, dxfOnly = false, cabinetI
     en: selectedCabinet ? `Single cabinet package: ${cabinetName} · No ${cabinetNumber} · ${selectedCabinet.id}` : 'All cabinets in the project.'
   }[lang];
   const sheetOptions = {language:lang,materials:production.materials};
-  const files = parts.map(part => ({ path: `dxf/${partCodes.get(part.id)}.dxf`, content: createPartDxf(part, { code: partCodes.get(part.id) }) }));
+  const drillingPlan = (production.settings?.drilling?.enabled)
+    ? generateDrillingPlan(production)
+    : null;
+  const partHolesMap = new Map();
+  if (drillingPlan && Array.isArray(drillingPlan.holes)) {
+    for (const hole of drillingPlan.holes) {
+      if (!partHolesMap.has(hole.partId)) partHolesMap.set(hole.partId, []);
+      partHolesMap.get(hole.partId).push(hole);
+    }
+  }
+  const files = parts.map(part => {
+    const code = partCodes.get(part.id);
+    const holes = partHolesMap.get(part.id) ?? part.holes ?? [];
+    return { path: `dxf/${code}.dxf`, content: createPartDxf(part, { code, holes }) };
+  });
   const rows = panelRows(parts, production, lang, partCodes);
   files.unshift({ path: 'cut-list.csv', content: csv([FACTORY_COLUMNS, ...rows]) });
   files.push({ path: 'dxf/sheets-all.dxf', content: createSheetLayoutDxf(cutting,partCodes,sheetOptions) });

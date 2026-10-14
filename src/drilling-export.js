@@ -189,8 +189,9 @@ export function checkDrillingExport(project, { cabinetId = null } = {}) {
     plan = { ...fullPlan, parts: fullPlan.parts.filter(part => partIds.has(part.id)), holes: fullPlan.holes.filter(hole => hole.cabinetId === cabinetId), joints: fullPlan.joints.filter(applies),
       rearFastenings:(fullPlan.rearFastenings??[]).filter(rear=>rear.cabinetId===cabinetId), warnings: fullPlan.warnings.filter(applies), errors: scopedErrors, valid: scopedErrors.length === 0 };
   }
-  const errors = [...factory.issues.filter(issue => issue.level === 'error'), ...(plan.errors ?? [])];
-  return { factory, plan, cabinetId, errors, valid: factory.valid && plan.valid && plan.settings.enabled && (plan.holes.length > 0 || (plan.rearFastenings??[]).some(rear=>rear.quantity>0) || (plan.joints??[]).some(joint=>joint.fastenerType==='bracket')) && !errors.length };
+  const factoryErrors = factory.issues.filter(issue => issue.level === 'error' && issue.scope !== 'room');
+  const errors = [...factoryErrors, ...(plan.errors ?? [])];
+  return { factory, plan, cabinetId, errors, valid: !factoryErrors.length && plan.valid && plan.settings.enabled && (plan.holes.length > 0 || (plan.rearFastenings??[]).some(rear=>rear.quantity>0) || (plan.joints??[]).some(joint=>joint.fastenerType==='bracket')) && !errors.length };
 }
 
 function requirePlan(project, language, options = {}) {

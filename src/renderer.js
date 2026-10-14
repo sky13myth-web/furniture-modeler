@@ -613,10 +613,10 @@ export function makeScene(project, options = {}, direction = null) {
         if (windows.some(w => midX > w.start && midX < w.end && midY > w.bottom && midY < w.top)) continue;
         face([fixedPoint(xs[i], ys[j], .5), fixedPoint(xs[i + 1], ys[j], .5), fixedPoint(xs[i + 1], ys[j + 1], .5), fixedPoint(xs[i], ys[j + 1], .5)], Math.abs(inward[2]) > .5 ? '#efede6' : '#e3e3dc', null, null, { room: true, wallIndex, stroke: 'transparent' });
       }
-      for (const w of windows) {
+      if (!nearWall) for (const w of windows) {
         const frame = [fixedPoint(w.start, w.bottom), fixedPoint(w.end, w.bottom), fixedPoint(w.end, w.top), fixedPoint(w.start, w.top)];
         const outside = [fixedPoint(w.start, w.bottom, r.wallThickness), fixedPoint(w.end, w.bottom, r.wallThickness), fixedPoint(w.end, w.top, r.wallThickness), fixedPoint(w.start, w.top, r.wallThickness)];
-        if (!nearWall) frame.forEach((p, i) => {
+        frame.forEach((p, i) => {
           if (w.kind !== 'door' || i !== 0) face([p, frame[(i + 1) % 4], outside[(i + 1) % 4], outside[i]], '#d4d5cc', null, null, { room: true, stroke: '#bcc4bb' });
         });
         if (w.kind === 'door') {
@@ -635,11 +635,10 @@ export function makeScene(project, options = {}, direction = null) {
             0,
             hinge[2] + hingeSign * uz * doorWidth * Math.cos(openAngle) + swingSign * inward[2] * doorWidth * Math.sin(openAngle)
           ];
-          face([hinge, free, [free[0], w.top, free[2]], [hinge[0], w.top, hinge[2]]], '#cdbf9f', null, null, { room: true, doorLeaf: true, opacity: nearWall ? .15 : .25, stroke: '#b7ad91' });
+          face([hinge, free, [free[0], w.top, free[2]], [hinge[0], w.top, hinge[2]]], '#cdbf9f', null, null, { room: true, doorLeaf: true, opacity: .25, stroke: '#b7ad91' });
           labels.push({ point: fixedPoint((w.start + w.end) / 2, w.top + 35), text: `Дверной проём · ${mm(doorWidth)} × ${mm(w.top)} мм`, room: true });
         } else {
-          // Open inspection walls retain their window location as a light ghost.
-          face(frame, '#d5e7e7', null, null, { room: true, window: true, openingKind: 'window', openingSill: w.bottom, wallIndex, opacity: nearWall ? .24 : .55, stroke: '#a7b6b1' });
+          face(frame, '#d5e7e7', null, null, { room: true, window: true, openingKind: 'window', openingSill: w.bottom, wallIndex, opacity: .55, stroke: '#a7b6b1' });
           frame.forEach((p, i) => line(p, frame[(i + 1) % 4], '#afb9b4', 3));
           line(fixedPoint((w.start + w.end) / 2, w.bottom), fixedPoint((w.start + w.end) / 2, w.top), '#b5c0b9', 2);
           line(fixedPoint(w.start, w.bottom), fixedPoint(w.end, w.bottom), '#f8f7ed', 5);
@@ -1352,6 +1351,7 @@ export class FurnitureViewport {
     this.listen('pointermove', event => this.pointerMove(event));
     this.listen('pointerup', event => this.pointerUp(event));
     this.listen('dblclick', event => this.doubleClick(event));
+    this.listen('contextmenu', event => event.preventDefault());
     this.listen('pointercancel', () => { this.drag = null; canvas.style.cursor = 'grab'; });
     this.listen('wheel', event => {
       event.preventDefault();
@@ -1360,6 +1360,7 @@ export class FurnitureViewport {
     }, { passive: false });
     this.resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => this.resize()) : null;
     this.resizeObserver?.observe(canvas.parentElement || canvas);
+    if (canvas.parentElement && canvas !== canvas.parentElement) this.resizeObserver?.observe(canvas);
     this.resize();
   }
 
@@ -1399,6 +1400,14 @@ export class FurnitureViewport {
 
   setOptions(options) {
     Object.assign(this.options, options);
+    this.draw();
+  }
+
+  setOpenProgress(progress) {
+    const p = Math.max(0, Math.min(1, Number.isFinite(Number(progress)) ? Number(progress) : 0));
+    this.options.openProgress = p;
+    this.options.doorsOpen = p > 0.005;
+    if (!this.options.doorsOpen) this.options.internalDrawersOpen = false;
     this.draw();
   }
 
@@ -1467,9 +1476,9 @@ export class FurnitureViewport {
   }
 
   pointerDown(event) {
-    if (event.button !== 0 && event.button !== 1) return;
+    if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
     this.canvas.setPointerCapture(event.pointerId);
-    this.drag = { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, pan: event.shiftKey || event.button === 1, moved: false };
+    this.drag = { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, pan: event.shiftKey || event.button === 1 || event.button === 2, moved: false };
     this.canvas.style.cursor = 'grabbing';
   }
 
@@ -1580,6 +1589,7 @@ export class FurnitureViewport {
     items.filter(item => item.layer > 5).forEach(paint);
     if (this.options.selection !== false && this.selectedId&&!this.options.exploded) this.drawSelection(camera.project);
     if (this.options.selection !== false && this.options.selectedSectionId&&!this.options.exploded) this.drawSectionSelection(camera.project);
+    const placedLabels = [];
     for (const label of scene.labels || []) {
       if (this.view === '3d' && label.appliance) continue;
       const position = camera.project(label.point);
@@ -1587,8 +1597,15 @@ export class FurnitureViewport {
       const text = appliance ? `${translateBuiltInName(appliance.label,language,'appliance') || t(fallbackName)} · ${sizeText(appliance,language)} ${unit}` : t(label.text);
       ctx.save(); ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const size = ctx.measureText(text).width + 14;
-      ctx.fillStyle = '#f7f9f3ee'; ctx.fillRect(position[0] - size / 2, position[1] - 10, size, 20);
-      ctx.fillStyle = '#53675e'; ctx.fillText(text, position[0], position[1]); ctx.restore();
+      let lx = position[0], ly = position[1];
+      for (let tries = 0; tries < 6; tries++) {
+        const hit = placedLabels.find(b => Math.abs(lx - b.x) < (size + b.w) / 2 + 4 && Math.abs(ly - b.y) < 22);
+        if (!hit) break;
+        ly = hit.y - 23;
+      }
+      placedLabels.push({ x: lx, y: ly, w: size });
+      ctx.fillStyle = '#f7f9f3ee'; ctx.fillRect(lx - size / 2, ly - 10, size, 20);
+      ctx.fillStyle = '#53675e'; ctx.fillText(text, lx, ly); ctx.restore();
     }
     if (this.options.dimensions&&!this.options.exploded) {
       for (const dim of dimensionPairs(displayProject, this.selectedId, this.view, showRoom)) this.drawDimension(camera.project(dim.a), camera.project(dim.b), dim.label, dim.offset);

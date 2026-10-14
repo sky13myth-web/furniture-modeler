@@ -345,7 +345,7 @@ export function snapCabinetToWall(cabinet, room = {}, threshold = 45) {
 }
 
 /** Snap cabinet flush side-to-side to an adjacent cabinet within threshold, aligning front facades. */
-export function snapCabinetToNeighbour(cabinet, existingCabinets = [], threshold = 40) {
+export function snapCabinetToNeighbour(cabinet, existingCabinets = [], options = 40) {
   if (!cabinet || typeof cabinet !== 'object' || !Array.isArray(existingCabinets) || !existingCabinets.length) {
     return { ...cabinet };
   }
@@ -355,6 +355,8 @@ export function snapCabinetToNeighbour(cabinet, existingCabinets = [], threshold
 
   const curX = Number.isFinite(cabinet.x) ? cabinet.x : 0;
   const curZ = Number.isFinite(cabinet.z) ? cabinet.z : 0;
+
+  const threshold = typeof options === 'number' ? options : (options && typeof options.threshold === 'number' ? options.threshold : 40);
 
   let best = null;
   let minDistance = threshold;
@@ -399,9 +401,17 @@ export function snapCabinetToNeighbour(cabinet, existingCabinets = [], threshold
       };
     }
 
+    // Corner filler allowance for perpendicular L-corner junctions
+    let cornerFillerWidth = 50;
+    if (typeof options === 'object' && options !== null && options.cornerFillerWidth !== undefined) {
+      cornerFillerWidth = positiveNumber(options.cornerFillerWidth, 0);
+    } else if (other.cornerType === 'blind' || other.type === 'corner-base' || other.type === 'corner-wall' || other.type === 'corner-tall') {
+      cornerFillerWidth = 0;
+    }
+
     // Candidate 3: L-Corner on other's right side (perpendicular +90°)
-    const candCornerRightX = oX + wA * cosA - dA * sinA;
-    const candCornerRightZ = oZ + wA * sinA + dA * cosA;
+    const candCornerRightX = oX + wA * cosA - (dA + cornerFillerWidth) * sinA;
+    const candCornerRightZ = oZ + wA * sinA + (dA + cornerFillerWidth) * cosA;
     const distCornerRight = Math.hypot(curX - candCornerRightX, curZ - candCornerRightZ);
     if (distCornerRight <= minDistance) {
       minDistance = distCornerRight;
@@ -413,8 +423,8 @@ export function snapCabinetToNeighbour(cabinet, existingCabinets = [], threshold
     }
 
     // Candidate 4: L-Corner on other's left side (perpendicular -90°)
-    const candCornerLeftX = oX - (dA + wB) * sinA;
-    const candCornerLeftZ = oZ + (dA + wB) * cosA;
+    const candCornerLeftX = oX - (dA + wB + cornerFillerWidth) * sinA;
+    const candCornerLeftZ = oZ + (dA + wB + cornerFillerWidth) * cosA;
     const distCornerLeft = Math.hypot(curX - candCornerLeftX, curZ - candCornerLeftZ);
     if (distCornerLeft <= minDistance) {
       minDistance = distCornerLeft;

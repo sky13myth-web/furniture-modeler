@@ -6,7 +6,7 @@
 import { getRoomOutline, polygonIsSimple, pointInPolygon, polygonContained, polygonBoundaryDistance, polygonsOverlap, polygonArea, roomBounds, wallLength, cabinetFootprint, getCabinetFootprint as localFootprint, getCabinetCutouts, getCabinetCutout } from './room-geometry.js';
 export { getCabinetCutouts, getCabinetCutout };
 import { validateLayoutSchema, validateDoorOpenings } from './project-io.js';
-import { ROOM_ELEMENT_KINDS, isObstacle, findObstacleConflicts } from './room-obstacles.js';
+import { ROOM_ELEMENT_KINDS, isObstacle, findObstacleConflicts, obstacleDepth } from './room-obstacles.js';
 import { MATERIAL_PRESETS, DEFAULT_MATERIAL_PRESETS, THIN_BACK_PRESET } from './standards.js';
 import { defaultName, localizeMaterialPreset } from './i18n.js';
 import { getInteriorLayout } from './cabinet-interior.js';
@@ -383,6 +383,17 @@ export function findFreeRodPosition(cabinet, project, sectionId, { interior, dia
 }
 
 /**
+ * Determine if a cabinet uses structural traverse rails (царги) instead of a solid top panel.
+ */
+export function isTraverseRailCabinet(cabinet) {
+  if (!cabinet || typeof cabinet !== 'object') return false;
+  if (cabinet.topType === 'solid' || cabinet.topRailMode === false) return false;
+  if (cabinet.topType === 'rails' || cabinet.topRailMode === true) return true;
+  const isBase = cabinet.type === 'base' || cabinet.type === 'corner-base';
+  return Boolean(isBase && (cabinet.countertop === true || cabinet.worktop === true));
+}
+
+/**
  * Joint centre lines of the horizontal panels bounding each opening. Heights
  * are measured from the whole cabinet base (including the plinth), without its
  * installation Y. Missing panels have no fastening axis. This is not a hole
@@ -391,13 +402,14 @@ export function findFreeRodPosition(cabinet, project, sectionId, { interior, dia
 export function getSectionMountingAxes(cabinet, project = { materials: [] }) {
   const layout = getCabinetLayout(cabinet, project);
   const panels = generateParts({ ...project, cabinets: [cabinet] }).filter(part =>
-    part.orientation === 'horizontal' && (part.partitionId || part.name === 'Крышка' || part.name.startsWith('Дно корпуса')));
+    part.orientation === 'horizontal' && (part.partitionId || part.name === 'Крышка' || part.name.startsWith('Царга') || part.role === 'top-rail' || part.name.startsWith('Дно корпуса')));
   const plinth = number(cabinet.plinth), back = backThickness(cabinet, project);
   return [...layout.sections, ...layout.internalSections].map(section => {
+    const isTopRail = panel => panel.role === 'top-rail' || panel.name.startsWith('Царга');
     const covers = panel => panel.position.x <= section.x + EPSILON &&
       panel.position.x + panel.finishedWidth >= section.x + section.width - EPSILON &&
-      panel.position.z < back + section.depth + EPSILON &&
-      panel.position.z + panel.finishedHeight >= back + section.depth - EPSILON;
+      (isTopRail(panel) || (panel.position.z < back + section.depth + EPSILON &&
+      panel.position.z + panel.finishedHeight >= back + section.depth - EPSILON));
     const bottomPanel = panels.find(panel => covers(panel) && Math.abs(panel.position.y + panel.thickness - section.y) < EPSILON);
     const topPanel = panels.find(panel => covers(panel) && Math.abs(panel.position.y - section.y - section.height) < EPSILON);
     const bottom = bottomPanel ? round(plinth + bottomPanel.position.y + bottomPanel.thickness / 2) : null;
@@ -815,17 +827,17 @@ export function createCabinet(type = 'base', project = createDefaultProject(), o
   const supportedType = ['base', 'wall', 'tall', 'corner-base', 'corner-wall', 'corner-tall'].includes(type) ? type : 'base';
   const namingLanguage = ['ru', 'tr', 'en'].includes(project.namingLanguage) ? project.namingLanguage : 'ru';
   const basePreset = {
-    base: { name: defaultName('base', namingLanguage), width: 800, height: 860, depth: 580, y: 0, plinth: 100, shelves: 1, countertop: true },
+    base: { name: defaultName('base', namingLanguage), width: 800, height: 860, depth: 580, y: 0, plinth: 100, shelves: 1, countertop: true, topType: 'rails', topRailWidth: 80 },
     wall: { name: defaultName('wall', namingLanguage), width: 800, height: 720, depth: 340, y: 1510, plinth: 0, shelves: 2 },
     tall: { name: defaultName('tall', namingLanguage), width: 600, height: 2200, depth: 580, y: 0, plinth: 100, shelves: 5 },
-    'corner-base': { name: defaultName('cornerBase', namingLanguage), width: 1000, height: 860, depth: 580, y: 0, plinth: 100, shelves: 1, countertop: true, cornerType: 'blind', blindSide: 'right', blindWidth: 600 },
+    'corner-base': { name: defaultName('cornerBase', namingLanguage), width: 1000, height: 860, depth: 580, y: 0, plinth: 100, shelves: 1, countertop: true, cornerType: 'blind', blindSide: 'right', blindWidth: 600, topType: 'rails', topRailWidth: 80 },
     'corner-wall': { name: defaultName('cornerWall', namingLanguage), width: 600, height: 720, depth: 340, y: 1510, plinth: 0, shelves: 2, cornerType: 'blind', blindSide: 'right', blindWidth: 340 },
     'corner-tall': { name: defaultName('cornerTall', namingLanguage), width: 1000, height: 2200, depth: 580, y: 0, plinth: 100, shelves: 5, cornerType: 'blind', blindSide: 'right', blindWidth: 600 }
   }[supportedType];
   const preset = { ...basePreset };
   // Library presets can affect dimensions before automatic placement. IDs and
   // coordinates are generated here, so a preset cannot discard a safe position.
-  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation', 'countertop', 'cornerType', 'blindSide', 'blindWidth', 'worktopThickness', 'doorOpening', 'frontMount']) {
+  for (const key of ['name', 'width', 'height', 'depth', 'y', 'plinth', 'shelves', 'doors', 'drawers', 'gap', 'includeBottom', 'includeBack', 'sidesToFloor', 'parentId', 'cutout', 'rotation', 'countertop', 'cornerType', 'blindSide', 'blindWidth', 'worktopThickness', 'doorOpening', 'frontMount', 'topType', 'topRailMode', 'topRailWidth', 'appliance', 'cooktop', 'sink']) {
     if (overrides[key] !== undefined) preset[key] = overrides[key];
   }
   const roomAllowance = getRoomInstallationClearance(project.room);
@@ -1177,7 +1189,7 @@ export function generateParts(project) {
       sequence++;
       if (![panelWidth, panelHeight, panelThickness].every(value => Number.isFinite(value) && value > 0)) return;
       const outline = extras.outline?.map(point => ({ ...point }));
-      const isShelfOrPlinth = extras.role === 'plinth' || extras.component === 'plinth' || extras.role === 'shelf' || extras.component === 'shelf' || extras.grainAlongLength || /^(?:.* · )?(?:полка|цоколь|цокольная)/i.test(name);
+      const isShelfOrPlinth = extras.role === 'plinth' || extras.component === 'plinth' || extras.role === 'shelf' || extras.component === 'shelf' || extras.role === 'top-rail' || extras.grainAlongLength || /^(?:.* · )?(?:полка|цоколь|цокольная|царга)/i.test(name);
       parts.push({
         id: `${cabinet.id}-part-${sequence}`, cabinetId: cabinet.id, cabinetName: cabinet.name,
         name, width: round(panelWidth), height: round(panelHeight), thickness: panelThickness,
@@ -1223,7 +1235,19 @@ export function generateParts(project) {
     const leftY = lowerSide(section => Math.abs(section.x - thickness) < EPSILON), rightY = lowerSide(section => Math.abs(section.x + section.width - width + thickness) < EPSILON);
     addPart('Боковина левая', leftDepth, bodyHeight - leftY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: 0, y: leftY, z: hasLeftCutout ? number(leftCut.depth) + back : back }, orientation: 'vertical-depth' });
     addPart('Боковина правая', rightDepth, bodyHeight - rightY, thickness, cabinet.materialId, ['left', 'top'], { position: { x: width - thickness, y: rightY, z: hasRightCutout ? number(rightCut.depth) + back : back }, orientation: 'vertical-depth' });
-    horizontal('Крышка', thickness, back, insideWidth, bodyDepth, bodyHeight - thickness);
+    const requestedRailWidth = Math.max(40, positiveNumber(cabinet.topRailWidth, 80));
+    const railWidth = Math.min(requestedRailWidth, Math.floor((bodyDepth - 20) / 2));
+    const canUseRails = isTraverseRailCabinet(cabinet) && bodyDepth >= 180 && railWidth >= 40;
+    if (canUseRails) {
+      const railExtras = { role: 'top-rail', component: 'top', grainAlongLength: true };
+      // 1. Rear traverse rail (Царга задняя)
+      horizontal('Царга задняя', thickness, back, insideWidth, railWidth, bodyHeight - thickness, undefined, railExtras);
+      // 2. Front traverse rail (Царга передняя)
+      const frontZ = back + bodyDepth - railWidth;
+      horizontal('Царга передняя', thickness, frontZ, insideWidth, railWidth, bodyHeight - thickness, undefined, railExtras);
+    } else {
+      horizontal('Крышка', thickness, back, insideWidth, bodyDepth, bodyHeight - thickness);
+    }
     if (cabinet.includeBottom !== false || layout?.sections.some(section => section.hasBottom) || !layout && number(cabinet.plinth) > 0) {
       const intervals = retainedFloorIntervals(cabinet, layout, thickness);
       intervals.forEach((interval, index) => horizontal(intervals.length === 1 && !floorSections.length ? 'Дно корпуса' : `Дно корпуса · участок ${index + 1}`, interval.x, back, interval.width, bodyDepth, interval.y ?? 0, interval.sectionId, { role: 'bottom', component: 'bottom', bandingSectionIds: [...interval.sectionIds ?? []].sort() }));
@@ -1266,11 +1290,11 @@ export function generateParts(project) {
     if (layout) {
       for (const partition of layout.partitions) {
         const index = layout.partitions.filter(item => item.axis === partition.axis).indexOf(partition) + 1;
-        if (partition.axis === 'horizontal') horizontal(`Горизонтальная перегородка ${index}`, partition.x, back, partition.width, partition.depth, partition.y, undefined, { partitionId: partition.id, ...partitionIdentity(partition) });
+        if (partition.axis === 'horizontal') horizontal(`Горизонтальная перегородка ${index}`, partition.x, back, partition.width, partition.depth, partition.y, undefined, { role: 'partition', component: 'partition', partitionId: partition.id, ...partitionIdentity(partition) });
         else {
           const notchDepth = partitionNotchOffset(partition.x, partition.width);
           const start = back + notchDepth;
-          addPart(`Вертикальная перегородка ${index}`, partition.depth - notchDepth, partition.height, thickness, cabinet.materialId, ['left'], { position: { x: partition.x, y: partition.y, z: start }, orientation: 'vertical-depth', partitionId: partition.id, ...partitionIdentity(partition) });
+          addPart(`Вертикальная перегородка ${index}`, partition.depth - notchDepth, partition.height, thickness, cabinet.materialId, ['left'], { role: 'partition', component: 'partition', position: { x: partition.x, y: partition.y, z: start }, orientation: 'vertical-depth', partitionId: partition.id, ...partitionIdentity(partition) });
         }
       }
       for (const section of layout.sections) {
@@ -1735,6 +1759,113 @@ function verticalOverlap(a, b) {
   return number(a.y) < number(b.y) + number(b.height) - EPSILON && number(a.y) + number(a.height) > number(b.y) + EPSILON;
 }
 
+/**
+ * Kitchen Work Triangle (Sink ↔ Cooktop ↔ Refrigerator) metrics and conformance (NKBA / EN 1116).
+ * Recommends each leg between 1200 and 2700 mm, and total perimeter between 4000 and 7900 mm.
+ */
+export function getKitchenWorkTriangleMetrics(project) {
+  const cabinets = project?.cabinets || [];
+  let sink = null;
+  let cooktop = null;
+  let fridge = null;
+
+  for (const cabinet of cabinets) {
+    const layout = cabinet.layout ? getCabinetLayout(cabinet, project) : null;
+    const sections = layout?.sections || [];
+
+    // 1. Check sections for sink, cooktop, fridge
+    for (const sec of sections) {
+      if (!sink && (sec.node.sink || sec.node.appliance?.type?.startsWith('sink') || sec.node.applianceTag === 'sink')) {
+        sink = { cabinet, sec };
+      }
+      if (!cooktop && (sec.node.cooktop || sec.node.appliance?.type === 'cooktop' || sec.node.applianceTag === 'cooktop')) {
+        cooktop = { cabinet, sec };
+      }
+      if (!fridge && (sec.node.refrigerator || ['fridge-builtin', 'fridge-freestanding', 'fridge', 'refrigerator'].includes(sec.node.appliance?.type) || sec.node.applianceTag === 'fridge' || sec.node.applianceTag === 'refrigerator')) {
+        fridge = { cabinet, sec };
+      }
+    }
+
+    // 2. Check cabinet-level properties if not found in sections
+    if (!sink && (cabinet.type === 'sink' || cabinet.applianceTag === 'sink' || cabinet.tag === 'sink' || cabinet.role === 'sink' || cabinet.appliance?.type?.startsWith('sink'))) {
+      sink = { cabinet, sec: null };
+    }
+    if (!cooktop && (cabinet.type === 'cooktop' || cabinet.applianceTag === 'cooktop' || cabinet.tag === 'cooktop' || cabinet.role === 'cooktop' || cabinet.appliance?.type === 'cooktop')) {
+      cooktop = { cabinet, sec: null };
+    }
+    if (!fridge && (['refrigerator', 'fridge'].includes(cabinet.type) || ['fridge', 'refrigerator'].includes(cabinet.applianceTag) || ['fridge', 'refrigerator'].includes(cabinet.tag) || ['fridge', 'refrigerator'].includes(cabinet.role) || ['fridge-builtin', 'fridge-freestanding', 'fridge', 'refrigerator'].includes(cabinet.appliance?.type) || /холодильник|refrigerator|fridge/i.test(cabinet.name || ''))) {
+      fridge = { cabinet, sec: null };
+    }
+  }
+
+  function getCenter(item) {
+    if (!item) return null;
+    const cab = item.cabinet;
+    const rad = ((Number(cab.rotation) || 0) * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const cabX = Number(cab.x) || 0;
+    const cabZ = Number(cab.z) || 0;
+    const cabWidth = Number(cab.width) || 600;
+    const cabDepth = Number(cab.depth) || 600;
+    const localX = item.sec ? (item.sec.x ?? 0) + (item.sec.width ?? cabWidth) / 2 : cabWidth / 2;
+    const localZ = cabDepth / 2;
+    return {
+      x: Math.round(cabX + localX * cos - localZ * sin),
+      z: Math.round(cabZ + localX * sin + localZ * cos)
+    };
+  }
+
+  const sinkCenter = getCenter(sink);
+  const cooktopCenter = getCenter(cooktop);
+  const fridgeCenter = getCenter(fridge);
+
+  const complete = Boolean(sink && cooktop && fridge);
+  if (!complete) {
+    return {
+      complete: false,
+      sink: sink ? { cabinet: sink.cabinet, section: sink.sec, center: sinkCenter } : null,
+      cooktop: cooktop ? { cabinet: cooktop.cabinet, section: cooktop.sec, center: cooktopCenter } : null,
+      fridge: fridge ? { cabinet: fridge.cabinet, section: fridge.sec, center: fridgeCenter } : null,
+      d1: 0, d2: 0, d3: 0,
+      distSinkCooktop: 0,
+      distCooktopFridge: 0,
+      distFridgeSink: 0,
+      perimeter: 0,
+      totalPerimeter: 0,
+      legsValid: false,
+      perimeterValid: false,
+      isValid: false
+    };
+  }
+
+  const d1 = Math.round(Math.hypot(cooktopCenter.x - sinkCenter.x, cooktopCenter.z - sinkCenter.z));
+  const d2 = Math.round(Math.hypot(fridgeCenter.x - cooktopCenter.x, fridgeCenter.z - cooktopCenter.z));
+  const d3 = Math.round(Math.hypot(sinkCenter.x - fridgeCenter.x, sinkCenter.z - fridgeCenter.z));
+  const perimeter = d1 + d2 + d3;
+
+  const legsValid = d1 >= 1200 && d1 <= 2700 && d2 >= 1200 && d2 <= 2700 && d3 >= 1200 && d3 <= 2700;
+  const perimeterValid = perimeter >= 4000 && perimeter <= 7900;
+  const isValid = legsValid && perimeterValid;
+
+  return {
+    complete: true,
+    sink: { cabinet: sink.cabinet, section: sink.sec, center: sinkCenter },
+    cooktop: { cabinet: cooktop.cabinet, section: cooktop.sec, center: cooktopCenter },
+    fridge: { cabinet: fridge.cabinet, section: fridge.sec, center: fridgeCenter },
+    d1,
+    d2,
+    d3,
+    distSinkCooktop: d1,
+    distCooktopFridge: d2,
+    distFridgeSink: d3,
+    perimeter,
+    totalPerimeter: perimeter,
+    legsValid,
+    perimeterValid,
+    isValid
+  };
+}
+
 export function validateProject(project) {
   const warnings = [];
   const add = (level, message, cabinetId, extra) => warnings.push({ level, message, ...(cabinetId ? { cabinetId } : {}), ...(extra || {}) });
@@ -2087,21 +2218,191 @@ export function validateProject(project) {
       }
     }
   }
+
+  // Feature 5: Kitchen Work Triangle DRC Rule (NKBA / EN 1116)
+  const triangle = getKitchenWorkTriangleMetrics(project);
+  if (triangle.complete && !triangle.isValid) {
+    add('warning', `Кухня: рабочий треугольник (мойка — плита — холодильник) нарушает нормы EN 1116 / NKBA: периметр ${triangle.perimeter} мм (рекомендуется 4000–7900 мм), расстояния: мойка–плита ${triangle.d1} мм, плита–холодильник ${triangle.d2} мм, холодильник–мойка ${triangle.d3} мм (рекомендуется 1200–2700 мм).`, triangle.cooktop.cabinet.id, {
+      code: 'work-triangle-bounds',
+      type: 'work-triangle-bounds',
+      distSinkCooktop: triangle.d1,
+      distCooktopFridge: triangle.d2,
+      distFridgeSink: triangle.d3,
+      totalPerimeter: triangle.perimeter,
+      perimeter: triangle.perimeter,
+      legsValid: triangle.legsValid,
+      perimeterValid: triangle.perimeterValid
+    });
+  }
+
+  // Feature 7: Cooktop-to-Hood Vertical Clearance DRC (min 650mm)
+  for (const cItem of cooktops) {
+    const cCab = cItem.cabinet;
+    const yTopCooktop = number(cCab.y) + number(cCab.height);
+    const cRad = (number(cCab.rotation) * Math.PI) / 180, cCos = Math.cos(cRad), cSin = Math.sin(cRad);
+    let cooktopFootprint;
+    if (cItem.sec) {
+      const sx = cItem.sec.x ?? 0, sw = cItem.sec.width ?? number(cCab.width), cd = number(cCab.depth);
+      cooktopFootprint = [
+        { x: sx, z: 0 },
+        { x: sx + sw, z: 0 },
+        { x: sx + sw, z: cd },
+        { x: sx, z: cd }
+      ].map(p => ({
+        x: number(cCab.x) + p.x * cCos - p.z * cSin,
+        z: number(cCab.z) + p.x * cSin + p.z * cCos
+      }));
+    } else {
+      cooktopFootprint = cabinetFootprint(physicalCabinet(cCab, project));
+    }
+
+    for (const other of cabinets) {
+      if (other.id === cCab.id) continue;
+      const otherBottom = number(other.y);
+      if (otherBottom < yTopCooktop - 50) continue;
+
+      const otherFootprint = cabinetFootprint(physicalCabinet(other, project));
+      if (!polygonsOverlap(cooktopFootprint, otherFootprint)) continue;
+
+      const otherLayout = other.layout ? getCabinetLayout(other, project) : null;
+      const hasHoodOrMicro = (otherLayout?.sections || []).some(s =>
+        ['hood-builtin', 'hood-wall', 'microwave'].includes(s.node.appliance?.type) || s.node.hood || s.node.microwave
+      );
+      const isOverheadCabinet = ['wall', 'corner-wall', 'hood'].includes(other.type) || other.role === 'hood' || /вытяжк|hood/i.test(other.name || '') || hasHoodOrMicro;
+
+      if (isOverheadCabinet) {
+        const clearance = Math.round(otherBottom - yTopCooktop);
+        if (clearance < 650) {
+          add('warning', `Кухня: вертикальный зазор от варочной панели в «${cCab.name}» до верхнего шкафа / вытяжки «${other.name}» составляет ${clearance} мм; по нормам безопасности требуется зазор не менее 650 мм.`, cCab.id, {
+            code: 'cooktop-hood-clearance',
+            type: 'cooktop-hood-clearance',
+            cabinetId: cCab.id,
+            overheadCabinetId: other.id,
+            clearance
+          });
+        }
+      }
+    }
+  }
+
+  // Feature 6: Walkway Aisle Corridor Clearance DRC (EN 1116 min 900mm)
+  const floorCabinets = cabinets.filter(c =>
+    ['base', 'corner-base', 'tall', 'corner-tall'].includes(c.type) ||
+    (Number(c.y || 0) <= 100 && Number(c.height || 0) >= 600)
+  );
+
+  for (let i = 0; i < floorCabinets.length; i++) {
+    for (let j = i + 1; j < floorCabinets.length; j++) {
+      const cA = floorCabinets[i], cB = floorCabinets[j];
+      const rotA = Number(cA.rotation) || 0, rotB = Number(cB.rotation) || 0;
+      const radA = rotA * Math.PI / 180, radB = rotB * Math.PI / 180;
+      const wA = Number(cA.width) || 0, dA = Number(cA.depth) || 0;
+      const wB = Number(cB.width) || 0, dB = Number(cB.depth) || 0;
+      if (!wA || !dA || !wB || !dB) continue;
+
+      const nAx = -Math.sin(radA), nAz = Math.cos(radA);
+      const nBx = -Math.sin(radB), nBz = Math.cos(radB);
+      const tAx = Math.cos(radA), tAz = Math.sin(radA);
+
+      // Facing directions approximately 180° apart (dot product <= -0.85)
+      const dotNormal = nAx * nBx + nAz * nBz;
+      if (dotNormal > -0.85) continue;
+
+      const fAL = { x: (Number(cA.x) || 0) - dA * Math.sin(radA), z: (Number(cA.z) || 0) + dA * Math.cos(radA) };
+      const fAR = { x: (Number(cA.x) || 0) + wA * Math.cos(radA) - dA * Math.sin(radA), z: (Number(cA.z) || 0) + wA * Math.sin(radA) + dA * Math.cos(radA) };
+
+      const fBL = { x: (Number(cB.x) || 0) - dB * Math.sin(radB), z: (Number(cB.z) || 0) + dB * Math.cos(radB) };
+      const fBR = { x: (Number(cB.x) || 0) + wB * Math.cos(radB) - dB * Math.sin(radB), z: (Number(cB.z) || 0) + wB * Math.sin(radB) + dB * Math.cos(radB) };
+
+      const projAL = fAL.x * tAx + fAL.z * tAz;
+      const projAR = fAR.x * tAx + fAR.z * tAz;
+      const minA = Math.min(projAL, projAR), maxA = Math.max(projAL, projAR);
+
+      const projBL = fBL.x * tAx + fBL.z * tAz;
+      const projBR = fBR.x * tAx + fBR.z * tAz;
+      const minB = Math.min(projBL, projBR), maxB = Math.max(projBL, projBR);
+
+      const overlap = Math.min(maxA, maxB) - Math.max(minA, minB);
+      if (overlap < 20) continue;
+
+      const distBL = (fBL.x - fAL.x) * nAx + (fBL.z - fAL.z) * nAz;
+      const distBR = (fBR.x - fAL.x) * nAx + (fBR.z - fAL.z) * nAz;
+      const clearance = Math.round(Math.min(distBL, distBR));
+
+      if (clearance > 0 && clearance < 900) {
+        add('warning', `Кухня: ширина прохода между противоположными шкафами «${cA.name}» и «${cB.name}» составляет ${clearance} мм; по нормам EN 1116 минимальная ширина прохода должна быть не менее 900 мм.`, cA.id, {
+          code: 'aisle-clearance-too-narrow',
+          type: 'aisle-clearance-too-narrow',
+          cabinetId: cA.id,
+          opposingCabinetId: cB.id,
+          clearance
+        });
+      }
+    }
+  }
+
+  // Feature 8: L-Corner Snapping with Filler Post Clearance DRC (< 40mm)
+  for (let i = 0; i < cabinets.length; i++) {
+    for (let j = i + 1; j < cabinets.length; j++) {
+      const cA = cabinets[i], cB = cabinets[j];
+      if (!verticalOverlap(cA, cB)) continue;
+
+      if (cA.type?.startsWith('corner') || cB.type?.startsWith('corner') || cA.cornerType === 'blind' || cB.cornerType === 'blind') continue;
+
+      const rotA = (Number(cA.rotation) || 0) % 360, rotB = (Number(cB.rotation) || 0) % 360;
+      const diff = Math.abs((rotA - rotB + 360) % 360);
+      const is90 = Math.abs(diff - 90) <= 5 || Math.abs(diff - 270) <= 5;
+      if (!is90) continue;
+
+      const fpA = cabinetFootprint(physicalCabinet(cA, project));
+      const fpB = cabinetFootprint(physicalCabinet(cB, project));
+      const dist = polygonBoundaryDistance(fpA, fpB);
+      if (dist > 80) continue;
+
+      const radA = rotA * Math.PI / 180;
+      const dA = Number(cA.depth) || 0;
+      const nAx = -Math.sin(radA), nAz = Math.cos(radA);
+      const fAL = { x: (Number(cA.x) || 0) - dA * Math.sin(radA), z: (Number(cA.z) || 0) + dA * Math.cos(radA) };
+
+      const radB = rotB * Math.PI / 180;
+      const dB = Number(cB.depth) || 0;
+      const nBx = -Math.sin(radB), nBz = Math.cos(radB);
+      const fBL = { x: (Number(cB.x) || 0) - dB * Math.sin(radB), z: (Number(cB.z) || 0) + dB * Math.cos(radB) };
+
+      const clearancesFromA = fpB.map(p => (p.x - fAL.x) * nAx + (p.z - fAL.z) * nAz);
+      const clearancesFromB = fpA.map(p => (p.x - fBL.x) * nBx + (p.z - fBL.z) * nBz);
+
+      const minClearanceA = Math.min(...clearancesFromA);
+      const minClearanceB = Math.min(...clearancesFromB);
+      const clearance = Math.round(Math.max(minClearanceA, minClearanceB));
+
+      if (clearance >= 0 && clearance < 40) {
+        add('warning', `Кухня: угловое сопряжение шкафов «${cA.name}» и «${cB.name}» под 90° не имеет достаточного зазора для добора (зазор ${clearance} мм < 40 мм); требуется угловой добор ≥ 50 мм для предотвращения столкновения фасадов и ручек.`, cA.id, {
+          code: 'corner-filler-clearance',
+          type: 'corner-filler-clearance',
+          cabinetId: cA.id,
+          adjacentCabinetId: cB.id,
+          clearance
+        });
+      }
+    }
+  }
+
   for (const window of room.windows ?? []) {
-    if (window.kind !== undefined && !ROOM_ELEMENT_KINDS.includes(window.kind)) add('error', 'Проём: неизвестный вид.');
-    if (window.kind === 'door' && number(window.sill) !== 0) add('warning', 'Дверной проём должен начинаться от пола: задайте высоту подоконника 0 мм.');
+    if (window.kind !== undefined && !ROOM_ELEMENT_KINDS.includes(window.kind) && !['pillar', 'column'].includes(window.type)) add('error', 'Проём: неизвестный вид.', null, { scope: 'room', windowId: window.id });
+    if (window.kind === 'door' && number(window.sill) !== 0) add('warning', 'Дверной проём должен начинаться от пола: задайте высоту подоконника 0 мм.', null, { scope: 'room', windowId: window.id });
     const obstacle = isObstacle(window);
     const wallIndex = window.wallIndex ?? ({ back: 0, right: 1, front: 2, left: 3 })[window.wall];
-    if (wallIndex !== undefined) {
-      if (!Number.isInteger(wallIndex) || wallIndex < 0 || wallIndex >= roomOutline.length) { add('error', obstacle ? 'У трубы или короба должна быть выбрана существующая стена.' : 'У оконного проёма должна быть выбрана существующая стена.'); continue; }
+    if (wallIndex !== undefined && wallIndex !== null) {
+      if (!Number.isInteger(wallIndex) || wallIndex < 0 || wallIndex >= roomOutline.length) { add('error', obstacle ? 'У трубы или короба должна быть выбрана существующая стена.' : 'У оконного проёма должна быть выбрана существующая стена.', null, { scope: 'room', windowId: window.id }); continue; }
       const length = wallLength(room, wallIndex);
       if (obstacle) {
-        if (!positive(window.width) || !positive(window.height) || !Number.isFinite(Number(window.offset)) || number(window.offset) < 0 || !Number.isFinite(Number(window.sill)) || number(window.sill) < 0) add('error', 'Труба или короб: проверьте размеры и положение.');
-        if (number(window.offset) + number(window.width) > length + EPSILON || number(window.sill) + number(window.height) > number(room.height) + EPSILON) add('error', 'Труба или короб выходит за границы стены.');
+        if (!positive(window.width) || !positive(window.height) || !Number.isFinite(Number(window.offset)) || number(window.offset) < 0 || !Number.isFinite(Number(window.sill)) || number(window.sill) < 0) add('error', 'Труба или короб: проверьте размеры и положение.', null, { scope: 'room', windowId: window.id, fix: { type: 'fit-window-to-wall', windowId: window.id, label: 'Подогнать по стене' } });
+        if (number(window.offset) + number(window.width) > length + EPSILON || number(window.sill) + number(window.height) > number(room.height) + EPSILON) add('error', 'Труба или короб выходит за границы стены.', null, { scope: 'room', windowId: window.id, fix: { type: 'fit-window-to-wall', windowId: window.id, label: 'Подогнать по стене' } });
         continue;
       }
-      if (!positive(window.width) || !positive(window.height) || !Number.isFinite(Number(window.offset)) || number(window.offset) < 0 || !Number.isFinite(Number(window.sill)) || number(window.sill) < 0) add('error', 'Оконный проём: проверьте размеры, отступ и высоту подоконника.');
-      if (number(window.offset) + number(window.width) > length + EPSILON || number(window.sill) + number(window.height) > number(room.height) + EPSILON) add('error', 'Оконный проём выходит за границы стены.');
+      if (!positive(window.width) || !positive(window.height) || !Number.isFinite(Number(window.offset)) || number(window.offset) < 0 || !Number.isFinite(Number(window.sill)) || number(window.sill) < 0) add('error', 'Оконный проём: проверьте размеры, отступ и высоту подоконника.', null, { scope: 'room', windowId: window.id, fix: { type: 'fit-window-to-wall', windowId: window.id, label: 'Подогнать проём по стене' } });
+      if (number(window.offset) + number(window.width) > length + EPSILON || number(window.sill) + number(window.height) > number(room.height) + EPSILON) add('error', 'Оконный проём выходит за границы стены.', null, { scope: 'room', windowId: window.id, fix: { type: 'fit-window-to-wall', windowId: window.id, label: 'Подогнать проём по стене' } });
       const a = roomOutline[wallIndex], b = roomOutline[(wallIndex + 1) % roomOutline.length];
       const ux = (b.x - a.x) / length, uz = (b.z - a.z) / length;
       for (const cabinet of cabinets) {
@@ -2112,7 +2413,17 @@ export function validateProject(project) {
       }
       continue;
     }
-    add('error', obstacle ? 'У трубы или короба должна быть выбрана стена.' : 'У оконного проёма должна быть выбрана стена.');
+    // Freestanding obstacles (pillar / column or freestanding element)
+    if (obstacle && (window.freestanding || window.kind === 'pillar' || window.kind === 'column' || window.type === 'pillar' || window.type === 'column' || (Number.isFinite(Number(window.x)) && Number.isFinite(Number(window.z))))) {
+      const w = positive(window.width), h = positive(window.height || room.height), d = positive(window.depth || obstacleDepth(window));
+      const hasCoords = Number.isFinite(Number(window.x)) && Number.isFinite(Number(window.z));
+      const validSill = Number.isFinite(Number(window.sill ?? 0)) && number(window.sill ?? 0) >= 0;
+      if (!w || !h || !d || !hasCoords || !validSill) {
+        add('error', 'Колонна или пилон: проверьте размеры и координаты положения.', null, { scope: 'room', windowId: window.id });
+      }
+      continue;
+    }
+    add('error', obstacle ? 'У трубы или короба должна быть выбрана стена.' : 'У оконного проёма должна быть выбрана стена.', null, { scope: 'room', windowId: window.id });
   }
   for (const conflict of findObstacleConflicts({ ...project, room, cabinets }, { physical: cabinet => physicalCabinet(cabinet, project) })) {
     const cab = conflict.cabinet;
