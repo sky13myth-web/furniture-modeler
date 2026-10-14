@@ -934,7 +934,7 @@ export class RoomEditor {
       const rGlow = Math.max(92, handle * 3.1);
       const strokeCol = selected ? '#148b7c' : enabled ? '#d97706' : '#8a948e';
       const fillCol = enabled ? (/^#[0-9a-f]{6}$/i.test(l.color || '') ? l.color : '#fff3c4') : '#e2e6e3';
-      const kindLabel = l.kind === 'spot' ? 'Спот' : l.kind === 'sconce' ? 'Бра' : l.kind === 'floor' ? 'Торшер' : 'Люстра';
+      const kindLabel = l.kind === 'pendant' ? 'Люстра' : l.kind === 'sconce' ? 'Бра' : l.kind === 'floor' ? 'Торшер' : 'Спот';
       const label = l.label || kindLabel;
       let rays = '';
       for (let i = 0; i < 8; i++) {

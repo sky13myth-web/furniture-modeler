@@ -502,8 +502,8 @@ vec3 traceRayEnv(vec3 ro, vec3 rd, vec3 skyCol, vec3 groundCol, float roughness)
   // Base gradient environment
   vec3 env = mix(groundCol, skyCol * 1.38, smoothstep(-0.25, 0.65, rd.y));
 
-  // Ceiling luminaire reflection (glowing disc at uLightPos)
-  if (rd.y > 0.02) {
+  // Ceiling luminaire reflection (glowing disc at uLightPos only when no user-placed lights exist)
+  if (rd.y > 0.02 && uExtraLightCount == 0) {
     float tCeil = (uLightPos.y - 30.0 - ro.y) / max(rd.y, 1e-4);
     if (tCeil > 0.0) {
       vec3 ceilHit = ro + rd * tCeil;
@@ -735,23 +735,26 @@ void main() {
   float NdV = max(dot(norm, viewDir), 1e-3);
   float alpha = roughness * roughness;
 
-  // Primary ceiling light (warm point light, inverse-square falloff in metres)
-  vec3 toLight = uLightPos - vPosition;
-  float dist = length(toLight);
-  vec3 L = toLight / max(dist, 1.0);
-  float dM = dist * 0.001;
-  float atten = 1.25 / (1.0 + 0.42 * dM * dM + 0.08 * dM * dM * dM);
-  float customDim = (uExtraLightCount > 0) ? 0.52 : 1.0;
-  float lightBoost = (isStudio ? 1.15 : isNightLed ? 0.55 : evening ? 1.32 : 0.85) * customDim;
-  vec3 lightCol = uLightColor * lightBoost * atten * mix(0.22, 1.0, vis);
-  float NdL = max(dot(norm, L), 0.0);
-  vec3 H = normalize(L + viewDir);
-  float NdH = max(dot(norm, H), 0.0);
-  float VdH = max(dot(viewDir, H), 0.0);
-  float F = f0 + (1.0 - f0) * pow(1.0 - VdH, 5.0);
-  float specTerm = distributionGGX(NdH, alpha) * visibilitySmith(NdL, NdV, alpha) * F * PI;
-  vec3 diffuse = lightCol * NdL;
-  vec3 specular = lightCol * NdL * specTerm;
+  // Primary ceiling light (warm point light, active only when no user-placed lights exist)
+  vec3 diffuse = vec3(0.0);
+  vec3 specular = vec3(0.0);
+  if (uExtraLightCount == 0) {
+    vec3 toLight = uLightPos - vPosition;
+    float dist = length(toLight);
+    vec3 L = toLight / max(dist, 1.0);
+    float dM = dist * 0.001;
+    float atten = 1.25 / (1.0 + 0.42 * dM * dM + 0.08 * dM * dM * dM);
+    float lightBoost = (isStudio ? 1.15 : isNightLed ? 0.55 : evening ? 1.32 : 0.85);
+    vec3 lightCol = uLightColor * lightBoost * atten * mix(0.22, 1.0, vis);
+    float NdL = max(dot(norm, L), 0.0);
+    vec3 H = normalize(L + viewDir);
+    float NdH = max(dot(norm, H), 0.0);
+    float VdH = max(dot(viewDir, H), 0.0);
+    float F = f0 + (1.0 - f0) * pow(1.0 - VdH, 5.0);
+    float specTerm = distributionGGX(NdH, alpha) * visibilitySmith(NdL, NdV, alpha) * F * PI;
+    diffuse = lightCol * NdL;
+    specular = lightCol * NdL * specTerm;
+  }
 
   // User-placed room light sources from the 2D floor plan (up to 6 active lights)
   for (int i = 0; i < 6; i++) {
@@ -1675,26 +1678,49 @@ export class RoomWebGLRenderer {
       }
     };
 
-    const edgeKeys = new Set();
-    const pushEdges = (edgeFloats, points, rgb, isSelected = false) => {
-      let edge;
-      if (isSelected) {
-        edge = [0.09, 0.65, 0.64, 0.85];
-      } else {
-        const lum = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
-        edge = lum < 0.28
-          ? [Math.min(1, rgb[0] + 0.16), Math.min(1, rgb[1] + 0.16), Math.min(1, rgb[2] + 0.16), 0.35]
-          : [rgb[0] * 0.42, rgb[1] * 0.42, rgb[2] * 0.42, 0.42];
-      }
-      const key = p => `${Math.round(p[0] * 2)},${Math.round(p[1] * 2)},${Math.round(p[2] * 2)}`;
-      for (let i = 0; i < points.length; i++) {
-        const a = points[i], b = points[(i + 1) % points.length];
-        const ka = key(a), kb = key(b);
-        if (ka === kb) continue;
-        const k = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
-        if (!isSelected && edgeKeys.has(k)) continue;
-        edgeKeys.add(k);
-        edgeFloats.push(a[0], a[1], a[2], ...edge, b[0], b[1], b[2], ...edge);
+    const pushGlowingCabinetContour = (edgeFloats, cab) => {
+      if (!cab) return;
+      const cx = Number(cab.x) || 0;
+      const cy = Number(cab.y) || 0;
+      const cz = Number(cab.z) || 0;
+      const w = Number(cab.width) || 600;
+      const h = Number(cab.height) || 800;
+      const frontMat = (this.project?.materials || []).find(m => m.id === (cab.frontMaterialId || cab.materialId));
+      const frontT = Math.max(3, Number(frontMat?.thickness || cab.frontThickness || 18));
+      const d = (Number(cab.depth) || 400) + frontT;
+      const angle = ((Number(cab.rotation) || 0) * Math.PI) / 180;
+      const co = Math.cos(angle), si = Math.sin(angle);
+      const rotPt = (lx, ly, lz) => [
+        cx + lx * co - lz * si,
+        cy + ly,
+        cz + lx * si + lz * co,
+      ];
+      const boxEdges = [
+        [0, 1], [1, 2], [2, 3], [3, 0],
+        [4, 5], [5, 6], [6, 7], [7, 4],
+        [0, 4], [1, 5], [2, 6], [3, 7],
+      ];
+      // Multi-pass glowing neon contour (core + inner glow + soft halo)
+      const glowPasses = [
+        { pad: 6.0, col: [0.06, 0.80, 0.74, 0.24] },
+        { pad: 3.8, col: [0.10, 0.90, 0.82, 0.55] },
+        { pad: 2.0, col: [0.22, 1.00, 0.92, 0.98] },
+      ];
+      for (const { pad, col } of glowPasses) {
+        const pts = [
+          rotPt(-pad, -pad, -pad),
+          rotPt(w + pad, -pad, -pad),
+          rotPt(w + pad, h + pad, -pad),
+          rotPt(-pad, h + pad, -pad),
+          rotPt(-pad, -pad, d + pad),
+          rotPt(w + pad, -pad, d + pad),
+          rotPt(w + pad, h + pad, d + pad),
+          rotPt(-pad, h + pad, d + pad),
+        ];
+        for (const [ia, ib] of boxEdges) {
+          const a = pts[ia], b = pts[ib];
+          edgeFloats.push(a[0], a[1], a[2], ...col, b[0], b[1], b[2], ...col);
+        }
       }
     };
 
@@ -1740,12 +1766,10 @@ export class RoomWebGLRenderer {
         const alpha = isTransparent ? (f.opacity ?? 0.85) : 1.0;
         const materialId = classifyFaceMaterial(f);
         const rgba = [rgb[0], rgb[1], rgb[2], alpha];
-        const isSelectedCab = Boolean(this.selectedCabinetId && f.id && f.id === this.selectedCabinetId);
 
         const isFurnitureCaster = (!f.room || f.obstacle) && !isTransparent;
         if (isFurnitureCaster) {
           pushPoly(furnitureCasters, f.points, norm, rgba, materialId);
-          if (f.stroke !== 'transparent' || isSelectedCab) pushEdges(furnitureEdges, f.points, rgb, isSelectedCab);
         }
 
         if (isTransparent) {
@@ -1754,6 +1778,11 @@ export class RoomWebGLRenderer {
           const texUrl = (materialId === MATERIAL.furniture) ? (resolveFaceTexture(f, this.project) || '') : '';
           pushPoly(getFurnOpaque(texUrl), f.points, norm, rgba, materialId);
         }
+      }
+
+      if (this.selectedCabinetId) {
+        const selCab = (this.project?.cabinets || []).find(c => c.id === this.selectedCabinetId);
+        if (selCab) pushGlowingCabinetContour(furnitureEdges, selCab);
       }
 
       this._cachedFurnitureFloats = {
@@ -1908,8 +1937,11 @@ export class RoomWebGLRenderer {
       pushPoly(wallCasterFloats, ceilingPoints, [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
     }
 
-    // Luminaire
-    if (this.lightPos) {
+    // User-placed 3D light fixtures (from 2D room plan)
+    const userLights = (room.lights || []).filter(l => l && l.enabled !== false).slice(0, 6);
+
+    // Default center luminaire (only rendered when no user lights are placed)
+    if (this.lightPos && userLights.length === 0) {
       const lx = this.lightPos[0], ly = this.lightPos[1], lz = this.lightPos[2];
       const r = 180;
       const count = 32;
@@ -1933,10 +1965,8 @@ export class RoomWebGLRenderer {
       }
     }
 
-    // User-placed 3D light fixtures (from 2D room plan)
-    const userLights = (room.lights || []).filter(l => l && l.enabled !== false).slice(0, 6);
     for (const l of userLights) {
-      const kind = l.kind || 'pendant';
+      const kind = l.kind || 'spot';
       const lx = Number(l.x) || 2000;
       const lz = Number(l.z) || 1500;
       const defaultY = kind === 'pendant' ? roomH - 550 : kind === 'sconce' ? 1800 : kind === 'floor' ? 1650 : roomH - 40;
@@ -2238,7 +2268,7 @@ export class RoomWebGLRenderer {
       const roomH = rb.height || 2700;
       for (let i = 0; i < roomLights.length; i++) {
         const l = roomLights[i];
-        const kind = l.kind || 'pendant';
+        const kind = l.kind || 'spot';
         const defaultY = kind === 'pendant' ? roomH - 550 : kind === 'sconce' ? 1800 : kind === 'floor' ? 1650 : roomH - 80;
         posArr[i * 3] = Number(l.x) || 2000;
         posArr[i * 3 + 1] = Number.isFinite(Number(l.y)) ? Number(l.y) : defaultY;

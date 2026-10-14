@@ -182,10 +182,11 @@ test('room lights validate in project I/O, render in 3D, and never appear in pro
   }
 });
 
-test('WebGL shader has balanced lighting and supports user-placed point lights and live geometry invalidation', () => {
+test('WebGL shader has balanced lighting and supports user-placed point lights, no wireframe mesh, glowing selection contour, and center lamp removal', () => {
   assert.match(FRAGMENT_SHADER_SOURCE, /uniform int uExtraLightCount;/);
   assert.match(FRAGMENT_SHADER_SOURCE, /uniform vec3 uExtraLightPos\[6\];/);
   assert.match(FRAGMENT_SHADER_SOURCE, /uniform vec3 uExtraLightColor\[6\];/);
+  assert.match(FRAGMENT_SHADER_SOURCE, /if \(uExtraLightCount == 0\)/);
 
   // Create headless RoomWebGLRenderer (without WebGL context) to verify geometry & cache invalidation and selection clearing
   const fakeCanvas = {
@@ -204,15 +205,23 @@ test('WebGL shader has balanced lighting and supports user-placed point lights a
   });
 
   const project = createDefaultProject('ru');
+  // 1. Without user lights, center ceiling lamp (32 segments) is built; adding a spot light removes the center lamp
+  renderer.setProject(project, null);
+  assert.equal(renderer.edgeVertexCount, 0, 'Render must have NO wireframe mesh when no cabinet is selected');
+  const vertsWithDefaultCenterLamp = renderer.opaqueVertexCount;
+
+  // Add default ceiling spot light -> center lamp (32 segments * 15 verts = 480 verts) is removed and replaced by spot light (20 segments * 9 verts = 180 verts)
   project.room.lights = [
-    { id: 'l1', kind: 'pendant', x: 1200, z: 1200, y: 2100, intensity: 1.2, color: '#fff4dc' }
+    { id: 'l1', kind: 'spot', x: 1200, z: 1200, y: 2700, intensity: 1.2, color: '#fff4dc' }
   ];
 
   renderer.setProject(project, project.cabinets[0].id);
   assert.equal(renderer.selectedCabinetId, project.cabinets[0].id);
+  assert.equal(renderer.edgeVertexCount, 72, 'Selected cabinet must render ONLY its glowing 12-edge outer contour (3 passes * 24 verts = 72), no internal mesh');
 
   const vertsWithCeiling = renderer.opaqueVertexCount;
   assert.ok(vertsWithCeiling > 0, 'Must build 3D triangles');
+  assert.equal(vertsWithDefaultCenterLamp - vertsWithCeiling, 300, 'Adding user light must remove the center ceiling luminaire mesh');
 
   // Toggle ceiling off -> must immediately rebuild geometry even without camera move
   renderer.setShowCeiling(false);
@@ -227,6 +236,7 @@ test('WebGL shader has balanced lighting and supports user-placed point lights a
   // Clicking empty space (where no cabinet is hit) must clear selection and notify onSelect(null)
   renderer.pickCabinet(1, 1);
   assert.equal(renderer.selectedCabinetId, null, 'Clicking empty space must deselect cabinet in 3D');
+  assert.equal(renderer.edgeVertexCount, 0, 'Deselecting cabinet must remove glowing selection contour');
   assert.equal(lastSelected, null, 'onSelect(null) must be called when deselecting in 3D');
 
   renderer.destroy();

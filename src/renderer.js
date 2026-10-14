@@ -1698,7 +1698,7 @@ export class FurnitureViewport {
     for (const item of items) {
       if(!item.line&&item.stroke==='transparent'&&!this.options.wireframe)continue;
       const selectedPart=this.options.exploded&&this.options.selection!==false&&item.partId===this.options.selectedPartId;
-      const color = item.line ? item.color : selectedPart?'#009d8e':!this.options.exploded&&this.options.selection!==false&&item.id===this.selectedId?'#537f77':item.stroke||'#686458';
+      const color = item.line ? item.color : selectedPart?'#009d8e':item.stroke||'#686458';
       const width = item.line ? item.width : selectedPart?2:item.lineWidth||.8;
       this.drawVisibleEdges(item.screen, !item.line, color, width, tolerance);
     }
@@ -1730,10 +1730,15 @@ export class FurnitureViewport {
     if (!raw) return;
     const c = cabinetData(this.project, raw), pts = corners({ min: [c.x, c.y, c.z], max: [c.x + c.width, c.y + c.height, c.z + c.depth + c.frontThickness] }).map(p => projectPoint(rotateCabinetPoint(c, p)));
     const ctx = this.ctx;
-    ctx.save(); ctx.strokeStyle = ACCENT; ctx.lineWidth = 1.5;
+    ctx.save();
+    ctx.shadowColor = '#14d8c4';
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = ACCENT;
+    ctx.lineWidth = 2;
     ctx.beginPath();
     [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]].forEach(([a, b]) => { ctx.moveTo(...pts[a].slice(0, 2)); ctx.lineTo(...pts[b].slice(0, 2)); });
-    ctx.stroke(); ctx.restore();
+    ctx.stroke();
+    ctx.restore();
   }
 
   drawSectionSelection(projectPoint) {
