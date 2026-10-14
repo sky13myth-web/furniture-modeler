@@ -5,6 +5,7 @@ import { generateRoomOBJ, downloadRoomOBJ } from '../src/room-obj.js';
 import { createRoomPlanSvg } from '../src/room-print.js';
 import {
   RoomWebGLRenderer,
+  FLOOR_STYLES,
   VERTEX_SHADER_SOURCE,
   FRAGMENT_SHADER_SOURCE,
   createShader,
@@ -61,6 +62,9 @@ test('RoomWebGLRenderer exports expected class interface', () => {
   assert.equal(typeof RoomWebGLRenderer.prototype.resetCamera, 'function');
   assert.equal(typeof RoomWebGLRenderer.prototype.setCameraPreset, 'function');
   assert.equal(typeof RoomWebGLRenderer.prototype.setLightingMode, 'function');
+  assert.equal(typeof RoomWebGLRenderer.prototype.setFloorStyle, 'function');
+  assert.equal(typeof RoomWebGLRenderer.prototype.setSelectedCabinet, 'function');
+  assert.equal(typeof RoomWebGLRenderer.prototype.focusOnCabinet, 'function');
   assert.equal(typeof RoomWebGLRenderer.prototype.pickCabinet, 'function');
   assert.equal(typeof RoomWebGLRenderer.prototype.toggleDoors, 'function');
   assert.equal(typeof RoomWebGLRenderer.prototype.toggleWallMode, 'function');
@@ -94,6 +98,9 @@ test('shaders compile and link successfully in WebGL program', () => {
 
   // Verify procedural shader features in FRAGMENT_SHADER_SOURCE
   assert.ok(FRAGMENT_SHADER_SOURCE.includes('uLightingMode'), 'FS should include uLightingMode uniform');
+  assert.ok(FRAGMENT_SHADER_SOURCE.includes('uFloorStyle'), 'FS should include uFloorStyle uniform');
+  assert.ok(FRAGMENT_SHADER_SOURCE.includes('isMetal'), 'FS should include PBR metal detection');
+  assert.ok(FRAGMENT_SHADER_SOURCE.includes('isCeramic'), 'FS should include PBR ceramic glass detection');
   assert.ok(FRAGMENT_SHADER_SOURCE.includes('vPosition.y < 2.0'), 'FS should include floor face detection');
   assert.ok(FRAGMENT_SHADER_SOURCE.includes('plankLength'), 'FS should include plankLength for floor tiles/planks');
   assert.ok(FRAGMENT_SHADER_SOURCE.includes('plankWidth'), 'FS should include plankWidth for floor tiles/planks');
@@ -189,7 +196,7 @@ test('RoomWebGLRenderer setLightingMode toggles between day and evening', () => 
   assert.equal(renderer.lightingMode, 'evening');
 });
 
-test('RoomWebGLRenderer pickCabinet raycasts perspective view and triggers onSelect', () => {
+test('RoomWebGLRenderer pickCabinet raycasts perspective view, updates selectedCabinetId and triggers onSelect', () => {
   const project = createDefaultProject();
   let selectedId = null;
   const mockCanvas = {
@@ -214,10 +221,38 @@ test('RoomWebGLRenderer pickCabinet raycasts perspective view and triggers onSel
   const hitId = renderer.pickCabinet(400, 300);
   assert.equal(hitId, cab.id);
   assert.equal(selectedId, cab.id);
+  assert.equal(renderer.selectedCabinetId, cab.id);
 
   // Click far off in the top corner (10, 10) misses
   selectedId = null;
   const missId = renderer.pickCabinet(10, 10);
   assert.equal(missId, null);
   assert.equal(selectedId, null);
+});
+
+test('RoomWebGLRenderer supports floor styles, selectedCabinetId, and focusOnCabinet', () => {
+  const project = createDefaultProject();
+  const cab = project.cabinets[0];
+  const renderer = new RoomWebGLRenderer(null);
+  renderer.setProject(project, cab.id);
+
+  assert.equal(renderer.selectedCabinetId, cab.id);
+  assert.equal(renderer.floorStyle, 'oak');
+
+  for (const styleKey of Object.keys(FLOOR_STYLES)) {
+    const res = renderer.setFloorStyle(styleKey);
+    assert.equal(res, styleKey);
+    assert.equal(renderer.floorStyle, styleKey);
+  }
+  // Invalid style is ignored
+  renderer.setFloorStyle('nonexistent');
+  assert.equal(renderer.floorStyle, 'concrete');
+
+  // Focus on cabinet centers target on cabinet and sets a close viewing distance
+  const focused = renderer.focusOnCabinet(cab.id);
+  assert.equal(focused, true);
+  assert.ok(Math.abs(renderer.target[0] - (cab.x + cab.width / 2)) < 1);
+  assert.ok(Math.abs(renderer.target[1] - (cab.y + cab.height * 0.5)) < 1);
+  assert.ok(Math.abs(renderer.target[2] - (cab.z + cab.depth / 2)) < 1);
+  assert.ok(renderer.distance >= 950 && renderer.distance <= 5000);
 });

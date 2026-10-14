@@ -10,6 +10,41 @@ export const RENDER_QUALITY = {
   ultra:  { label: 'Ультра',  shadowSize: 4096, sunShadows: true,  overheadSamples: 24, sunSamples: 24, pixelRatio: 3 },
 };
 
+/** Procedural floor styles for the 3D WebGL room renderer. */
+export const FLOOR_STYLES = {
+  oak:      { id: 0, label: 'Натуральный дуб' },
+  ash:      { id: 1, label: 'Светлый ясень' },
+  walnut:   { id: 2, label: 'Тёмный орех' },
+  tile:     { id: 3, label: 'Керамогранит' },
+  concrete: { id: 4, label: 'Тёплый бетон' },
+};
+
+const NON_TEXTURED_COMPONENTS = new Set([
+  'appliance',
+  'appliance-detail',
+  'handle',
+  'door-handle',
+  'drawer-handle',
+  'internal-drawer-handle',
+  'hinge',
+  'rod',
+  'rod-holder',
+  'rod-highlight',
+  'drawer-railing',
+  'drawer-railing-connector',
+  'drawer-railing-highlight',
+  'drawer-runner',
+  'drawer-runner-highlight',
+  'leg',
+  'unified-plinth',
+  'plinth-seal',
+  'plinth-highlight',
+  'plinth-seam',
+  'led-lighting',
+  'led-glow',
+  'led-core',
+]);
+
 function hexToRgb(hex) {
   if (!hex || typeof hex !== 'string') return [0.8, 0.8, 0.8];
   const clean = hex.replace('#', '');
@@ -31,7 +66,8 @@ function hexToRgb(hex) {
 }
 
 export function resolveFaceTexture(f, project) {
-  if (!project || !f || f.room || f.floor || f.window || f.obstacle) return null;
+  if (!project || !f || f.room || f.floor || f.window || f.obstacle || f.noTexture) return null;
+  if (f.handle || f.hingePart || f.runnerPart || NON_TEXTURED_COMPONENTS.has(f.component)) return null;
   if (f.localTextureUrl) return f.localTextureUrl;
   if (f.textureUrl) return f.textureUrl;
   if (f.previewUrl) return f.previewUrl;
@@ -66,6 +102,44 @@ export function resolveFaceTexture(f, project) {
     }
   }
   return null;
+}
+
+export function classifyFaceMaterial(f) {
+  if (!f) return MATERIAL.furniture;
+  if (f.room && !f.obstacle) return f.floor ? MATERIAL.floor : MATERIAL.wall;
+  if (f.component === 'led-glow' || f.component === 'led-core') return MATERIAL.emissive;
+  const col = String(f.rawColor || f.color || '').toLowerCase();
+  if (col === '#4fc3f7' || col === '#ff5722' || col === '#fffde7' || col === '#fff9e6') {
+    return MATERIAL.emissive;
+  }
+  if (
+    f.handle ||
+    f.hingePart ||
+    f.runnerPart ||
+    f.component === 'rod' ||
+    f.component === 'rod-holder' ||
+    f.component === 'drawer-railing' ||
+    f.component === 'drawer-railing-connector' ||
+    f.component === 'drawer-runner' ||
+    f.component === 'unified-plinth' ||
+    f.component === 'led-lighting'
+  ) {
+    return MATERIAL.metal;
+  }
+  if (f.component === 'appliance' || f.component === 'appliance-detail') {
+    if (
+      col === '#181b1d' ||
+      col === '#1f2427' ||
+      col === '#0f1112' ||
+      col === '#0b0d0e' ||
+      col === '#0e1011' ||
+      col === '#1e2124'
+    ) {
+      return MATERIAL.ceramic;
+    }
+    return MATERIAL.metal;
+  }
+  return MATERIAL.furniture;
 }
 
 function mat4Perspective(out, fovyRad, aspect, near, far) {
@@ -174,8 +248,8 @@ function vec4Transform(v, m) {
 
 // Material ids passed per vertex (aMaterial):
 // 0 = furniture / frames (satin), 1 = floor, 2 = walls & ceiling (matte),
-// 3 = glass, 4 = emissive light diffuser.
-export const MATERIAL = Object.freeze({ furniture: 0, floor: 1, wall: 2, glass: 3, emissive: 4 });
+// 3 = glass, 4 = emissive light diffuser, 5 = brushed / chrome metal, 6 = ceramic glass.
+export const MATERIAL = Object.freeze({ furniture: 0, floor: 1, wall: 2, glass: 3, emissive: 4, metal: 5, ceramic: 6 });
 
 export const VERTEX_SHADER_SOURCE = `
 attribute vec3 aPosition;
@@ -219,6 +293,7 @@ uniform mat4 uLightSpaceMatrix;
 uniform sampler2D uShadowMap;
 uniform bool uUseShadows;
 uniform int uLightingMode;
+uniform int uFloorStyle;
 uniform vec2 uResolution;
 uniform float uRoomHeight;
 uniform float uShadowTexel;
@@ -322,13 +397,16 @@ void main() {
   bool isFloorMat = vMaterial > 0.5 && vMaterial < 1.5;
   bool isWall = vMaterial > 1.5 && vMaterial < 2.5;
   bool isGlass = vMaterial > 2.5 && vMaterial < 3.5;
-  bool isEmissive = vMaterial > 3.5;
+  bool isEmissive = vMaterial > 3.5 && vMaterial < 4.5;
+  bool isMetal = vMaterial > 4.5 && vMaterial < 5.5;
+  bool isCeramic = vMaterial > 5.5;
   // Floor faces: tagged floor material, or any room surface at floor level (vPosition.y < 2.0)
   bool isFloor = isFloorMat || (isWall && vPosition.y < 2.0 && norm.y > 0.5);
 
   if (isEmissive) {
-    vec3 glow = evening ? vec3(1.0, 0.97, 0.90) : vec3(0.96, 0.96, 0.94);
-    gl_FragColor = vec4(glow * vignette(), 1.0);
+    float lum = dot(vColor.rgb, vec3(0.299, 0.587, 0.114));
+    vec3 glow = (lum < 0.85) ? (vColor.rgb * 1.15) : (evening ? vec3(1.0, 0.97, 0.90) : vec3(0.96, 0.96, 0.94));
+    gl_FragColor = vec4(clamp(glow, 0.0, 1.0) * vignette(), 1.0);
     return;
   }
 
@@ -336,8 +414,18 @@ void main() {
   float roughness = 0.52;
   float f0 = 0.04;
   if (isWall) roughness = 0.94;
+  if (isMetal) {
+    roughness = 0.22;
+    f0 = 0.68;
+    // Subtle brushed stainless steel micro-grain along horizontal axis
+    float brush = sin(vPosition.x * 1.8 + vPosition.z * 1.8) * 0.025 + sin(vPosition.y * 0.9) * 0.015;
+    albedo *= (1.0 + brush);
+  } else if (isCeramic) {
+    roughness = 0.10;
+    f0 = 0.09;
+  }
 
-  if (uHasTexture && !isFloor && !isWall && !isGlass && !isEmissive) {
+  if (uHasTexture && !isFloor && !isWall && !isGlass && !isEmissive && !isMetal && !isCeramic) {
     vec2 uv;
     if (abs(norm.y) > 0.6) {
       uv = vPosition.xz;
@@ -351,7 +439,7 @@ void main() {
     albedo = pow(texel.rgb, vec3(2.2));
     roughness = 0.42;
   }
-  if (uRoughnessOverride >= 0.0 && !isFloor && !isWall && !isGlass) roughness = uRoughnessOverride;
+  if (uRoughnessOverride >= 0.0 && !isFloor && !isWall && !isGlass && !isMetal && !isCeramic) roughness = uRoughnessOverride;
 
   // Painted plaster: low-frequency tonal variation keeps large walls from looking flat
   if (isWall && !isFloor) {
@@ -360,30 +448,58 @@ void main() {
     albedo *= 0.985 + n * 0.03;
   }
 
-  // Natural oak plank floor
+  // Procedural floor styles: 0 = oak, 1 = ash, 2 = walnut, 3 = porcelain tile, 4 = warm concrete
   if (isFloor) {
-    float plankWidth = 190.0;
-    float plankLength = 1400.0;
-    float row = floor(vPosition.z / plankWidth);
-    float stagger = hash12(vec2(row, 7.0)) * plankLength;
-    vec2 pCoord = vec2(vPosition.x + stagger, vPosition.z);
-    float col = floor(pCoord.x / plankLength);
-    vec2 cell = vec2(mod(pCoord.x, plankLength), mod(pCoord.y, plankWidth));
-    float edgeX = min(cell.x, plankLength - cell.x);
-    float edgeZ = min(cell.y, plankWidth - cell.y);
-    float seam = 1.0 - smoothstep(0.6, 2.6, min(edgeX, edgeZ));
-    float plankRand = hash12(vec2(row * 1.37, col * 2.11));
-    vec3 oak = pow(vec3(0.70, 0.54, 0.38), vec3(2.2));
-    oak *= 0.86 + plankRand * 0.26;
-    float rings = sin(cell.y * 0.11 + sin(cell.x * 0.0045 + plankRand * 20.0) * 6.0 + plankRand * 40.0);
-    float fibre = sin(cell.y * 0.95 + cell.x * 0.002 + plankRand * 13.0);
-    oak *= 1.0 + rings * 0.06 + fibre * 0.025;
-    albedo = mix(albedo, oak, 0.92) * (1.0 - seam * 0.45);
-    roughness = 0.36;
+    if (uFloorStyle == 3) {
+      // Large-format 600x600mm porcelain stoneware tiles with fine grout joints
+      float tileSize = 600.0;
+      vec2 tCell = mod(vPosition.xz, tileSize);
+      vec2 tId = floor(vPosition.xz / tileSize);
+      float edge = min(min(tCell.x, tileSize - tCell.x), min(tCell.y, tileSize - tCell.y));
+      float grout = 1.0 - smoothstep(1.2, 3.2, edge);
+      float tileRand = hash12(tId * 1.73);
+      float vein = sin(vPosition.x * 0.006 + sin(vPosition.z * 0.008 + tileRand * 6.0) * 2.5);
+      vec3 stone = pow(vec3(0.79, 0.77, 0.74), vec3(2.2)) * (0.94 + tileRand * 0.10 + vein * 0.03);
+      vec3 groutCol = pow(vec3(0.52, 0.50, 0.48), vec3(2.2));
+      albedo = mix(stone, groutCol, grout * 0.75);
+      roughness = mix(0.24, 0.85, grout);
+      f0 = 0.05;
+    } else if (uFloorStyle == 4) {
+      // Architectural warm micro-cement / polished concrete floor
+      float n1 = hash12(floor(vPosition.xz / 120.0));
+      float n2 = hash12(floor(vPosition.xz / 28.0) + 5.7);
+      float cloud = sin(vPosition.x * 0.0025) * cos(vPosition.z * 0.0025) * 0.04;
+      vec3 conc = pow(vec3(0.68, 0.66, 0.63), vec3(2.2)) * (0.94 + n1 * 0.06 + n2 * 0.04 + cloud);
+      albedo = conc;
+      roughness = 0.44;
+    } else {
+      // Wood plank floor (0 = natural oak, 1 = light ash, 2 = dark walnut)
+      float plankWidth = 190.0;
+      float plankLength = 1400.0;
+      float row = floor(vPosition.z / plankWidth);
+      float stagger = hash12(vec2(row, 7.0)) * plankLength;
+      vec2 pCoord = vec2(vPosition.x + stagger, vPosition.z);
+      float col = floor(pCoord.x / plankLength);
+      vec2 cell = vec2(mod(pCoord.x, plankLength), mod(pCoord.y, plankWidth));
+      float edgeX = min(cell.x, plankLength - cell.x);
+      float edgeZ = min(cell.y, plankWidth - cell.y);
+      float seam = 1.0 - smoothstep(0.6, 2.6, min(edgeX, edgeZ));
+      float plankRand = hash12(vec2(row * 1.37, col * 2.11));
+      vec3 baseWood = vec3(0.70, 0.54, 0.38);
+      if (uFloorStyle == 1) baseWood = vec3(0.83, 0.75, 0.64);
+      else if (uFloorStyle == 2) baseWood = vec3(0.42, 0.29, 0.20);
+      vec3 oak = pow(baseWood, vec3(2.2));
+      oak *= 0.86 + plankRand * 0.26;
+      float rings = sin(cell.y * 0.11 + sin(cell.x * 0.0045 + plankRand * 20.0) * 6.0 + plankRand * 40.0);
+      float fibre = sin(cell.y * 0.95 + cell.x * 0.002 + plankRand * 13.0);
+      oak *= 1.0 + rings * 0.06 + fibre * 0.025;
+      albedo = mix(albedo, oak, 0.92) * (1.0 - seam * 0.45);
+      roughness = 0.34;
+    }
   }
 
   // Subtle procedural grain on wood-coloured furniture decors
-  bool isWood = (!isFloor && !isWall && !isGlass && vColor.a > 0.9 &&
+  bool isWood = (!isFloor && !isWall && !isGlass && !isMetal && !isCeramic && vColor.a > 0.9 &&
                  vColor.r > vColor.b * 1.08 && (vColor.r - vColor.b) > 0.045 &&
                  vColor.r > 0.22 && vColor.b < 0.88);
   if (isWood && !uHasTexture) {
@@ -449,14 +565,20 @@ void main() {
   } else {
     // Soft warm key light to model furniture volumes, also shadowed
     vec3 keyDir = uSunDir;
-    diffuse += vec3(0.30, 0.27, 0.23) * max(dot(norm, keyDir), 0.0) * ao * mix(0.35, 1.0, sunVis);
+    float kNdL = max(dot(norm, keyDir), 0.0);
+    vec3 kH = normalize(keyDir + viewDir);
+    float kF = f0 + (1.0 - f0) * pow(1.0 - max(dot(viewDir, kH), 0.0), 5.0);
+    float kSpec = distributionGGX(max(dot(norm, kH), 0.0), alpha) * visibilitySmith(kNdL, NdV, alpha) * kF * PI;
+    vec3 keyCol = vec3(0.30, 0.27, 0.23) * ao * mix(0.35, 1.0, sunVis);
+    diffuse += keyCol * kNdL;
+    specular += keyCol * kNdL * kSpec;
   }
 
   // Environment reflection (fresnel-weighted sky / floor)
   vec3 R = reflect(-viewDir, norm);
   vec3 env = mix(groundCol, skyCol * 1.35, smoothstep(-0.2, 0.6, R.y));
   float fresnelV = f0 + (1.0 - f0) * pow(1.0 - NdV, 5.0);
-  vec3 envSpec = env * fresnelV * (1.0 - roughness) * 0.9 * ao;
+  vec3 envSpec = env * fresnelV * (1.0 - roughness) * (isMetal ? 1.35 : isCeramic ? 1.25 : 0.9) * ao;
 
   vec3 color;
   float outAlpha = vColor.a;
@@ -464,6 +586,9 @@ void main() {
     float gF = 0.04 + 0.96 * pow(1.0 - NdV, 5.0);
     color = albedo * ambient * 0.35 + env * (0.12 + gF * 0.6) + min(specular, vec3(0.6));
     outAlpha = clamp(vColor.a + gF * 0.45, 0.0, 0.92);
+  } else if (isMetal) {
+    // Conductive metal tinting on reflections and reduced diffuse
+    color = albedo * (ambient * ao * 0.45 + diffuse * 0.45) + mix(vec3(1.0), albedo, 0.65) * (specular + envSpec);
   } else {
     color = albedo * (ambient * ao + diffuse) + specular + envSpec;
   }
@@ -579,9 +704,11 @@ export class RoomWebGLRenderer {
     this.onSelect = onSelect;
     this.onChange = onChange;
     this.project = null;
+    this.selectedCabinetId = null;
     this.doorsOpen = false;
     this.wallMode = 'cutaway'; // 'cutaway' | 'all'
     this.lightingMode = 'evening'; // 'day' | 'evening'
+    this.floorStyle = 'oak'; // 'oak' | 'ash' | 'walnut' | 'tile' | 'concrete'
     this.cameraPreset = 'corner-1';
     this.quality = 'high';
     this.showCeiling = true;
@@ -642,6 +769,7 @@ export class RoomWebGLRenderer {
         shadowMap: gl.getUniformLocation(this.mainProgram, 'uShadowMap'),
         useShadows: gl.getUniformLocation(this.mainProgram, 'uUseShadows'),
         lightingMode: gl.getUniformLocation(this.mainProgram, 'uLightingMode'),
+        floorStyle: gl.getUniformLocation(this.mainProgram, 'uFloorStyle'),
         resolution: gl.getUniformLocation(this.mainProgram, 'uResolution'),
         roomHeight: gl.getUniformLocation(this.mainProgram, 'uRoomHeight'),
         shadowTexel: gl.getUniformLocation(this.mainProgram, 'uShadowTexel'),
@@ -833,6 +961,53 @@ export class RoomWebGLRenderer {
     return this.quality;
   }
 
+  /** 'oak' | 'ash' | 'walnut' | 'tile' | 'concrete' */
+  setFloorStyle(style) {
+    if (!FLOOR_STYLES[style]) return this.floorStyle;
+    this.floorStyle = style;
+    this.render();
+    return this.floorStyle;
+  }
+
+  setSelectedCabinet(cabinetId) {
+    const next = cabinetId || null;
+    if (this.selectedCabinetId === next) return this.selectedCabinetId;
+    this.selectedCabinetId = next;
+    this.buildGeometry();
+    this.render();
+    return this.selectedCabinetId;
+  }
+
+  focusOnCabinet(cabinetId = this.selectedCabinetId) {
+    if (!this.project?.cabinets?.length) return false;
+    const cab = this.project.cabinets.find(c => c.id === cabinetId) || this.project.cabinets[0];
+    if (!cab) return false;
+
+    const w = Number(cab.width) || 600;
+    const h = Number(cab.height) || 800;
+    const d = Number(cab.depth) || 560;
+    const angle = ((Number(cab.rotation) || 0) * Math.PI) / 180;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    // Local center of the cabinet rotated into world space
+    const locX = w / 2;
+    const locZ = d / 2;
+    const cx = (Number(cab.x) || 0) + locX * cosA - locZ * sinA;
+    const cy = (Number(cab.y) || 0) + h * 0.5;
+    const cz = (Number(cab.z) || 0) + locX * sinA + locZ * cosA;
+
+    this.target = [cx, cy, cz];
+    // Position camera slightly angled in front of the cabinet's front face (+Z in cabinet local coords)
+    this.yaw = -angle + 0.25;
+    this.pitch = 0.22;
+    this.distance = Math.max(950, Math.max(w, h, d) * 1.65);
+    this.selectedCabinetId = cab.id;
+    this.buildGeometry();
+    this.render();
+    return true;
+  }
+
   setShowCeiling(value) {
     this.showCeiling = value === undefined ? !this.showCeiling : Boolean(value);
     this.buildGeometry();
@@ -887,8 +1062,9 @@ export class RoomWebGLRenderer {
     return -1;
   }
 
-  setProject(project) {
+  setProject(project, selectedCabinetId = this.selectedCabinetId) {
     this.project = project;
+    if (selectedCabinetId !== undefined) this.selectedCabinetId = selectedCabinetId;
     this.updateRoomLighting();
     this.buildGeometry();
     this.render();
@@ -1114,23 +1290,30 @@ export class RoomWebGLRenderer {
       }
     };
 
-    // Shared panel edges are emitted once, in a darkened tone of the panel decor.
-    const pushEdges = (points, rgb) => {
-      const lum = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
-      const edge = lum < 0.28
-        ? [Math.min(1, rgb[0] + 0.16), Math.min(1, rgb[1] + 0.16), Math.min(1, rgb[2] + 0.16), 0.35]
-        : [rgb[0] * 0.42, rgb[1] * 0.42, rgb[2] * 0.42, 0.42];
+    // Shared panel edges are emitted once, in a darkened tone of the panel decor (or teal accent for selected cabinet).
+    const pushEdges = (points, rgb, isSelected = false) => {
+      let edge;
+      if (isSelected) {
+        edge = [0.09, 0.65, 0.64, 0.85];
+      } else {
+        const lum = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+        edge = lum < 0.28
+          ? [Math.min(1, rgb[0] + 0.16), Math.min(1, rgb[1] + 0.16), Math.min(1, rgb[2] + 0.16), 0.35]
+          : [rgb[0] * 0.42, rgb[1] * 0.42, rgb[2] * 0.42, 0.42];
+      }
       const key = p => `${Math.round(p[0] * 2)},${Math.round(p[1] * 2)},${Math.round(p[2] * 2)}`;
       for (let i = 0; i < points.length; i++) {
         const a = points[i], b = points[(i + 1) % points.length];
         const ka = key(a), kb = key(b);
         if (ka === kb) continue;
         const k = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
-        if (edgeKeys.has(k)) continue;
+        if (!isSelected && edgeKeys.has(k)) continue;
         edgeKeys.add(k);
         edgeFloats.push(a[0], a[1], a[2], ...edge, b[0], b[1], b[2], ...edge);
       }
     };
+
+    const visibleWallIndices = new Set();
 
     for (const f of faces) {
       if (!f.points || f.points.length < 3) continue;
@@ -1145,6 +1328,10 @@ export class RoomWebGLRenderer {
         const nz = v1[0] * v2[1] - v1[1] * v2[0];
         const len = Math.hypot(nx, ny, nz) || 1;
         norm = [nx / len, ny / len, nz / len];
+      }
+
+      if (f.room && Number.isInteger(f.wallIndex) && !f.window && !f.door) {
+        visibleWallIndices.add(f.wallIndex);
       }
 
       // Handle window glass and architectural window framing
@@ -1194,19 +1381,20 @@ export class RoomWebGLRenderer {
       let rgb = hexToRgb(f.rawColor || f.color);
       const isTransparent = f.doorLeaf || (f.opacity !== undefined && f.opacity < 0.9);
       const alpha = isTransparent ? (f.opacity ?? 0.85) : 1.0;
-      const materialId = f.room && !f.obstacle ? (f.floor ? MATERIAL.floor : MATERIAL.wall) : MATERIAL.furniture;
+      const materialId = classifyFaceMaterial(f);
       if (materialId === MATERIAL.wall && wallRgb && !isTransparent) {
         // Keep the slight tone difference between wall orientations / reveals
         const shade = (rgb[0] + rgb[1] + rgb[2]) / 3 / 0.93;
         rgb = wallRgb.map(v => Math.min(1, v * shade));
       }
       const rgba = [rgb[0], rgb[1], rgb[2], alpha];
+      const isSelectedCab = Boolean(this.selectedCabinetId && f.id && f.id === this.selectedCabinetId);
 
       // Only furniture and obstacles cast into the overhead shadow / occlusion map.
       const isFurnitureCaster = (!f.room || f.obstacle) && !isTransparent;
       if (isFurnitureCaster) {
         pushPoly(casterFloats, f.points, norm, rgba, materialId);
-        if (f.stroke !== 'transparent') pushEdges(f.points, rgb);
+        if (f.stroke !== 'transparent' || isSelectedCab) pushEdges(f.points, rgb, isSelectedCab);
       } else if (materialId === MATERIAL.wall && !isTransparent && !(norm[1] > 0.5 && Math.max(...f.points.map(p => p[1])) < 5)) {
         // Walls block the sun: daylight enters only through windows and door openings
         pushPoly(wallCasterFloats, f.points, norm, rgba, materialId);
@@ -1220,10 +1408,44 @@ export class RoomWebGLRenderer {
       }
     }
 
+    // Architectural skirting / baseboards along visible walls (height 65mm, depth 14mm)
+    const outline = room.outline?.length >= 3 ? room.outline : [{ x: 0, z: 0 }, { x: room.width || 4000, z: 0 }, { x: room.width || 4000, z: room.depth || 3000 }, { x: 0, z: room.depth || 3000 }];
+    const signedArea = outline.reduce((s, p, i) => { const q = outline[(i + 1) % outline.length]; return s + p.x * q.z - q.x * p.z; }, 0) / 2;
+    const orient = signedArea >= 0 ? 1 : -1;
+    const wallLookup = { back: 0, right: 1, front: 2, left: 3 };
+    const skirtColor = [0.95, 0.94, 0.92, 1.0];
+    const skirtH = 65, skirtD = 14;
+    for (const wallIdx of visibleWallIndices) {
+      if (wallIdx < 0 || wallIdx >= outline.length) continue;
+      const a = outline[wallIdx], b = outline[(wallIdx + 1) % outline.length];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (len < 50) continue;
+      const ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
+      const inX = -uz * orient, inZ = ux * orient;
+      const doors = (room.windows || []).filter(w => w.kind === 'door' && ((w.wallIndex !== undefined ? Number(w.wallIndex) : wallLookup[w.wall]) === wallIdx)).map(w => ({
+        start: Math.max(0, Number(w.offset) || 0),
+        end: Math.min(len, (Number(w.offset) || 0) + (Number(w.width) || 800))
+      }));
+      const cuts = [...new Set([0, len, ...doors.flatMap(d => [d.start, d.end])])].sort((x, y) => x - y);
+      for (let i = 0; i < cuts.length - 1; i++) {
+        const u0 = cuts[i], u1 = cuts[i + 1];
+        if (u1 - u0 < 10) continue;
+        const mid = (u0 + u1) / 2;
+        if (doors.some(d => mid > d.start && mid < d.end)) continue;
+        const p00 = [a.x + ux * u0, 0, a.z + uz * u0];
+        const p10 = [a.x + ux * u1, 0, a.z + uz * u1];
+        const p01 = [p00[0] + inX * skirtD, 0, p00[2] + inZ * skirtD];
+        const p11 = [p10[0] + inX * skirtD, 0, p10[2] + inZ * skirtD];
+        // Front face of baseboard
+        pushPoly(getOpaqueGroup(''), [p01, p11, [p11[0], skirtH, p11[2]], [p01[0], skirtH, p01[2]]], [inX, 0, inZ], skirtColor, MATERIAL.furniture);
+        // Top ledge of baseboard
+        pushPoly(getOpaqueGroup(''), [[p00[0], skirtH, p00[2]], [p01[0], skirtH, p01[2]], [p11[0], skirtH, p11[2]], [p10[0], skirtH, p10[2]]], [0, 1, 0], skirtColor, MATERIAL.furniture);
+      }
+    }
+
     // Ceiling slab: only from below, so top / bird's-eye views stay open
     const roomH = room.height || 2700;
     if (this.showCeiling && eye[1] < roomH - 20) {
-      const outline = room.outline?.length >= 3 ? room.outline : [{ x: 0, z: 0 }, { x: room.width || 4000, z: 0 }, { x: room.width || 4000, z: room.depth || 3000 }, { x: 0, z: room.depth || 3000 }];
       const ceilRgb = /^#[0-9a-f]{6}$/i.test(room.ceilingColor || '') ? hexToRgb(room.ceilingColor) : [0.96, 0.955, 0.94];
       const ceilingPoints = outline.map(p => [p.x, roomH, p.z]);
       pushPoly(getOpaqueGroup(''), ceilingPoints, [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
@@ -1427,6 +1649,7 @@ export class RoomWebGLRenderer {
     gl.uniform3fv(this.mainUniforms.cameraPos, eye);
     gl.uniform1i(this.mainUniforms.useShadows, 1);
     gl.uniform1i(this.mainUniforms.lightingMode, this.lightingMode === 'day' ? 1 : 0);
+    gl.uniform1i(this.mainUniforms.floorStyle, FLOOR_STYLES[this.floorStyle]?.id ?? 0);
     gl.uniform2f(this.mainUniforms.resolution, this.canvas.width, this.canvas.height);
     gl.uniform1f(this.mainUniforms.roomHeight, (this.roomBounds && this.roomBounds.height) || 2700);
     gl.uniform1f(this.mainUniforms.shadowTexel, 1 / (this.shadowSize || 2048));
@@ -1540,6 +1763,13 @@ export class RoomWebGLRenderer {
 
     this.canvas.addEventListener('contextmenu', e => e.preventDefault());
 
+    this.canvas.addEventListener('dblclick', e => {
+      const pickedId = this.pickCabinet(e.clientX, e.clientY);
+      if (pickedId) {
+        this.focusOnCabinet(pickedId);
+      }
+    });
+
     this.canvas.addEventListener('pointerdown', e => {
       this.canvas.setPointerCapture?.(e.pointerId);
       this.drag = {
@@ -1608,6 +1838,10 @@ export class RoomWebGLRenderer {
     window.addEventListener('keydown', e => {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
       const code = e.code;
+      if (code === 'KeyF' && this.selectedCabinetId) {
+        this.focusOnCabinet(this.selectedCabinetId);
+        return;
+      }
       if (!['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyE', 'KeyQ', 'KeyC', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(code)) return;
 
       const forward = [-Math.sin(this.yaw), 0, -Math.cos(this.yaw)];
@@ -1741,6 +1975,7 @@ export class RoomWebGLRenderer {
     }
 
     if (closestId) {
+      this.setSelectedCabinet(closestId);
       this.onSelect?.(closestId);
     }
     return closestId;
