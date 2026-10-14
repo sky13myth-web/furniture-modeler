@@ -389,6 +389,20 @@ export function isTraverseRailCabinet(cabinet) {
   if (!cabinet || typeof cabinet !== 'object') return false;
   if (cabinet.topType === 'solid' || cabinet.topRailMode === false) return false;
   if (cabinet.topType === 'rails' || cabinet.topRailMode === true) return true;
+  if (cabinet.sink || cabinet.cooktop) return true;
+  if (cabinet.layout) {
+    let hasTopCutAppliance = false;
+    const visit = node => {
+      if (!node || hasTopCutAppliance) return;
+      if (node.sink || node.cooktop || node.appliance?.type === 'cooktop' || node.appliance?.type === 'sink-round' || node.appliance?.type === 'sink-rectangular') {
+        hasTopCutAppliance = true;
+        return;
+      }
+      if (Array.isArray(node.children)) node.children.forEach(visit);
+    };
+    visit(cabinet.layout);
+    if (hasTopCutAppliance) return true;
+  }
   const isBase = cabinet.type === 'base' || cabinet.type === 'corner-base';
   return Boolean(isBase && (cabinet.countertop === true || cabinet.worktop === true));
 }

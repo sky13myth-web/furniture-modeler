@@ -240,6 +240,23 @@ export function checkImport(project) {
     }
     if (!polygonIsSimple(project.room.outline)) fail('Контур комнаты: пересечения или нулевая площадь.');
   }
+  if (project.room.lights !== undefined) {
+    collection(project.room.lights, 'Источники света', 20);
+    const lightIds = new Set();
+    for (const light of project.room.lights) {
+      record(light, 'источник света');
+      uniqueId(light.id, lightIds, 'Источник света');
+      if (light.kind !== undefined && !['pendant', 'spot', 'sconce', 'floor'].includes(light.kind)) fail('Источник света: неизвестный тип.');
+      if (light.label !== undefined) text(light.label, 'Источник света: название');
+      for (const key of ['x', 'z']) {
+        if (typeof light[key] !== 'number' || !Number.isFinite(light[key]) || Math.abs(light[key]) > 20000) fail('Источник света: неверные координаты.');
+      }
+      if (light.y !== undefined) finite(light.y, 'Источник света: высота', 10000);
+      if (light.intensity !== undefined) finite(light.intensity, 'Источник света: яркость', 5);
+      if (light.color !== undefined && !/^#[0-9a-f]{6}$/i.test(String(light.color))) fail('Источник света: цвет должен быть в формате #RRGGBB.');
+      if (light.enabled !== undefined) boolean(light.enabled, 'Источник света: включён');
+    }
+  }
 
   const materialIds = new Set();
   for (const material of project.materials) {

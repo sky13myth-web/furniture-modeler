@@ -943,6 +943,9 @@ export function makeScene(project, options = {}, direction = null) {
       const rightMountX = x + (hostSection?.x ?? 0) + (hostSection?.width ?? (w - 2 * t)) - rightHinge;
       renderDrawerRunners(ibx, iby, ibz, ibox.width, ibox.height, ibox.depth, slide, leftMountX, rightMountX, { sectionId: internal.sectionId, internalDrawerIndex: internal.index });
     }
+    const hasWorktop = isBaseCabinet(raw) && options.countertop !== false && !options.exploded;
+    const worktopOffset = hasWorktop ? Math.max(20, Math.min(60, number(project.settings?.worktopThickness ?? raw.worktopThickness, 38))) : (c.countertop ? 38 : 0);
+    const applianceRenderContext = { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ, cylinderAxis };
     for (const s of layout.sections) {
       const appliance = s.node.appliance;
       const sectionCooktop = s.node.cooktop;
@@ -953,14 +956,14 @@ export function makeScene(project, options = {}, direction = null) {
         const ct = sectionCooktop || appliance;
         const cw = Math.max(1, number(ct.width, 590)), ch = 45, cd = Math.max(1, number(ct.depth, 520));
         const cx = x + s.x + Math.max(0, (s.width - cw) / 2);
-        const cy = bodyY + bodyH + (c.countertop ? 38 : 0);
+        const cy = bodyY + bodyH + worktopOffset;
         const cz = bodyZ + Math.max(0, (bodyD - cd) / 2);
         renderKitchenAppliance({
           appliance: { type: 'cooktop', ...ct },
           bounds: { x: cx, y: cy, z: cz, width: cw, height: ch, depth: cd },
           cabinetId: id,
           sectionId: s.id,
-          renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+          renderContext: applianceRenderContext
         });
       }
 
@@ -970,15 +973,15 @@ export function makeScene(project, options = {}, direction = null) {
         const sk = sectionSink || appliance;
         const sw = Math.max(1, number(sk.width, 780)), sh = 190, sd = Math.max(1, number(sk.depth, 500));
         const sx = x + s.x + Math.max(0, (s.width - sw) / 2);
-        const topY = bodyY + bodyH + (c.countertop ? 38 : 0);
+        const topY = bodyY + bodyH + worktopOffset;
         const sy = topY - sh;
         const sz = bodyZ + Math.max(0, (bodyD - sd) / 2);
         renderKitchenAppliance({
-          appliance: { type: sk.sinkShape === 'round' || sk.type === 'sink-round' ? 'sink-round' : 'sink-rectangular', ...sk },
+          appliance: { type: sk.sinkShape === 'round' || sk.shape === 'round' || sk.type === 'sink-round' ? 'sink-round' : 'sink-rectangular', ...sk },
           bounds: { x: sx, y: sy, z: sz, width: sw, height: sh, depth: sd },
           cabinetId: id,
           sectionId: s.id,
-          renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+          renderContext: applianceRenderContext
         });
       }
 
@@ -989,7 +992,7 @@ export function makeScene(project, options = {}, direction = null) {
       // Cooktop drop box intrudes 45mm from countertop top.
       // With countertop (38mm), drop into carcass is 7mm. Without countertop: 45mm.
       // Required ventilation clearance under cooktop bottom is at least 20mm. Total = 27mm.
-      const cooktopVentClearance = hasCooktopAbove && appliance.type === 'oven' ? Math.max(25, 45 - (c.countertop ? 38 : 0) + 20) : 0;
+      const cooktopVentClearance = hasCooktopAbove && appliance.type === 'oven' ? Math.max(25, 45 - worktopOffset + 20) : 0;
 
       // 3. Built-in Range Hood: mounts from the bottom of wall cabinet!
       const isHood = appliance.type === 'hood-builtin';
@@ -1014,7 +1017,7 @@ export function makeScene(project, options = {}, direction = null) {
         bounds: { x: ax, y: ay, z: az, width: aw, height: ah, depth: ad },
         cabinetId: id,
         sectionId: s.id,
-        renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+        renderContext: applianceRenderContext
       });
       const applianceBounds = corners({ min: [ax, ay, az], max: [ax + aw, ay + ah, az + ad] }).map(p => rotateCabinetPoint(c, p));
       const anchorFaces = [
@@ -1029,24 +1032,24 @@ export function makeScene(project, options = {}, direction = null) {
     }
     if (c.cooktop) {
       const cw = Math.max(1, number(c.cooktop.width, 590)), ch = 45, cd = Math.max(1, number(c.cooktop.depth, 520));
-      const cx = x + (w - cw) / 2, cy = bodyY + bodyH + (c.countertop ? 38 : 0), cz = bodyZ + (bodyD - cd) / 2;
+      const cx = x + (w - cw) / 2, cy = bodyY + bodyH + worktopOffset, cz = bodyZ + (bodyD - cd) / 2;
       renderKitchenAppliance({
         appliance: { type: 'cooktop', ...c.cooktop },
         bounds: { x: cx, y: cy, z: cz, width: cw, height: ch, depth: cd },
         cabinetId: id,
         sectionId: null,
-        renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+        renderContext: applianceRenderContext
       });
     }
     if (c.sink) {
       const sw = Math.max(1, number(c.sink.width, 780)), sh = 190, sd = Math.max(1, number(c.sink.depth, 500));
-      const sx = x + (w - sw) / 2, sy = bodyY + bodyH + (c.countertop ? 38 : 0) - sh, sz = bodyZ + (bodyD - sd) / 2;
+      const sx = x + (w - sw) / 2, sy = bodyY + bodyH + worktopOffset - sh, sz = bodyZ + (bodyD - sd) / 2;
       renderKitchenAppliance({
-        appliance: { type: c.sink.sinkShape === 'round' ? 'sink-round' : 'sink-rectangular', ...c.sink },
+        appliance: { type: c.sink.sinkShape === 'round' || c.sink.shape === 'round' ? 'sink-round' : 'sink-rectangular', ...c.sink },
         bounds: { x: sx, y: sy, z: sz, width: sw, height: sh, depth: sd },
         cabinetId: id,
         sectionId: null,
-        renderContext: { box, rawBox, face, line, cylinderX, cylinderY, cylinderZ }
+        renderContext: applianceRenderContext
       });
     }
     if (p > 0) {
@@ -1503,7 +1506,18 @@ export class FurnitureViewport {
     this.lastPointerWasDrag=this.drag.moved;
     if (!this.drag.moved) {
       const hit=this.visualHit(event);
-      if(hit){if(this.options.exploded)this.onPartSelect(hit.partId);else this.onSelect(hit.cabinetId);}
+      if(hit){
+        if(this.options.exploded)this.onPartSelect(hit.partId);
+        else {
+          this.selectedId = hit.cabinetId || null;
+          this.onSelect(hit.cabinetId || null);
+          this.draw();
+        }
+      } else if (!this.options.exploded) {
+        this.selectedId = null;
+        this.onSelect(null);
+        this.draw();
+      }
     }
     this.drag = null;
     this.canvas.style.cursor = 'grab';

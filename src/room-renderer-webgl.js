@@ -408,6 +408,9 @@ uniform int uSunSamples;
 uniform bool uRayTracing;
 uniform vec3 uRoomMin;
 uniform vec3 uRoomMax;
+uniform int uExtraLightCount;
+uniform vec3 uExtraLightPos[6];
+uniform vec3 uExtraLightColor[6];
 
 const float PI = 3.14159265;
 
@@ -698,47 +701,49 @@ void main() {
     roughness = uRayTracing ? 0.44 : 0.58;
   }
 
-  // Hemispheric ambient (sky / bounced floor light)
-  vec3 skyCol = isNightLed ? vec3(0.14, 0.16, 0.22) : isStudio ? vec3(0.56, 0.58, 0.62) : evening ? vec3(0.34, 0.32, 0.30) : vec3(0.53, 0.575, 0.64);
-  vec3 groundCol = isNightLed ? vec3(0.10, 0.08, 0.07) : isStudio ? vec3(0.28, 0.27, 0.26) : evening ? vec3(0.17, 0.145, 0.12) : vec3(0.27, 0.25, 0.22);
-  vec3 ambient = mix(groundCol, skyCol, norm.y * 0.5 + 0.5);
+  // Hemispheric ambient (restrained fill so directional/point lights sculpt real 3D form)
+  vec3 skyCol = isNightLed ? vec3(0.05, 0.06, 0.10) : isStudio ? vec3(0.18, 0.19, 0.22) : evening ? vec3(0.13, 0.12, 0.11) : vec3(0.20, 0.23, 0.28);
+  vec3 groundCol = isNightLed ? vec3(0.02, 0.02, 0.015) : isStudio ? vec3(0.07, 0.065, 0.06) : evening ? vec3(0.045, 0.038, 0.032) : vec3(0.07, 0.065, 0.055);
+  float hemiFactor = norm.y * 0.5 + 0.5;
+  // Subtle directional orientation shading so perpendicular walls and cabinet sides never merge into flat ambient
+  float dirContrast = 0.72 + 0.28 * max(0.0, dot(norm, normalize(vec3(0.42, 0.58, 0.70))));
+  vec3 ambient = mix(groundCol, skyCol, hemiFactor) * dirContrast;
 
-  // Ambient occlusion: wide kernel on upward faces, tight on vertical ones
-  float upFacing = smoothstep(0.3, 0.9, norm.y);
-  float vis = uUseShadows ? shadowVisibility(vPosition, norm, mix(4.0, 170.0, upFacing)) : 1.0;
-  // Top-down shadow map is only meaningful on horizontal faces; avoid speckle on vertical panels
-  vis = mix(1.0, vis, smoothstep(0.25, 0.75, abs(norm.y)));
-  vis = mix(vis, vis * vis, upFacing);
-  float ao = mix(mix(0.70, 1.0, vis), mix(0.24, 1.0, vis), upFacing);
+  // Ambient occlusion & overhead shadow: retain real shadow depth on both horizontal and vertical surfaces
+  float upFacing = smoothstep(0.25, 0.85, norm.y);
+  float rawVis = uUseShadows ? shadowVisibility(vPosition, norm, mix(14.0, 175.0, upFacing)) : 1.0;
+  float vis = mix(mix(0.32, 1.0, rawVis), rawVis * rawVis, smoothstep(0.15, 0.75, abs(norm.y)));
+  float ao = mix(mix(0.42, 1.0, vis), mix(0.16, 1.0, vis), upFacing);
   float vertical = 1.0 - abs(norm.y);
-  ao *= mix(1.0, mix(0.64, 1.0, smoothstep(0.0, 320.0, vPosition.y)), vertical * (isWall ? 1.0 : 0.55));
-  if (isWall) ao *= mix(1.0, mix(0.80, 1.0, smoothstep(0.0, 260.0, uRoomHeight - vPosition.y)), vertical);
-  // Ceiling receives light bounced off floor and walls rather than the downlight
+  ao *= mix(1.0, mix(0.48, 1.0, smoothstep(0.0, 380.0, vPosition.y)), vertical * (isWall ? 1.0 : 0.75));
+  if (isWall) ao *= mix(1.0, mix(0.68, 1.0, smoothstep(0.0, 320.0, uRoomHeight - vPosition.y)), vertical);
+  // Ceiling receives soft bounced light from the room below
   bool isCeiling = isWall && norm.y < -0.5 && vPosition.y > uRoomHeight - 5.0;
-  if (isCeiling) ambient = mix(ambient, skyCol, 0.55) * (evening ? 1.45 : 1.25);
+  if (isCeiling) ambient = mix(ambient, skyCol, 0.50) * (evening ? 1.15 : 1.05);
 
   // Ray-Traced Multi-Bounce Global Illumination (GI): warm floor bounce & under-cabinet LED bounce
   if (uRayTracing && !isFloor) {
-    float floorBounce = max(0.0, -norm.y * 0.5 + 0.5) * exp(-max(0.0, vPosition.y) * 0.0012);
-    vec3 floorTint = (uFloorStyle == 2) ? vec3(0.32, 0.21, 0.14) : (uFloorStyle >= 3) ? vec3(0.45, 0.44, 0.42) : vec3(0.52, 0.39, 0.26);
-    ambient += floorTint * floorBounce * 0.18 * vis;
+    float floorBounce = max(0.0, -norm.y * 0.5 + 0.5) * exp(-max(0.0, vPosition.y) * 0.0014);
+    vec3 floorTint = (uFloorStyle == 2) ? vec3(0.26, 0.17, 0.11) : (uFloorStyle >= 3) ? vec3(0.36, 0.35, 0.33) : vec3(0.42, 0.31, 0.20);
+    ambient += floorTint * floorBounce * 0.12 * vis;
     if (isNightLed || uLightingMode == 0) {
-      float ledProx = exp(-abs(vPosition.y - 1400.0) * 0.0035) * (1.0 - float(isWall) * 0.5);
-      ambient += vec3(0.95, 0.68, 0.36) * ledProx * (isNightLed ? 0.42 : 0.14);
+      float ledProx = exp(-abs(vPosition.y - 1400.0) * 0.004) * (1.0 - float(isWall) * 0.55);
+      ambient += vec3(0.92, 0.64, 0.32) * ledProx * (isNightLed ? 0.34 : 0.10);
     }
   }
 
   float NdV = max(dot(norm, viewDir), 1e-3);
   float alpha = roughness * roughness;
 
-  // Ceiling light (warm point light, inverse-square falloff in metres)
+  // Primary ceiling light (warm point light, inverse-square falloff in metres)
   vec3 toLight = uLightPos - vPosition;
   float dist = length(toLight);
   vec3 L = toLight / max(dist, 1.0);
   float dM = dist * 0.001;
-  float atten = 1.6 / (1.0 + 0.30 * dM * dM);
-  float lightBoost = isStudio ? 1.55 : isNightLed ? 0.85 : evening ? 1.9 : 1.2;
-  vec3 lightCol = uLightColor * lightBoost * atten * vis;
+  float atten = 1.25 / (1.0 + 0.42 * dM * dM + 0.08 * dM * dM * dM);
+  float customDim = (uExtraLightCount > 0) ? 0.52 : 1.0;
+  float lightBoost = (isStudio ? 1.15 : isNightLed ? 0.55 : evening ? 1.32 : 0.85) * customDim;
+  vec3 lightCol = uLightColor * lightBoost * atten * mix(0.22, 1.0, vis);
   float NdL = max(dot(norm, L), 0.0);
   vec3 H = normalize(L + viewDir);
   float NdH = max(dot(norm, H), 0.0);
@@ -748,11 +753,32 @@ void main() {
   vec3 diffuse = lightCol * NdL;
   vec3 specular = lightCol * NdL * specTerm;
 
+  // User-placed room light sources from the 2D floor plan (up to 6 active lights)
+  for (int i = 0; i < 6; i++) {
+    if (i >= uExtraLightCount) break;
+    vec3 toEL = uExtraLightPos[i] - vPosition;
+    float elDist = length(toEL);
+    vec3 elL = toEL / max(elDist, 1.0);
+    float elDM = elDist * 0.001;
+    float elAtten = 1.45 / (1.0 + 0.48 * elDM * elDM + 0.14 * elDM * elDM * elDM);
+    float elNdL = max(dot(norm, elL), 0.0);
+    if (elNdL > 0.0) {
+      vec3 elH = normalize(elL + viewDir);
+      float elNdH = max(dot(norm, elH), 0.0);
+      float elVdH = max(dot(viewDir, elH), 0.0);
+      float elF = f0 + (1.0 - f0) * pow(1.0 - elVdH, 5.0);
+      float elSpec = distributionGGX(elNdH, alpha) * visibilitySmith(elNdL, NdV, alpha) * elF * PI;
+      vec3 elCol = uExtraLightColor[i] * elAtten * mix(0.30, 1.0, vis);
+      diffuse += elCol * elNdL;
+      specular += elCol * elNdL * elSpec;
+    }
+  }
+
   float sunVis = sunShadow(vPosition, norm);
   if (uLightingMode == 1) {
     // Daylight sun through the windows, with real cast shadows
     vec3 sunDir = uSunDir;
-    vec3 sunCol = vec3(1.45, 1.40, 1.30) * mix(0.55, 1.0, vis) * mix(0.22, 1.0, sunVis);
+    vec3 sunCol = vec3(1.22, 1.16, 1.06) * mix(0.38, 1.0, vis) * mix(0.12, 1.0, sunVis);
     float sNdL = max(dot(norm, sunDir), 0.0);
     vec3 sH = normalize(sunDir + viewDir);
     float sF = f0 + (1.0 - f0) * pow(1.0 - max(dot(viewDir, sH), 0.0), 5.0);
@@ -766,7 +792,7 @@ void main() {
     vec3 kH = normalize(keyDir + viewDir);
     float kF = f0 + (1.0 - f0) * pow(1.0 - max(dot(viewDir, kH), 0.0), 5.0);
     float kSpec = distributionGGX(max(dot(norm, kH), 0.0), alpha) * visibilitySmith(kNdL, NdV, alpha) * kF * PI;
-    vec3 keyCol = vec3(0.72, 0.70, 0.66) * ao * mix(0.35, 1.0, sunVis);
+    vec3 keyCol = vec3(0.64, 0.62, 0.58) * ao * mix(0.20, 1.0, sunVis);
     diffuse += keyCol * kNdL;
     specular += keyCol * kNdL * kSpec;
 
@@ -774,8 +800,8 @@ void main() {
     float rNdL = max(dot(norm, rimDir), 0.0);
     vec3 rH = normalize(rimDir + viewDir);
     float rSpec = distributionGGX(max(dot(norm, rH), 0.0), alpha) * visibilitySmith(rNdL, NdV, alpha) * f0 * PI;
-    diffuse += vec3(0.26, 0.30, 0.36) * rNdL * ao;
-    specular += vec3(0.55, 0.62, 0.72) * rNdL * rSpec;
+    diffuse += vec3(0.20, 0.24, 0.30) * rNdL * ao;
+    specular += vec3(0.45, 0.52, 0.62) * rNdL * rSpec;
   } else {
     // Soft warm key light to model furniture volumes, also shadowed
     vec3 keyDir = uSunDir;
@@ -783,7 +809,7 @@ void main() {
     vec3 kH = normalize(keyDir + viewDir);
     float kF = f0 + (1.0 - f0) * pow(1.0 - max(dot(viewDir, kH), 0.0), 5.0);
     float kSpec = distributionGGX(max(dot(norm, kH), 0.0), alpha) * visibilitySmith(kNdL, NdV, alpha) * kF * PI;
-    vec3 keyCol = (isNightLed ? vec3(0.22, 0.18, 0.15) : vec3(0.30, 0.27, 0.23)) * ao * mix(0.35, 1.0, sunVis);
+    vec3 keyCol = (isNightLed ? vec3(0.18, 0.14, 0.11) : vec3(0.28, 0.25, 0.21)) * ao * mix(0.18, 1.0, sunVis);
     diffuse += keyCol * kNdL;
     specular += keyCol * kNdL * kSpec;
   }
@@ -802,27 +828,27 @@ void main() {
       env = env0;
     }
   } else {
-    env = mix(groundCol, skyCol * 1.35, smoothstep(-0.2, 0.6, R.y));
+    env = mix(groundCol, skyCol * 1.25, smoothstep(-0.2, 0.6, R.y));
   }
   float fresnelV = f0 + (1.0 - f0) * pow(1.0 - NdV, 5.0);
-  float reflBoost = uRayTracing ? (isMetal ? 1.75 : isCeramic ? 1.55 : isFloor ? 1.32 : 1.15) : (isMetal ? 1.35 : isCeramic ? 1.25 : 0.9);
+  float reflBoost = uRayTracing ? (isMetal ? 1.55 : isCeramic ? 1.35 : isFloor ? 1.15 : 0.95) : (isMetal ? 1.25 : isCeramic ? 1.15 : 0.75);
   vec3 envSpec = env * fresnelV * (1.0 - roughness) * reflBoost * ao;
 
   vec3 color;
   float outAlpha = vColor.a;
   if (isGlass) {
     float gF = 0.05 + 0.95 * pow(1.0 - NdV, 5.0);
-    color = albedo * ambient * 0.32 + env * (0.18 + gF * 0.72) + min(specular, vec3(0.75));
+    color = albedo * ambient * 0.28 + env * (0.15 + gF * 0.65) + min(specular, vec3(0.70));
     outAlpha = clamp(vColor.a + gF * 0.48, 0.0, 0.94);
   } else if (isMetal) {
     // Conductive metal tinting on reflections and reduced diffuse
-    color = albedo * (ambient * ao * 0.38 + diffuse * 0.42) + mix(vec3(1.0), albedo, 0.72) * (specular + envSpec);
+    color = albedo * (ambient * ao * 0.34 + diffuse * 0.40) + mix(vec3(1.0), albedo, 0.72) * (specular + envSpec);
   } else {
     color = albedo * (ambient * ao + diffuse) + specular + envSpec;
   }
 
   // Filmic ACES tone mapping, gamma, light warm grade and lens vignette
-  float exposure = isNightLed ? 1.22 : isStudio ? 1.06 : evening ? 1.12 : 1.0;
+  float exposure = isNightLed ? 0.96 : isStudio ? 0.88 : evening ? 0.90 : 0.86;
   vec3 mapped = acesFilm(color * exposure);
   vec3 finalColor = pow(mapped, vec3(1.0 / 2.2));
   if (evening && !isStudio) finalColor *= vec3(1.015, 1.0, 0.975);
@@ -1034,6 +1060,9 @@ export class RoomWebGLRenderer {
         rayTracing: gl.getUniformLocation(this.mainProgram, 'uRayTracing'),
         roomMin: gl.getUniformLocation(this.mainProgram, 'uRoomMin'),
         roomMax: gl.getUniformLocation(this.mainProgram, 'uRoomMax'),
+        extraLightCount: gl.getUniformLocation(this.mainProgram, 'uExtraLightCount'),
+        extraLightPos: gl.getUniformLocation(this.mainProgram, 'uExtraLightPos'),
+        extraLightColor: gl.getUniformLocation(this.mainProgram, 'uExtraLightColor'),
       };
       this.anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic') || null;
       this.maxAnisotropy = this.anisotropy ? Math.min(8, gl.getParameter(this.anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1) : 1;
@@ -1296,7 +1325,7 @@ export class RoomWebGLRenderer {
 
   setShowCeiling(value) {
     this.showCeiling = value === undefined ? !this.showCeiling : Boolean(value);
-    this.buildGeometry();
+    this.buildGeometry({ force: true });
     this.render();
     return this.showCeiling;
   }
@@ -1352,7 +1381,7 @@ export class RoomWebGLRenderer {
     this.project = project;
     if (selectedCabinetId !== undefined) this.selectedCabinetId = selectedCabinetId;
     this.updateRoomLighting();
-    this.buildGeometry();
+    this.buildGeometry({ force: true });
     this.render();
   }
 
@@ -1588,7 +1617,7 @@ export class RoomWebGLRenderer {
   }
 
   buildGeometry(options = {}) {
-    if (!this.gl || !this.project) return;
+    if (!this.project) return;
 
     const eye = this.getCameraEye();
     const isInside = this.isPointInsideRoom(eye[0], eye[2]) && eye[1] < (this.project.room?.height || 2700);
@@ -1617,10 +1646,13 @@ export class RoomWebGLRenderer {
     } else {
       culledWallsKey = 'all';
     }
+    const lightsSig = (room.lights || []).map(l => `${l.id}:${l.kind}:${l.x}:${l.y}:${l.z}:${l.intensity}:${l.color || ''}:${l.enabled !== false}`).join(',');
+    culledWallsKey += `:ceil=${this.showCeiling && eye[1] < (room.height || 2700) - 20 ? 1 : 0}:wc=${room.wallColor || ''}:cc=${room.ceilingColor || ''}:rh=${room.height || 2700}:lights=${lightsSig}`;
 
-    const hwSig = (this.project.cabinets || []).map(c => `${c.id}:${c.handleStyle || ''}:${c.handleFinish || ''}:${c.hingeStyle || ''}:${c.drawerRailingStyle || ''}:${c.rodStyle || ''}`).join('|');
+    const hwSig = (this.project.cabinets || []).map(c => `${c.id}:${c.width}:${c.height}:${c.depth}:${c.x}:${c.y}:${c.z}:${c.rotation || 0}:${c.materialId || ''}:${c.frontMaterialId || ''}:${c.countertopMaterialId || ''}:${c.sink || ''}:${c.cooktop || ''}:${c.handleStyle || ''}:${c.handleFinish || ''}:${c.hingeStyle || ''}:${c.drawerRailingStyle || ''}:${c.rodStyle || ''}`).join('|');
+    const matSig = (this.project.materials || []).map(m => `${m.id}:${m.color || ''}:${m.textureUrl || ''}:${m.previewUrl || ''}`).join('|');
     const effOpenProgress = Number.isFinite(this.openProgress) && (this.openProgress > 0 || !this.doorsOpen) ? this.openProgress : (this.doorsOpen ? 1 : 0);
-    const currentFurnitureKey = `${this.project.name || ''}:${this.project.cabinets?.length || 0}:${this.doorsOpen}:${effOpenProgress.toFixed(3)}:${this.selectedCabinetId}:${this.floorStyle}:${this.lightingMode}:${hwSig}`;
+    const currentFurnitureKey = `${this.project.name || ''}:${this.project.cabinets?.length || 0}:${this.doorsOpen}:${effOpenProgress.toFixed(3)}:${this.selectedCabinetId}:${this.floorStyle}:${this.lightingMode}:${hwSig}:${matSig}`;
 
     // Fast-path: When orbiting within the same cutaway quadrant with unchanged walls and unchanged furniture, skip rebuild completely
     if (!options?.force && this._cachedFurnitureFloats && this._cachedFurnitureKey === currentFurnitureKey && this._lastCulledWallsKey === culledWallsKey && this._lastWallMode === this.wallMode) {
@@ -1901,6 +1933,96 @@ export class RoomWebGLRenderer {
       }
     }
 
+    // User-placed 3D light fixtures (from 2D room plan)
+    const userLights = (room.lights || []).filter(l => l && l.enabled !== false).slice(0, 6);
+    for (const l of userLights) {
+      const kind = l.kind || 'pendant';
+      const lx = Number(l.x) || 2000;
+      const lz = Number(l.z) || 1500;
+      const defaultY = kind === 'pendant' ? roomH - 550 : kind === 'sconce' ? 1800 : kind === 'floor' ? 1650 : roomH - 40;
+      const ly = Number.isFinite(Number(l.y)) ? Number(l.y) : defaultY;
+      const lRgb = /^#[0-9a-f]{6}$/i.test(l.color || '') ? hexToRgb(l.color) : [1.0, 0.94, 0.84];
+      const glowRgba = [Math.min(1, lRgb[0] * 1.05), Math.min(1, lRgb[1] * 1.05), Math.min(1, lRgb[2] * 1.05), 1.0];
+      const darkMetal = [0.18, 0.19, 0.21, 1.0];
+      const brassMetal = [0.76, 0.62, 0.36, 1.0];
+      const segs = 20;
+
+      if (kind === 'pendant') {
+        const cordTop = roomH;
+        const shadeTop = ly + 130;
+        const rTop = 38, rBot = 145;
+        for (let i = 0; i < segs; i++) {
+          const a1 = (i / segs) * Math.PI * 2, a2 = ((i + 1) / segs) * Math.PI * 2;
+          const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2);
+          const mid = (a1 + a2) / 2;
+          const nOut = [Math.cos(mid), 0.25, Math.sin(mid)];
+          const cr = 3.5;
+          pushPoly(getWallOpaque(''), [
+            [lx + c1 * cr, shadeTop, lz + s1 * cr],
+            [lx + c2 * cr, shadeTop, lz + s2 * cr],
+            [lx + c2 * cr, cordTop, lz + s2 * cr],
+            [lx + c1 * cr, cordTop, lz + s1 * cr],
+          ], [Math.cos(mid), 0, Math.sin(mid)], darkMetal, MATERIAL.metal);
+          const pT1 = [lx + c1 * rTop, shadeTop, lz + s1 * rTop];
+          const pT2 = [lx + c2 * rTop, shadeTop, lz + s2 * rTop];
+          const pB1 = [lx + c1 * rBot, ly, lz + s1 * rBot];
+          const pB2 = [lx + c2 * rBot, ly, lz + s2 * rBot];
+          pushPoly(getWallOpaque(''), [pB1, pB2, pT2, pT1], nOut, darkMetal, MATERIAL.metal);
+          pushPoly(getWallOpaque(''), [[lx, ly + 8, lz], pB1, pB2], [0, -1, 0], glowRgba, MATERIAL.emissive);
+        }
+      } else if (kind === 'floor') {
+        const rBase = 145, rStem = 9, rShade = 175, shadeH = 220;
+        for (let i = 0; i < segs; i++) {
+          const a1 = (i / segs) * Math.PI * 2, a2 = ((i + 1) / segs) * Math.PI * 2;
+          const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2);
+          const mid = (a1 + a2) / 2;
+          const nSide = [Math.cos(mid), 0, Math.sin(mid)];
+          pushPoly(getWallOpaque(''), [[lx, 18, lz], [lx + c2 * rBase, 18, lz + s2 * rBase], [lx + c1 * rBase, 18, lz + s1 * rBase]], [0, 1, 0], darkMetal, MATERIAL.metal);
+          pushPoly(getWallOpaque(''), [
+            [lx + c1 * rStem, 18, lz + s1 * rStem],
+            [lx + c2 * rStem, 18, lz + s2 * rStem],
+            [lx + c2 * rStem, ly, lz + s2 * rStem],
+            [lx + c1 * rStem, ly, lz + s1 * rStem],
+          ], nSide, brassMetal, MATERIAL.metal);
+          const sB1 = [lx + c1 * rShade, ly - shadeH * 0.5, lz + s1 * rShade];
+          const sB2 = [lx + c2 * rShade, ly - shadeH * 0.5, lz + s2 * rShade];
+          const sT1 = [lx + c1 * rShade, ly + shadeH * 0.5, lz + s1 * rShade];
+          const sT2 = [lx + c2 * rShade, ly + shadeH * 0.5, lz + s2 * rShade];
+          pushPoly(getWallOpaque(''), [sB1, sB2, sT2, sT1], nSide, [0.95, 0.92, 0.86, 1.0], MATERIAL.furniture);
+          pushPoly(getWallOpaque(''), [[lx, ly - shadeH * 0.5 + 10, lz], sB1, sB2], [0, -1, 0], glowRgba, MATERIAL.emissive);
+          pushPoly(getWallOpaque(''), [[lx, ly + shadeH * 0.5 - 10, lz], sT2, sT1], [0, 1, 0], glowRgba, MATERIAL.emissive);
+        }
+      } else if (kind === 'sconce') {
+        const rSconce = 48, hSconce = 180;
+        for (let i = 0; i < segs; i++) {
+          const a1 = (i / segs) * Math.PI * 2, a2 = ((i + 1) / segs) * Math.PI * 2;
+          const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2);
+          const mid = (a1 + a2) / 2;
+          const nSide = [Math.cos(mid), 0, Math.sin(mid)];
+          pushPoly(getWallOpaque(''), [
+            [lx + c1 * rSconce, ly - hSconce * 0.5, lz + s1 * rSconce],
+            [lx + c2 * rSconce, ly - hSconce * 0.5, lz + s2 * rSconce],
+            [lx + c2 * rSconce, ly + hSconce * 0.5, lz + s2 * rSconce],
+            [lx + c1 * rSconce, ly + hSconce * 0.5, lz + s1 * rSconce],
+          ], nSide, glowRgba, MATERIAL.emissive);
+        }
+      } else {
+        const rSpot = 75, spotTop = Math.min(roomH, ly + 35);
+        for (let i = 0; i < segs; i++) {
+          const a1 = (i / segs) * Math.PI * 2, a2 = ((i + 1) / segs) * Math.PI * 2;
+          const c1 = Math.cos(a1), s1 = Math.sin(a1), c2 = Math.cos(a2), s2 = Math.sin(a2);
+          const mid = (a1 + a2) / 2;
+          const p1 = [lx + c1 * (rSpot - 12), ly, lz + s1 * (rSpot - 12)];
+          const p2 = [lx + c2 * (rSpot - 12), ly, lz + s2 * (rSpot - 12)];
+          pushPoly(getWallOpaque(''), [[lx, ly, lz], p1, p2], [0, -1, 0], glowRgba, MATERIAL.emissive);
+          const t1 = [lx + c1 * rSpot, ly, lz + s1 * rSpot];
+          const t2 = [lx + c2 * rSpot, ly, lz + s2 * rSpot];
+          const u1 = [t1[0], spotTop, t1[2]], u2 = [t2[0], spotTop, t2[2]];
+          pushPoly(getWallOpaque(''), [t1, u1, u2, t2], [Math.cos(mid), 0, Math.sin(mid)], darkMetal, MATERIAL.metal);
+        }
+      }
+    }
+
     if (this.wallBuffer && this.gl) {
       const wallTotal = new Float32Array(wallCasterFloats.length + wallTransparentFloats.length);
       wallTotal.set(wallCasterFloats, 0);
@@ -1948,12 +2070,16 @@ export class RoomWebGLRenderer {
     fullBuffer.set(allOpaqueFloats, combinedCasters.length);
     fullBuffer.set(combinedTransparent, combinedCasters.length + allOpaqueFloats.length);
     const gl = this.gl;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, fullBuffer, gl.STATIC_DRAW);
+    if (gl) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, fullBuffer, gl.STATIC_DRAW);
+    }
 
     this.edgeVertexCount = furnitureEdges.length / 7;
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeVbo);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(furnitureEdges), gl.STATIC_DRAW);
+    if (gl) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeVbo);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(furnitureEdges), gl.STATIC_DRAW);
+    }
 
     this._lastCulledWallsKey = culledWallsKey;
     this._lastWallMode = this.wallMode;
@@ -2101,6 +2227,31 @@ export class RoomWebGLRenderer {
     if (this.mainUniforms.rayTracing) gl.uniform1i(this.mainUniforms.rayTracing, this.rayTracing !== false ? 1 : 0);
     if (this.mainUniforms.roomMin) gl.uniform3f(this.mainUniforms.roomMin, rb.minX || 0, 0, rb.minZ || 0);
     if (this.mainUniforms.roomMax) gl.uniform3f(this.mainUniforms.roomMax, rb.maxX || 4000, rb.height || 2700, rb.maxZ || 3000);
+
+    const roomLights = (this.project?.room?.lights || []).filter(l => l && l.enabled !== false).slice(0, 6);
+    if (this.mainUniforms.extraLightCount) {
+      gl.uniform1i(this.mainUniforms.extraLightCount, roomLights.length);
+    }
+    if (roomLights.length > 0) {
+      const posArr = new Float32Array(18);
+      const colArr = new Float32Array(18);
+      const roomH = rb.height || 2700;
+      for (let i = 0; i < roomLights.length; i++) {
+        const l = roomLights[i];
+        const kind = l.kind || 'pendant';
+        const defaultY = kind === 'pendant' ? roomH - 550 : kind === 'sconce' ? 1800 : kind === 'floor' ? 1650 : roomH - 80;
+        posArr[i * 3] = Number(l.x) || 2000;
+        posArr[i * 3 + 1] = Number.isFinite(Number(l.y)) ? Number(l.y) : defaultY;
+        posArr[i * 3 + 2] = Number(l.z) || 1500;
+        const rgb = /^#[0-9a-f]{6}$/i.test(l.color || '') ? hexToRgb(l.color) : [1.0, 0.93, 0.82];
+        const intensity = Math.max(0, Math.min(3, Number.isFinite(Number(l.intensity)) ? Number(l.intensity) : 1.0));
+        colArr[i * 3] = rgb[0] * intensity;
+        colArr[i * 3 + 1] = rgb[1] * intensity;
+        colArr[i * 3 + 2] = rgb[2] * intensity;
+      }
+      if (this.mainUniforms.extraLightPos) gl.uniform3fv(this.mainUniforms.extraLightPos, posArr);
+      if (this.mainUniforms.extraLightColor) gl.uniform3fv(this.mainUniforms.extraLightColor, colArr);
+    }
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
@@ -2286,6 +2437,13 @@ export class RoomWebGLRenderer {
     window.addEventListener('keydown', e => {
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
       const code = e.code;
+      if (code === 'Escape') {
+        if (this.selectedCabinetId !== null) {
+          this.setSelectedCabinet(null);
+          this.onSelect?.(null);
+        }
+        return;
+      }
       if (code === 'KeyF' && this.selectedCabinetId) {
         this.focusOnCabinet(this.selectedCabinetId);
         return;
@@ -2407,7 +2565,11 @@ export class RoomWebGLRenderer {
   }
 
   pickCabinet(clientX, clientY) {
-    if (!this.project?.cabinets?.length) return null;
+    if (!this.project?.cabinets?.length) {
+      if (this.selectedCabinetId !== null) this.setSelectedCabinet(null);
+      this.onSelect?.(null);
+      return null;
+    }
     const ray = this.getRayFromScreen(clientX, clientY);
     if (!ray) return null;
 
@@ -2460,14 +2622,22 @@ export class RoomWebGLRenderer {
 
         const wallBounds = { start: a, end: b, bottom: 0, top: roomHeight, thickness: wallThickness };
         if (isRayOccludedByWall(ray, wallBounds, closestDist)) {
+          if (this.selectedCabinetId !== null) this.setSelectedCabinet(null);
+          this.onSelect?.(null);
           return null; // Occluded by solid wall
         }
       }
 
       this.setSelectedCabinet(closestId);
       this.onSelect?.(closestId);
+      return closestId;
     }
-    return closestId;
+
+    if (this.selectedCabinetId !== null) {
+      this.setSelectedCabinet(null);
+    }
+    this.onSelect?.(null);
+    return null;
   }
 
   toggleDoors() {

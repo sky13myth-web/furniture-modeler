@@ -98,6 +98,7 @@ export class RoomEditor {
     this.selectedCorners = new Set();
     this.selectedCabinetId = null;
     this.selectedWindowId = null;
+    this.selectedLightId = null;
     this.drag = null;
     this.hint = '';
     this.zoom = 1;
@@ -148,6 +149,7 @@ export class RoomEditor {
     if (this.selectedCorner >= this.outline.length) this.selectedCorner = null;
     this.selectedCorners = new Set(this.getSelectedCorners().filter(index=>index<this.outline.length));
     if (!(this.project.room?.windows || []).some(w => w.id === this.selectedWindowId)) this.selectedWindowId = null;
+    if (!(this.project.room?.lights || []).some(l => l.id === this.selectedLightId)) this.selectedLightId = null;
     this.render();
   }
 
@@ -171,6 +173,7 @@ export class RoomEditor {
   setSelectedWall(index) {
     if (!Number.isInteger(index) || index < 0 || index >= this.outline.length) return;
     this.selectedCabinetId = null;
+    this.selectedLightId = null;
     if (index !== this.selectedWall) { this.selectedCorner = null; this.selectedCorners=new Set();this.selectedWindowId = null; }
     this.selectedWall = index;
     this.render();
@@ -179,9 +182,22 @@ export class RoomEditor {
   setSelectedWindow(id) {
     const window = (this.project.room?.windows || []).find(w => w.id === id);
     this.selectedWindowId = window?.id || null;
+    this.selectedLightId = null;
     if (window) {
       const index = Number.isInteger(window.wallIndex) ? window.wallIndex : legacyWalls[window.wall];
       if (Number.isInteger(index)) this.selectedWall = index;
+      this.selectedCorner = null;
+      this.selectedCorners = new Set();
+    }
+    this.render();
+  }
+
+  setSelectedLight(id) {
+    const light = (this.project.room?.lights || []).find(l => l.id === id);
+    this.selectedLightId = light?.id || null;
+    if (light) {
+      this.selectedCabinetId = null;
+      this.selectedWindowId = null;
       this.selectedCorner = null;
       this.selectedCorners = new Set();
     }
@@ -215,7 +231,7 @@ export class RoomEditor {
   setSelectedCorners(indices, notify = true) {
     this.selectedCorners=new Set(indices.filter(index=>Number.isInteger(index)&&index>=0&&index<this.outline.length));
     this.selectedCorner=[...this.selectedCorners].sort((a,b)=>a-b)[0] ?? null;
-    this.selectedWindowId=null;this.selectedCabinetId=null;
+    this.selectedWindowId=null;this.selectedCabinetId=null;this.selectedLightId=null;
     if(this.selectedCorner!==null)this.selectedWall=this.selectedCorner;
     if(notify){
       this.callbacks.onSelectCorners?.(this.getSelectedCorners());
@@ -250,6 +266,12 @@ export class RoomEditor {
     if(['+','=','-','0'].includes(event.key)){event.key==='0'?this.fitView():this.zoomBy(event.key==='-'?.8:1.25);event.preventDefault();return;}
     if(event.key==='Escape'){if(this.measureStart){this.clearMeasurement();event.preventDefault();return;}this.setSelectedCorners([]);event.preventDefault();return;}
     if(event.key!=='Delete' && event.key!=='Backspace')return;
+    if(this.selectedLightId && this.callbacks.onDeleteLight){
+      const id=this.selectedLightId;
+      this.selectedLightId=null;
+      if(this.callbacks.onDeleteLight(id)===false)this.selectedLightId=id;
+      this.render();event.preventDefault();return;
+    }
     if(this.selectedWindowId && this.callbacks.onDeleteOpening){
       const id=this.selectedWindowId;
       this.selectedWindowId=null;
@@ -407,7 +429,7 @@ export class RoomEditor {
 
   pointerDown(event) {
     if (![0,1].includes(event.button) || this.drag) return;
-    const target = event.target.closest('[data-room-resize],[data-room-corner],[data-room-cabinet],[data-room-window],[data-room-wall]');
+    const target = event.target.closest('[data-room-resize],[data-room-corner],[data-room-light],[data-room-cabinet],[data-room-window],[data-room-wall]');
     const plan=event.target.closest('svg');
     if ((!target&&!plan) || !this.root.contains(target || plan)) return;
     event.preventDefault();
@@ -439,7 +461,7 @@ export class RoomEditor {
       const axis=target.dataset.roomResize,id=target.dataset.roomCabinet,cabinet=this.project.cabinets.find(c=>c.id===id);
       if(!cabinet||!['width','depth'].includes(axis)||cabinet.parentId)return;
       const angle=number(cabinet.rotation)*Math.PI/180;
-      this.selectedCabinetId=id;this.selectedCorner=null;this.selectedCorners=new Set();this.selectedWindowId=null;
+      this.selectedCabinetId=id;this.selectedLightId=null;this.selectedCorner=null;this.selectedCorners=new Set();this.selectedWindowId=null;
       this.drag={type:'cabinet-resize',id,axis,pointerId:event.pointerId,start:point,originalCabinet:structuredClone(cabinet),draft:structuredClone(cabinet),direction:axis==='width'?{x:Math.cos(angle),z:Math.sin(angle)}:{x:-Math.sin(angle),z:Math.cos(angle)},moved:false};
       this.hint='';this.callbacks.onSelectCabinet?.(id);
     } else if(!target){
@@ -453,12 +475,23 @@ export class RoomEditor {
         this.selectedCorner=null;this.selectedCorners=new Set();this.setSelectedCorners([...selected]);return;
       }
       this.selectedCorner = index;
-      this.selectedCorners=new Set([index]);this.selectedCabinetId=null;
+      this.selectedCorners=new Set([index]);this.selectedCabinetId=null;this.selectedLightId=null;
       this.selectedWall = index;
       this.selectedWindowId = null;
       this.drag = { type: 'corner', index, pointerId: event.pointerId, start: point, original: clonePoints(this.outline), draft: clonePoints(this.outline), viewBox: { ...this.viewBox }, moved: false, axis: null };
       this.hint = '';
       this.callbacks.onSelectCorner?.(index);
+    } else if (target.dataset.roomLight !== undefined) {
+      const id = target.dataset.roomLight, light = (this.project.room?.lights || []).find(l => l.id === id);
+      if (!light) return;
+      this.selectedLightId = id;
+      this.selectedCabinetId = null;
+      this.selectedCorner = null;
+      this.selectedCorners = new Set();
+      this.selectedWindowId = null;
+      this.hint = '';
+      this.drag = { type: 'light', id, pointerId: event.pointerId, start: point, original: { x: number(light.x), z: number(light.z) }, draft: { x: number(light.x), z: number(light.z) }, viewBox: { ...this.viewBox }, moved: false };
+      this.callbacks.onSelectLight?.(id);
     } else if (target.dataset.roomWindow !== undefined) {
       const id = target.dataset.roomWindow, window = (this.project.room.windows || []).find(w => w.id === id);
       if (!window) return;
@@ -466,13 +499,14 @@ export class RoomEditor {
       if (!Number.isInteger(index) || index < 0 || index >= this.outline.length) return;
       const a = this.outline[index], b = this.outline[(index + 1) % this.outline.length], length = Math.hypot(b.x - a.x, b.z - a.z);
       if (!length) return;
-      this.selectedWindowId = id; this.selectedCorner = null;this.selectedCorners=new Set();this.selectedCabinetId=null;this.selectedWall = index;
+      this.selectedWindowId = id; this.selectedLightId = null; this.selectedCorner = null;this.selectedCorners=new Set();this.selectedCabinetId=null;this.selectedWall = index;
       this.drag = { type: 'window', id, index, pointerId: event.pointerId, start: point, original: number(window.offset), draft: number(window.offset), direction: { x: (b.x - a.x) / length, z: (b.z - a.z) / length }, max: Math.max(0, length - number(window.width)), viewBox: { ...this.viewBox }, moved: false };
       this.callbacks.onSelectWindow?.(id);
     } else if (target.dataset.roomCabinet !== undefined) {
       const id = target.dataset.roomCabinet, cabinet = (this.project.cabinets || []).find(c => c.id === id);
       if (!cabinet) return;
       this.selectedCabinetId = id;
+      this.selectedLightId = null;
       this.selectedCorner = null;
       this.selectedCorners=new Set();
       this.selectedWindowId = null;
@@ -487,6 +521,7 @@ export class RoomEditor {
     } else {
       this.selectedWall = Number(target.dataset.roomWall);
       this.selectedCabinetId = null;
+      this.selectedLightId = null;
       this.selectedCorner = null;
       this.selectedCorners=new Set();
       this.selectedWindowId = null;
@@ -562,6 +597,9 @@ export class RoomEditor {
       const along = deltaX * drag.direction.x + deltaZ * drag.direction.z;
       drag.draft = Math.max(0, Math.min(drag.max, Math.round((drag.original + along) / 10) * 10));
       drag.moved = drag.draft !== drag.original;
+    } else if (drag.type === 'light') {
+      drag.draft = { x: snap(drag.original.x + deltaX), z: snap(drag.original.z + deltaZ) };
+      drag.moved = drag.draft.x !== drag.original.x || drag.draft.z !== drag.original.z;
     } else {
       const cabinet = (this.project.cabinets || []).find(item => item.id === drag.id);
       const placementProject = { ...this.project, room: { ...this.project.room, outline: this.outline } };
@@ -618,6 +656,7 @@ export class RoomEditor {
         else this.hint=result?.reason||'Размер шкафа ограничен техникой, соседней мебелью и границами помещения.';
       } else if (drag.type === 'corner' || drag.type === 'wall') this.applyOutline(drag.draft, { kind: 'drag', index: drag.index, wallIndex: drag.type === 'wall' ? drag.index : undefined });
       else if (drag.type === 'window') this.callbacks.onMoveWindow?.(drag.id, { offset: drag.draft });
+      else if (drag.type === 'light') this.callbacks.onMoveLight?.(drag.id, { ...drag.draft });
       else {
         const cabinet = (this.project.cabinets || []).find(item => item.id === drag.id);
         const placementProject={ ...this.project, room: { ...this.project.room, outline: this.outline } };
@@ -885,17 +924,41 @@ export class RoomEditor {
       measureOverlay = `<g class="room-measurement-tape" data-room-measure="true" pointer-events="none"><line class="room-measure-line" x1="${p1.x}" y1="${p1.z}" x2="${p2.x}" y2="${p2.z}" stroke="#e65100" stroke-width="2" stroke-dasharray="6,4" vector-effect="non-scaling-stroke"/><circle class="room-measure-endpoint start" cx="${p1.x}" cy="${p1.z}" r="${handle * 0.9}" fill="#e65100" stroke="#ffffff" stroke-width="1.5" vector-effect="non-scaling-stroke"/><circle class="room-measure-endpoint end" cx="${p2.x}" cy="${p2.z}" r="${handle * 0.9}" fill="#e65100" stroke="#ffffff" stroke-width="1.5" vector-effect="non-scaling-stroke"/><g transform="translate(${midX} ${midZ}) rotate(${angle})"><rect class="room-measure-box" x="${-textWidth / 2}" y="${-textHeight / 2}" width="${textWidth}" height="${textHeight}" rx="${font * 0.25}" fill="#ffffff" stroke="#e65100" stroke-width="1.2" fill-opacity="0.95" vector-effect="non-scaling-stroke"/><text class="room-measure-label" x="0" y="0" text-anchor="middle" dominant-baseline="middle" font-size="${font}" font-weight="600" fill="#bf360c">${label}</text></g></g>`;
     }
 
+    const lightsData = (this.project.room?.lights || []).map(l => this.drag?.type === 'light' && l.id === this.drag.id ? { ...l, ...this.drag.draft } : l);
+    const selectedLight = lightsData.find(l => l.id === this.selectedLightId);
+    const lightsOverlay = lightsData.map(l => {
+      const lx = number(l.x), lz = number(l.z);
+      const selected = l.id === this.selectedLightId;
+      const enabled = l.enabled !== false;
+      const rCore = Math.max(48, handle * 1.65);
+      const rGlow = Math.max(92, handle * 3.1);
+      const strokeCol = selected ? '#148b7c' : enabled ? '#d97706' : '#8a948e';
+      const fillCol = enabled ? (/^#[0-9a-f]{6}$/i.test(l.color || '') ? l.color : '#fff3c4') : '#e2e6e3';
+      const kindLabel = l.kind === 'spot' ? 'Спот' : l.kind === 'sconce' ? 'Бра' : l.kind === 'floor' ? 'Торшер' : 'Люстра';
+      const label = l.label || kindLabel;
+      let rays = '';
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const x1 = lx + Math.cos(a) * (rCore + 10);
+        const z1 = lz + Math.sin(a) * (rCore + 10);
+        const x2 = lx + Math.cos(a) * rGlow;
+        const z2 = lz + Math.sin(a) * rGlow;
+        rays += `<line x1="${x1}" y1="${z1}" x2="${x2}" y2="${z2}" stroke="${strokeCol}" stroke-width="${selected ? 2 : 1.4}" opacity="${enabled ? 0.85 : 0.4}" vector-effect="non-scaling-stroke"/>`;
+      }
+      return `<g data-room-light="${escape(l.id)}" class="room-light${selected ? ' is-selected' : ''}" role="button" tabindex="0" aria-label="${escape(label)}" style="cursor:move"><title>${escape(label)} · перетяните по плану для изменения позиции в 3D</title><circle cx="${lx}" cy="${lz}" r="${rGlow * 1.15}" fill="${fillCol}" fill-opacity="${selected ? 0.28 : enabled ? 0.16 : 0.05}" stroke="transparent" stroke-width="14" vector-effect="non-scaling-stroke"/>${rays}<circle cx="${lx}" cy="${lz}" r="${rCore}" fill="${fillCol}" stroke="${strokeCol}" stroke-width="${selected ? 3 : 2}" vector-effect="non-scaling-stroke"/><circle cx="${lx}" cy="${lz}" r="${rCore * 0.35}" fill="${strokeCol}" pointer-events="none"/><text x="${lx}" y="${lz + rGlow + font * 0.9}" text-anchor="middle" dominant-baseline="middle" font-size="${font * 0.88}" font-weight="${selected ? '600' : '500'}" fill="${selected ? '#148b7c' : '#7c4a03'}" pointer-events="none">${escape(label)}</text></g>`;
+    }).join('');
+
     const selectedCorners=new Set(this.drag?.type==='selection'?this.drag.draftIndices:this.getSelectedCorners());
     const corners = outline.map((p, i) => `<circle class="room-corner${selectedCorners.has(i) ? ' is-selected' : ''}" data-room-corner="${i}" cx="${p.x}" cy="${p.z}" r="${handle}" fill="${selectedCorners.has(i) ? '#15897d' : '#ffffff'}" stroke="#15897d" stroke-width="2" vector-effect="non-scaling-stroke" tabindex="0" role="button" aria-label="Угол ${i + 1}, перетяните для изменения плана"/>`).join('');
     const rubberBand=this.drag?.type==='selection'?`<rect data-room-selection="true" x="${Math.min(this.drag.start.x,this.drag.end.x)}" y="${Math.min(this.drag.start.z,this.drag.end.z)}" width="${Math.abs(this.drag.end.x-this.drag.start.x)}" height="${Math.abs(this.drag.end.z-this.drag.start.z)}" fill="#17a695" fill-opacity=".08" stroke="#16877c" stroke-width="1.4" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" pointer-events="none"/>`:'';
     const selectedLength = Math.hypot(outline[(this.selectedWall + 1) % outline.length].x - outline[this.selectedWall].x, outline[(this.selectedWall + 1) % outline.length].z - outline[this.selectedWall].z);
     const invalid = !polygonIsSimple(outline), hint = invalid ? 'Стены пересекаются. Отпустите, чтобы вернуть прежний план.' : this.hint || (this.tool === 'measure' ? 'Рулетка: щелкните первую точку, затем вторую точку для измерения расстояния. Escape — сброс.' : 'Выделите углы рамкой на пустом плане. Shift + щелчок — добавить угол. Delete — удалить выбранные углы или проём.');
-    const captionCabinet=!selectedCorners.size&&!selectedOpening?cabinetData.find(c=>c.id===this.selectedCabinetId):null;
-    const caption = this.tool === 'measure' && this.measureStart ? `Измерение: ${fmt(this.measureDist)} мм` : selectedCorners.size>1?`Выбрано углов: ${selectedCorners.size}`:selectedOpening && openingDistances ? `${selectedOpening.kind === 'door' ? 'Дверь' : 'Окно'} · слева ${fmt(openingDistances.left)} · справа ${fmt(openingDistances.right)} мм` : captionCabinet?captionCabinet.name||'Модуль':this.selectedCorner === null ? `Стена ${this.selectedWall + 1} · ${fmt(selectedLength)} мм` : `Угол ${this.selectedCorner + 1}`;
+    const captionCabinet=!selectedCorners.size&&!selectedOpening&&!selectedLight?cabinetData.find(c=>c.id===this.selectedCabinetId):null;
+    const caption = this.tool === 'measure' && this.measureStart ? `Измерение: ${fmt(this.measureDist)} мм` : selectedCorners.size>1?`Выбрано углов: ${selectedCorners.size}`:selectedOpening && openingDistances ? `${selectedOpening.kind === 'door' ? 'Дверь' : 'Окно'} · слева ${fmt(openingDistances.left)} · справа ${fmt(openingDistances.right)} мм` : selectedLight ? `${selectedLight.label || 'Светильник'} · X ${fmt(selectedLight.x)} · Z ${fmt(selectedLight.z)} мм` : captionCabinet?captionCabinet.name||'Модуль':this.selectedCorner === null ? `Стена ${this.selectedWall + 1} · ${fmt(selectedLength)} мм` : `Угол ${this.selectedCorner + 1}`;
     this.root.className=`room-editor${this.drag?.type==='pan'?' is-panning':this.spacePressed?' pan-ready':''}`;
     const displayCaption=captionCabinet?`<span data-i18n="off">${escape(caption)}</span>`:escape(caption);
     const frozenHeight=this.drag?.planHeight>0?`;height:${this.drag.planHeight}px;flex:0 0 ${this.drag.planHeight}px`:'';
-    this.root.innerHTML = `<div class="room-toolbar"><span class="room-selection-label">${displayCaption}</span><div class="room-zoom-tools" role="toolbar" aria-label="Масштаб плана"><button class="room-corner-action" data-room-zoom="out" aria-label="Отдалить" title="Отдалить"${this.zoom<=.25?' disabled':''}>−</button><output data-room-scale>${Math.round(this.zoom*100)}%</output><button class="room-corner-action" data-room-zoom="in" aria-label="Приблизить" title="Приблизить"${this.zoom>=16?' disabled':''}>+</button><button class="room-corner-action" data-room-zoom="fit" title="Вписать план">Вписать план</button></div></div><svg class="room-plan${invalid ? ' is-invalid' : ''}" viewBox="${box.x} ${box.z} ${box.width} ${box.depth}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="План помещения, размеры в миллиметрах" style="touch-action:none${frozenHeight}"><polygon class="room-floor" points="${pointsText(outline)}" fill="${invalid ? '#f7ddd4' : '#edf1e8'}"/>${cabinets}${walls}${windows}${corners}${rubberBand}${resizeHandles}${snapGuidelines}${dimensionLines}${measureOverlay}</svg><p class="room-plan-hint${invalid || this.hint ? ' is-notice' : ''}" role="status"><span>${escape(hint)}</span> <span class="room-navigation-hint">Колесо — масштаб; средняя кнопка или Space + перетаскивание — сдвиг плана</span></p>`;
+    this.root.innerHTML = `<div class="room-toolbar"><span class="room-selection-label">${displayCaption}</span><div class="room-zoom-tools" role="toolbar" aria-label="Масштаб плана"><button class="room-corner-action" data-room-zoom="out" aria-label="Отдалить" title="Отдалить"${this.zoom<=.25?' disabled':''}>−</button><output data-room-scale>${Math.round(this.zoom*100)}%</output><button class="room-corner-action" data-room-zoom="in" aria-label="Приблизить" title="Приблизить"${this.zoom>=16?' disabled':''}>+</button><button class="room-corner-action" data-room-zoom="fit" title="Вписать план">Вписать план</button></div></div><svg class="room-plan${invalid ? ' is-invalid' : ''}" viewBox="${box.x} ${box.z} ${box.width} ${box.depth}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="План помещения, размеры в миллиметрах" style="touch-action:none${frozenHeight}"><polygon class="room-floor" points="${pointsText(outline)}" fill="${invalid ? '#f7ddd4' : '#edf1e8'}"/>${cabinets}${walls}${windows}${lightsOverlay}${corners}${rubberBand}${resizeHandles}${snapGuidelines}${dimensionLines}${measureOverlay}</svg><p class="room-plan-hint${invalid || this.hint ? ' is-notice' : ''}" role="status"><span>${escape(hint)}</span> <span class="room-navigation-hint">Колесо — масштаб; средняя кнопка или Space + перетаскивание — сдвиг плана</span></p>`;
     if(typeof this.root.querySelectorAll==='function')applyTranslations(this.root,this.language||this.root.ownerDocument?.documentElement?.lang||'ru');
   }
 
