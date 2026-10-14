@@ -50,6 +50,7 @@ export function validateRodsSchema(rods) {
     finite(rod.frontInset, 'Штанга: отступ оси от фасада', 3000);
     if (rod.length !== undefined && rod.length !== null) finite(rod.length, 'Штанга: длина', 6000, true);
     if (rod.diameter !== undefined) finite(rod.diameter, 'Штанга: диаметр', 100, true);
+    if (rod.style !== undefined && !['round', 'oval', 'led', 'pantograph'].includes(rod.style)) fail('Штанга: неизвестный тип профиля.');
   }
 }
 
@@ -132,6 +133,11 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
         }
       }
       if (node.openingMechanism !== undefined && !['handle', 'push'].includes(node.openingMechanism)) fail('Механизм открывания должен быть handle или push.');
+      if (node.handleStyle !== undefined && !['bar', 'slim-arch', 'bow', 'knob', 'gola', 'recessed', 'push'].includes(node.handleStyle)) fail('Секция: неизвестный вариант ручки.');
+      if (node.handleFinish !== undefined && !['chrome', 'black', 'gold', 'bronze', 'graphite', 'white'].includes(node.handleFinish)) fail('Секция: неизвестный цвет фурнитуры.');
+      if (node.hingeStyle !== undefined && !['soft-close', 'standard', 'wide-155', 'push-hinge'].includes(node.hingeStyle)) fail('Секция: неизвестный тип петли.');
+      if (node.drawerRailingStyle !== undefined && !['single-round', 'double-round', 'rectangular', 'legrabox-glass', 'none'].includes(node.drawerRailingStyle)) fail('Секция: неизвестный тип рейлинга ящика.');
+      if (node.rodStyle !== undefined && !['round', 'oval', 'led', 'pantograph'].includes(node.rodStyle)) fail('Секция: неизвестный тип штанги.');
       if (node.depth !== undefined && node.depth !== null) finite(node.depth, 'Секция: глубина', 3000, true);
       if (node.back !== undefined && !['inherit', 'none', 'panel', 'solid', 'braces'].includes(node.back)) fail('Секция: неверный тип задней стенки.');
       if (node.plinthHeight !== undefined && node.plinthHeight !== null) finite(node.plinthHeight, 'Секция: высота цоколя', 6000);
@@ -200,6 +206,7 @@ export function validateLayoutSchema(layout, { materialIds } = {}) {
  * { version, project } are unwrapped by the caller. Physical layout conflicts
  * remain the geometry engine's responsibility and are not import errors.
  */
+export { checkImport as validateProjectSchema };
 export function checkImport(project) {
   record(project, 'проект');
   text(project.name, 'Название проекта', 100);
@@ -299,6 +306,11 @@ export function checkImport(project) {
     if (cabinet.includeBottom !== undefined) boolean(cabinet.includeBottom, 'Модуль: нижняя панель');
     if (cabinet.sidesToFloor !== undefined) boolean(cabinet.sidesToFloor, 'Модуль: боковины до пола');
     if (cabinet.countertop !== undefined) boolean(cabinet.countertop, 'Модуль: столешница');
+    if (cabinet.topType !== undefined) {
+      if (!['solid', 'rails'].includes(cabinet.topType)) fail('Модуль: неверный тип верха корпуса (ожидается solid или rails).');
+    }
+    if (cabinet.topRailMode !== undefined) boolean(cabinet.topRailMode, 'Модуль: планки вместо крышки');
+    if (cabinet.topRailWidth !== undefined) finite(cabinet.topRailWidth, 'Модуль: ширина царги', 500, true);
     if (cabinet.worktopThickness !== undefined) finite(cabinet.worktopThickness, 'Модуль: толщина столешницы', 100, true);
     if (cabinet.cornerType !== undefined) text(cabinet.cornerType, 'Модуль: тип угла');
     if (cabinet.blindSide !== undefined) {
@@ -307,6 +319,11 @@ export function checkImport(project) {
     if (cabinet.blindWidth !== undefined) finite(cabinet.blindWidth, 'Модуль: ширина глухой планки', 6000, true);
     if (cabinet.doorOpening !== undefined && !['left', 'right', 'up'].includes(cabinet.doorOpening)) fail('Модуль: неизвестное открывание двери.');
     if (cabinet.openingMechanism !== undefined && !['handle', 'push'].includes(cabinet.openingMechanism)) fail('Механизм открывания должен быть handle или push.');
+    if (cabinet.handleStyle !== undefined && !['bar', 'slim-arch', 'bow', 'knob', 'gola', 'recessed', 'push'].includes(cabinet.handleStyle)) fail('Модуль: неизвестный вариант ручки.');
+    if (cabinet.handleFinish !== undefined && !['chrome', 'black', 'gold', 'bronze', 'graphite', 'white'].includes(cabinet.handleFinish)) fail('Модуль: неизвестный цвет фурнитуры.');
+    if (cabinet.hingeStyle !== undefined && !['soft-close', 'standard', 'wide-155', 'push-hinge'].includes(cabinet.hingeStyle)) fail('Модуль: неизвестный тип петли.');
+    if (cabinet.drawerRailingStyle !== undefined && !['single-round', 'double-round', 'rectangular', 'legrabox-glass', 'none'].includes(cabinet.drawerRailingStyle)) fail('Модуль: неизвестный тип рейлинга ящика.');
+    if (cabinet.rodStyle !== undefined && !['round', 'oval', 'led', 'pantograph'].includes(cabinet.rodStyle)) fail('Модуль: неизвестный тип штанги.');
     if (cabinet.rearBraces !== undefined) {
       validateRearBraces(cabinet.rearBraces, { label: 'Задние перемычки', itemLabel: 'Задняя перемычка', positionLabel: 'Перемычка: от низа шкафа', materialIds, limit: 20 });
     }
@@ -391,6 +408,11 @@ export function checkImport(project) {
     if (drilling.pilotExtraDepth !== undefined) finite(drilling.pilotExtraDepth, 'Сверловка: pilotExtraDepth', 20);
     if (drilling.rearPilotExtraDepth !== undefined) finite(drilling.rearPilotExtraDepth, 'Сверловка: rearPilotExtraDepth', 20);
     if (drilling.countersinkDepth !== undefined && drilling.countersinkDepth !== null) finite(drilling.countersinkDepth, 'Сверловка: countersinkDepth', 10, true);
+    if (drilling.system32 !== undefined) boolean(drilling.system32, 'Сверловка: система 32');
+    if (drilling.shelfPins !== undefined) boolean(drilling.shelfPins, 'Сверловка: полкодержатели система 32');
+    if (drilling.drawerSlides !== undefined) boolean(drilling.drawerSlides, 'Сверловка: направляющие система 32');
+    if (drilling.hinges !== undefined) boolean(drilling.hinges, 'Сверловка: петли система 32');
+    if (drilling.shelfPinMode !== undefined && !['centered', 'full'].includes(drilling.shelfPinMode)) fail('Сверловка: режим полкодержателей должен быть centered или full.');
   }
   if (project.settings.pricing !== undefined) {
     record(project.settings.pricing, 'цены фурнитуры');

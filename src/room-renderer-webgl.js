@@ -19,6 +19,100 @@ export const FLOOR_STYLES = {
   concrete: { id: 4, label: 'Тёплый бетон' },
 };
 
+/** Helper for 3D measurement calculations */
+export function get3DMeasurementMetrics(p1, p2) {
+  const x1 = (Array.isArray(p1) ? p1[0] : p1?.x) ?? 0;
+  const y1 = (Array.isArray(p1) ? p1[1] : p1?.y) ?? 0;
+  const z1 = (Array.isArray(p1) ? p1[2] : p1?.z) ?? 0;
+
+  const x2 = (Array.isArray(p2) ? p2[0] : p2?.x) ?? 0;
+  const y2 = (Array.isArray(p2) ? p2[1] : p2?.y) ?? 0;
+  const z2 = (Array.isArray(p2) ? p2[2] : p2?.z) ?? 0;
+
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dz = z2 - z1;
+
+  const distance = Math.round(Math.hypot(dx, dy, dz));
+  const distanceHorizontal = Math.round(Math.hypot(dx, dz));
+
+  return { dx, dy, dz, distance, distanceHorizontal };
+}
+
+/**
+ * Checks whether a 3D ray is occluded by an exterior solid room wall before reaching a cabinet.
+ */
+export function isRayOccludedByWall(ray, wallBounds, cabinetDist = Infinity) {
+  if (!ray || !ray.origin || !ray.dir || !wallBounds) return false;
+  let minX, maxX, minY, maxY, minZ, maxZ;
+  if (wallBounds.min && wallBounds.max) {
+    minX = wallBounds.min[0]; minY = wallBounds.min[1]; minZ = wallBounds.min[2];
+    maxX = wallBounds.max[0]; maxY = wallBounds.max[1]; maxZ = wallBounds.max[2];
+  } else if (wallBounds.minX !== undefined) {
+    minX = wallBounds.minX; maxX = wallBounds.maxX;
+    minY = wallBounds.minY ?? 0; maxY = wallBounds.maxY ?? 3000;
+    minZ = wallBounds.minZ; maxZ = wallBounds.maxZ;
+  } else if (wallBounds.points && wallBounds.points.length >= 3) {
+    minX = Math.min(...wallBounds.points.map(p => p[0]));
+    maxX = Math.max(...wallBounds.points.map(p => p[0]));
+    minY = Math.min(...wallBounds.points.map(p => p[1]));
+    maxY = Math.max(...wallBounds.points.map(p => p[1]));
+    minZ = Math.min(...wallBounds.points.map(p => p[2]));
+    maxZ = Math.max(...wallBounds.points.map(p => p[2]));
+  } else if (wallBounds.start && wallBounds.end) {
+    const thickness = wallBounds.thickness || 150;
+    const ax = wallBounds.start.x ?? wallBounds.start[0] ?? 0;
+    const az = wallBounds.start.z ?? wallBounds.start[1] ?? 0;
+    const bx = wallBounds.end.x ?? wallBounds.end[0] ?? 0;
+    const bz = wallBounds.end.z ?? wallBounds.end[1] ?? 0;
+    const dx = bx - ax, dz = bz - az;
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = -dz / len, nz = dx / len;
+    const pts = [
+      [ax + nx * thickness * 0.5, az + nz * thickness * 0.5],
+      [ax - nx * thickness * 0.5, az - nz * thickness * 0.5],
+      [bx + nx * thickness * 0.5, bz + nz * thickness * 0.5],
+      [bx - nx * thickness * 0.5, bz - nz * thickness * 0.5],
+    ];
+    minX = Math.min(...pts.map(p => p[0]));
+    maxX = Math.max(...pts.map(p => p[0]));
+    minY = wallBounds.bottom ?? 0;
+    maxY = wallBounds.top ?? wallBounds.height ?? 2700;
+    minZ = Math.min(...pts.map(p => p[1]));
+    maxZ = Math.max(...pts.map(p => p[1]));
+  } else {
+    return false;
+  }
+
+  const ox = ray.origin[0], oy = ray.origin[1], oz = ray.origin[2];
+  const dx = ray.dir[0], dy = ray.dir[1], dz = ray.dir[2];
+
+  let tmin = -Infinity;
+  let tmax = Infinity;
+
+  const bMin = [minX, minY, minZ];
+  const bMax = [maxX, maxY, maxZ];
+  const origins = [ox, oy, oz];
+  const dirs = [dx, dy, dz];
+
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(dirs[i]) < 1e-7) {
+      if (origins[i] < bMin[i] || origins[i] > bMax[i]) return false;
+    } else {
+      let t1 = (bMin[i] - origins[i]) / dirs[i];
+      let t2 = (bMax[i] - origins[i]) / dirs[i];
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+      if (tmin > tmax) return false;
+    }
+  }
+
+  if (tmax < 0) return false;
+  const tHit = tmin >= 0 ? tmin : tmax;
+  return tHit > 0 && tHit < cabinetDist;
+}
+
 const NON_TEXTURED_COMPONENTS = new Set([
   'appliance',
   'appliance-detail',
@@ -30,9 +124,11 @@ const NON_TEXTURED_COMPONENTS = new Set([
   'rod',
   'rod-holder',
   'rod-highlight',
+  'rod-detail',
   'drawer-railing',
   'drawer-railing-connector',
   'drawer-railing-highlight',
+  'drawer-glass',
   'drawer-runner',
   'drawer-runner-highlight',
   'leg',
@@ -107,9 +203,10 @@ export function resolveFaceTexture(f, project) {
 export function classifyFaceMaterial(f) {
   if (!f) return MATERIAL.furniture;
   if (f.room && !f.obstacle) return f.floor ? MATERIAL.floor : MATERIAL.wall;
+  if (f.component === 'drawer-glass') return MATERIAL.glass;
   if (f.component === 'led-glow' || f.component === 'led-core') return MATERIAL.emissive;
   const col = String(f.rawColor || f.color || '').toLowerCase();
-  if (col === '#4fc3f7' || col === '#ff5722' || col === '#fffde7' || col === '#fff9e6') {
+  if (col === '#4fc3f7' || col === '#ff5722' || col === '#fffde7' || col === '#fff9e6' || col === '#fff3cf') {
     return MATERIAL.emissive;
   }
   if (
@@ -118,6 +215,7 @@ export function classifyFaceMaterial(f) {
     f.runnerPart ||
     f.component === 'rod' ||
     f.component === 'rod-holder' ||
+    f.component === 'rod-detail' ||
     f.component === 'drawer-railing' ||
     f.component === 'drawer-railing-connector' ||
     f.component === 'drawer-runner' ||
@@ -307,6 +405,9 @@ uniform bool uUseSunShadows;
 uniform float uRoughnessOverride;
 uniform int uOverheadSamples;
 uniform int uSunSamples;
+uniform bool uRayTracing;
+uniform vec3 uRoomMin;
+uniform vec3 uRoomMax;
 
 const float PI = 3.14159265;
 
@@ -314,6 +415,12 @@ float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
+}
+
+vec2 hash22(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.xx + p3.yz) * p3.zy);
 }
 
 float unpackDepth(vec4 c) {
@@ -343,6 +450,15 @@ float shadowVisibility(vec3 worldPos, vec3 norm, float radiusTexels) {
   return lit / n;
 }
 
+// Fast single-tap shadow lookup for ray-traced reflection hit points
+float fastShadowTap(vec3 worldPos) {
+  vec4 ls = uLightSpaceMatrix * vec4(worldPos + vec3(0.0, 12.0, 0.0), 1.0);
+  vec3 p = ls.xyz / ls.w * 0.5 + 0.5;
+  if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
+  float d = unpackDepth(texture2D(uShadowMap, p.xy));
+  return (p.z - 0.0015 <= d) ? 1.0 : 0.25;
+}
+
 // Directional sun / key-light shadow with rotated Poisson PCF (soft penumbra).
 float sunShadow(vec3 worldPos, vec3 norm) {
   if (!uUseSunShadows) return 1.0;
@@ -366,6 +482,72 @@ float sunShadow(vec3 worldPos, vec3 norm) {
     lit += (current <= d) ? 1.0 : 0.0;
   }
   return lit / n;
+}
+
+// Analytical + shadow-mapped Ray-Traced environment & interior reflection
+vec3 traceRayEnv(vec3 ro, vec3 rd, vec3 skyCol, vec3 groundCol, float roughness) {
+  vec3 bMin = uRoomMin;
+  vec3 bMax = uRoomMax;
+  vec3 invDir = 1.0 / (rd + vec3(1e-6));
+  vec3 t0 = (bMin - ro) * invDir;
+  vec3 t1 = (bMax - ro) * invDir;
+  vec3 tmaxV = max(t0, t1);
+  float tHit = min(min(tmaxV.x, tmaxV.y), tmaxV.z);
+  tHit = max(tHit, 0.0);
+  vec3 hitPos = ro + rd * tHit;
+
+  // Base gradient environment
+  vec3 env = mix(groundCol, skyCol * 1.38, smoothstep(-0.25, 0.65, rd.y));
+
+  // Ceiling luminaire reflection (glowing disc at uLightPos)
+  if (rd.y > 0.02) {
+    float tCeil = (uLightPos.y - 30.0 - ro.y) / max(rd.y, 1e-4);
+    if (tCeil > 0.0) {
+      vec3 ceilHit = ro + rd * tCeil;
+      float dLight = length(ceilHit.xz - uLightPos.xz);
+      float disc = 1.0 - smoothstep(140.0, 260.0 + roughness * 450.0, dLight);
+      env += vec3(1.65, 1.55, 1.38) * disc * (1.0 - roughness * 0.55);
+    }
+  }
+
+  // Studio softbox & architectural window reflections
+  float softboxLeft = smoothstep(0.55, 0.92, dot(rd, normalize(vec3(-0.65, 0.48, 0.58))));
+  float softboxRight = smoothstep(0.60, 0.94, dot(rd, normalize(vec3(0.72, 0.42, 0.55))));
+  float windowPortal = 0.0;
+  if (hitPos.y > 750.0 && hitPos.y < 2250.0) {
+    float nearWallX = min(abs(hitPos.x - bMin.x), abs(hitPos.x - bMax.x));
+    float nearWallZ = min(abs(hitPos.z - bMin.z), abs(hitPos.z - bMax.z));
+    if (nearWallX < 35.0 || nearWallZ < 35.0) {
+      float wStripe = sin(hitPos.x * 0.0035 + hitPos.z * 0.0035);
+      windowPortal = smoothstep(0.25, 0.75, wStripe) * (uLightingMode == 1 ? 1.15 : 0.42);
+    }
+  }
+  env += vec3(1.15, 1.22, 1.35) * windowPortal * (1.0 - roughness * 0.5);
+  env += vec3(1.10, 1.06, 1.00) * (softboxLeft * 0.55 + softboxRight * 0.42) * (uLightingMode == 2 ? 1.45 : 0.65);
+
+  // Floor reflection with furniture shadow map projection (real contact reflections on floor & lower panels)
+  if (rd.y < -0.01 && ro.y > 1.0) {
+    float tFloor = -ro.y / min(rd.y, -1e-4);
+    if (tFloor > 0.0 && tFloor < 3500.0) {
+      vec3 fHit = ro + rd * tFloor;
+      float fVis = uUseShadows ? fastShadowTap(fHit) : 1.0;
+      float fade = exp(-tFloor * 0.00065);
+      env = mix(env, groundCol * fVis * 1.15, fade * 0.72);
+    }
+  } else if (ro.y <= 3.0 && rd.y > 0.01) {
+    // Ray from floor upwards hitting cabinet undersides / room
+    vec3 probePos = ro + rd * min(tHit, 550.0);
+    float upVis = uUseShadows ? fastShadowTap(probePos) : 1.0;
+    env *= mix(0.32, 1.08, upVis);
+  }
+
+  // Warm LED strip accent reflection in interior / night-led modes
+  if (uLightingMode == 3 || uLightingMode == 0) {
+    float ledBand = exp(-abs(hitPos.y - 1420.0) * 0.006) + exp(-abs(hitPos.y - 860.0) * 0.008) * 0.6;
+    env += vec3(1.25, 0.92, 0.52) * ledBand * (uLightingMode == 3 ? 0.85 : 0.28);
+  }
+
+  return env;
 }
 
 float distributionGGX(float NdH, float a) {
@@ -393,6 +575,8 @@ void main() {
   vec3 viewDir = normalize(uCameraPos - vPosition);
   if (dot(norm, viewDir) < 0.0) norm = -norm;
   bool evening = uLightingMode != 1;
+  bool isStudio = uLightingMode == 2;
+  bool isNightLed = uLightingMode == 3;
 
   bool isFloorMat = vMaterial > 0.5 && vMaterial < 1.5;
   bool isWall = vMaterial > 1.5 && vMaterial < 2.5;
@@ -405,24 +589,24 @@ void main() {
 
   if (isEmissive) {
     float lum = dot(vColor.rgb, vec3(0.299, 0.587, 0.114));
-    vec3 glow = (lum < 0.85) ? (vColor.rgb * 1.15) : (evening ? vec3(1.0, 0.97, 0.90) : vec3(0.96, 0.96, 0.94));
+    vec3 glow = (lum < 0.85) ? (vColor.rgb * (isNightLed ? 1.45 : 1.18)) : (evening ? vec3(1.0, 0.96, 0.88) : vec3(0.96, 0.96, 0.94));
     gl_FragColor = vec4(clamp(glow, 0.0, 1.0) * vignette(), 1.0);
     return;
   }
 
   vec3 albedo = pow(vColor.rgb, vec3(2.2));
-  float roughness = 0.52;
-  float f0 = 0.04;
-  if (isWall) roughness = 0.94;
+  float roughness = 0.46;
+  float f0 = 0.045;
+  if (isWall) roughness = 0.92;
   if (isMetal) {
-    roughness = 0.22;
-    f0 = 0.68;
+    roughness = uRayTracing ? 0.16 : 0.22;
+    f0 = 0.78;
     // Subtle brushed stainless steel micro-grain along horizontal axis
     float brush = sin(vPosition.x * 1.8 + vPosition.z * 1.8) * 0.025 + sin(vPosition.y * 0.9) * 0.015;
     albedo *= (1.0 + brush);
   } else if (isCeramic) {
-    roughness = 0.10;
-    f0 = 0.09;
+    roughness = 0.08;
+    f0 = 0.11;
   }
 
   if (uHasTexture && !isFloor && !isWall && !isGlass && !isEmissive && !isMetal && !isCeramic) {
@@ -437,7 +621,7 @@ void main() {
     vec2 texCoord = uv / 1200.0;
     vec4 texel = texture2D(uMaterialTexture, texCoord);
     albedo = pow(texel.rgb, vec3(2.2));
-    roughness = 0.42;
+    roughness = uRayTracing ? 0.34 : 0.42;
   }
   if (uRoughnessOverride >= 0.0 && !isFloor && !isWall && !isGlass && !isMetal && !isCeramic) roughness = uRoughnessOverride;
 
@@ -462,8 +646,8 @@ void main() {
       vec3 stone = pow(vec3(0.79, 0.77, 0.74), vec3(2.2)) * (0.94 + tileRand * 0.10 + vein * 0.03);
       vec3 groutCol = pow(vec3(0.52, 0.50, 0.48), vec3(2.2));
       albedo = mix(stone, groutCol, grout * 0.75);
-      roughness = mix(0.24, 0.85, grout);
-      f0 = 0.05;
+      roughness = mix(uRayTracing ? 0.15 : 0.24, 0.85, grout);
+      f0 = 0.06;
     } else if (uFloorStyle == 4) {
       // Architectural warm micro-cement / polished concrete floor
       float n1 = hash12(floor(vPosition.xz / 120.0));
@@ -471,7 +655,7 @@ void main() {
       float cloud = sin(vPosition.x * 0.0025) * cos(vPosition.z * 0.0025) * 0.04;
       vec3 conc = pow(vec3(0.68, 0.66, 0.63), vec3(2.2)) * (0.94 + n1 * 0.06 + n2 * 0.04 + cloud);
       albedo = conc;
-      roughness = 0.44;
+      roughness = uRayTracing ? 0.30 : 0.44;
     } else {
       // Wood plank floor (0 = natural oak, 1 = light ash, 2 = dark walnut)
       float plankWidth = 190.0;
@@ -494,7 +678,8 @@ void main() {
       float fibre = sin(cell.y * 0.95 + cell.x * 0.002 + plankRand * 13.0);
       oak *= 1.0 + rings * 0.06 + fibre * 0.025;
       albedo = mix(albedo, oak, 0.92) * (1.0 - seam * 0.45);
-      roughness = 0.34;
+      roughness = uRayTracing ? 0.24 : 0.34;
+      f0 = 0.05;
     }
   }
 
@@ -510,12 +695,12 @@ void main() {
     float microFibers = sin(u * 6.0 + v * 0.2) * 0.5 + 0.5;
     float grain = grainWave * 0.05 + fineGrain * 0.025 + (microFibers - 0.5) * 0.02;
     albedo *= (1.0 + grain);
-    roughness = 0.58;
+    roughness = uRayTracing ? 0.44 : 0.58;
   }
 
   // Hemispheric ambient (sky / bounced floor light)
-  vec3 skyCol = evening ? vec3(0.34, 0.32, 0.30) : vec3(0.53, 0.575, 0.64);
-  vec3 groundCol = evening ? vec3(0.17, 0.145, 0.12) : vec3(0.27, 0.25, 0.22);
+  vec3 skyCol = isNightLed ? vec3(0.14, 0.16, 0.22) : isStudio ? vec3(0.56, 0.58, 0.62) : evening ? vec3(0.34, 0.32, 0.30) : vec3(0.53, 0.575, 0.64);
+  vec3 groundCol = isNightLed ? vec3(0.10, 0.08, 0.07) : isStudio ? vec3(0.28, 0.27, 0.26) : evening ? vec3(0.17, 0.145, 0.12) : vec3(0.27, 0.25, 0.22);
   vec3 ambient = mix(groundCol, skyCol, norm.y * 0.5 + 0.5);
 
   // Ambient occlusion: wide kernel on upward faces, tight on vertical ones
@@ -524,13 +709,24 @@ void main() {
   // Top-down shadow map is only meaningful on horizontal faces; avoid speckle on vertical panels
   vis = mix(1.0, vis, smoothstep(0.25, 0.75, abs(norm.y)));
   vis = mix(vis, vis * vis, upFacing);
-  float ao = mix(mix(0.70, 1.0, vis), mix(0.26, 1.0, vis), upFacing);
+  float ao = mix(mix(0.70, 1.0, vis), mix(0.24, 1.0, vis), upFacing);
   float vertical = 1.0 - abs(norm.y);
-  ao *= mix(1.0, mix(0.66, 1.0, smoothstep(0.0, 320.0, vPosition.y)), vertical * (isWall ? 1.0 : 0.55));
+  ao *= mix(1.0, mix(0.64, 1.0, smoothstep(0.0, 320.0, vPosition.y)), vertical * (isWall ? 1.0 : 0.55));
   if (isWall) ao *= mix(1.0, mix(0.80, 1.0, smoothstep(0.0, 260.0, uRoomHeight - vPosition.y)), vertical);
   // Ceiling receives light bounced off floor and walls rather than the downlight
   bool isCeiling = isWall && norm.y < -0.5 && vPosition.y > uRoomHeight - 5.0;
   if (isCeiling) ambient = mix(ambient, skyCol, 0.55) * (evening ? 1.45 : 1.25);
+
+  // Ray-Traced Multi-Bounce Global Illumination (GI): warm floor bounce & under-cabinet LED bounce
+  if (uRayTracing && !isFloor) {
+    float floorBounce = max(0.0, -norm.y * 0.5 + 0.5) * exp(-max(0.0, vPosition.y) * 0.0012);
+    vec3 floorTint = (uFloorStyle == 2) ? vec3(0.32, 0.21, 0.14) : (uFloorStyle >= 3) ? vec3(0.45, 0.44, 0.42) : vec3(0.52, 0.39, 0.26);
+    ambient += floorTint * floorBounce * 0.18 * vis;
+    if (isNightLed || uLightingMode == 0) {
+      float ledProx = exp(-abs(vPosition.y - 1400.0) * 0.0035) * (1.0 - float(isWall) * 0.5);
+      ambient += vec3(0.95, 0.68, 0.36) * ledProx * (isNightLed ? 0.42 : 0.14);
+    }
+  }
 
   float NdV = max(dot(norm, viewDir), 1e-3);
   float alpha = roughness * roughness;
@@ -541,7 +737,8 @@ void main() {
   vec3 L = toLight / max(dist, 1.0);
   float dM = dist * 0.001;
   float atten = 1.6 / (1.0 + 0.30 * dM * dM);
-  vec3 lightCol = uLightColor * (evening ? 1.9 : 1.2) * atten * vis;
+  float lightBoost = isStudio ? 1.55 : isNightLed ? 0.85 : evening ? 1.9 : 1.2;
+  vec3 lightCol = uLightColor * lightBoost * atten * vis;
   float NdL = max(dot(norm, L), 0.0);
   vec3 H = normalize(L + viewDir);
   float NdH = max(dot(norm, H), 0.0);
@@ -552,7 +749,7 @@ void main() {
   vec3 specular = lightCol * NdL * specTerm;
 
   float sunVis = sunShadow(vPosition, norm);
-  if (!evening) {
+  if (uLightingMode == 1) {
     // Daylight sun through the windows, with real cast shadows
     vec3 sunDir = uSunDir;
     vec3 sunCol = vec3(1.45, 1.40, 1.30) * mix(0.55, 1.0, vis) * mix(0.22, 1.0, sunVis);
@@ -562,6 +759,23 @@ void main() {
     float sSpec = distributionGGX(max(dot(norm, sH), 0.0), alpha) * visibilitySmith(sNdL, NdV, alpha) * sF * PI;
     diffuse += sunCol * sNdL;
     specular += sunCol * sNdL * sSpec;
+  } else if (isStudio) {
+    // 3-Point Studio Lighting: Key light + Cool Rim light + Soft Fill
+    vec3 keyDir = normalize(vec3(0.45, 0.72, 0.52));
+    float kNdL = max(dot(norm, keyDir), 0.0);
+    vec3 kH = normalize(keyDir + viewDir);
+    float kF = f0 + (1.0 - f0) * pow(1.0 - max(dot(viewDir, kH), 0.0), 5.0);
+    float kSpec = distributionGGX(max(dot(norm, kH), 0.0), alpha) * visibilitySmith(kNdL, NdV, alpha) * kF * PI;
+    vec3 keyCol = vec3(0.72, 0.70, 0.66) * ao * mix(0.35, 1.0, sunVis);
+    diffuse += keyCol * kNdL;
+    specular += keyCol * kNdL * kSpec;
+
+    vec3 rimDir = normalize(vec3(-0.62, 0.48, 0.62));
+    float rNdL = max(dot(norm, rimDir), 0.0);
+    vec3 rH = normalize(rimDir + viewDir);
+    float rSpec = distributionGGX(max(dot(norm, rH), 0.0), alpha) * visibilitySmith(rNdL, NdV, alpha) * f0 * PI;
+    diffuse += vec3(0.26, 0.30, 0.36) * rNdL * ao;
+    specular += vec3(0.55, 0.62, 0.72) * rNdL * rSpec;
   } else {
     // Soft warm key light to model furniture volumes, also shadowed
     vec3 keyDir = uSunDir;
@@ -569,35 +783,49 @@ void main() {
     vec3 kH = normalize(keyDir + viewDir);
     float kF = f0 + (1.0 - f0) * pow(1.0 - max(dot(viewDir, kH), 0.0), 5.0);
     float kSpec = distributionGGX(max(dot(norm, kH), 0.0), alpha) * visibilitySmith(kNdL, NdV, alpha) * kF * PI;
-    vec3 keyCol = vec3(0.30, 0.27, 0.23) * ao * mix(0.35, 1.0, sunVis);
+    vec3 keyCol = (isNightLed ? vec3(0.22, 0.18, 0.15) : vec3(0.30, 0.27, 0.23)) * ao * mix(0.35, 1.0, sunVis);
     diffuse += keyCol * kNdL;
     specular += keyCol * kNdL * kSpec;
   }
 
-  // Environment reflection (fresnel-weighted sky / floor)
+  // Environment reflection: Ray-Traced multi-sample reflection when uRayTracing is active
   vec3 R = reflect(-viewDir, norm);
-  vec3 env = mix(groundCol, skyCol * 1.35, smoothstep(-0.2, 0.6, R.y));
+  vec3 env;
+  if (uRayTracing && (!isWall || isFloor)) {
+    vec3 env0 = traceRayEnv(vPosition, R, skyCol, groundCol, roughness);
+    if (roughness < 0.45) {
+      vec2 xi = hash22(gl_FragCoord.xy) - 0.5;
+      vec3 jitterR = normalize(R + vec3(xi.x, xi.y * 0.5, -xi.x) * roughness * 0.35);
+      vec3 env1 = traceRayEnv(vPosition, jitterR, skyCol, groundCol, roughness);
+      env = mix(env0, env1, 0.45);
+    } else {
+      env = env0;
+    }
+  } else {
+    env = mix(groundCol, skyCol * 1.35, smoothstep(-0.2, 0.6, R.y));
+  }
   float fresnelV = f0 + (1.0 - f0) * pow(1.0 - NdV, 5.0);
-  vec3 envSpec = env * fresnelV * (1.0 - roughness) * (isMetal ? 1.35 : isCeramic ? 1.25 : 0.9) * ao;
+  float reflBoost = uRayTracing ? (isMetal ? 1.75 : isCeramic ? 1.55 : isFloor ? 1.32 : 1.15) : (isMetal ? 1.35 : isCeramic ? 1.25 : 0.9);
+  vec3 envSpec = env * fresnelV * (1.0 - roughness) * reflBoost * ao;
 
   vec3 color;
   float outAlpha = vColor.a;
   if (isGlass) {
-    float gF = 0.04 + 0.96 * pow(1.0 - NdV, 5.0);
-    color = albedo * ambient * 0.35 + env * (0.12 + gF * 0.6) + min(specular, vec3(0.6));
-    outAlpha = clamp(vColor.a + gF * 0.45, 0.0, 0.92);
+    float gF = 0.05 + 0.95 * pow(1.0 - NdV, 5.0);
+    color = albedo * ambient * 0.32 + env * (0.18 + gF * 0.72) + min(specular, vec3(0.75));
+    outAlpha = clamp(vColor.a + gF * 0.48, 0.0, 0.94);
   } else if (isMetal) {
     // Conductive metal tinting on reflections and reduced diffuse
-    color = albedo * (ambient * ao * 0.45 + diffuse * 0.45) + mix(vec3(1.0), albedo, 0.65) * (specular + envSpec);
+    color = albedo * (ambient * ao * 0.38 + diffuse * 0.42) + mix(vec3(1.0), albedo, 0.72) * (specular + envSpec);
   } else {
     color = albedo * (ambient * ao + diffuse) + specular + envSpec;
   }
 
   // Filmic ACES tone mapping, gamma, light warm grade and lens vignette
-  float exposure = evening ? 1.12 : 1.0;
+  float exposure = isNightLed ? 1.22 : isStudio ? 1.06 : evening ? 1.12 : 1.0;
   vec3 mapped = acesFilm(color * exposure);
   vec3 finalColor = pow(mapped, vec3(1.0 / 2.2));
-  if (evening) finalColor *= vec3(1.015, 1.0, 0.975);
+  if (evening && !isStudio) finalColor *= vec3(1.015, 1.0, 0.975);
   finalColor *= vignette();
   // Triangular dither (±1/255) removes banding in soft gradients and shadows
   finalColor += (hash12(gl_FragCoord.xy) + hash12(gl_FragCoord.xy + 71.3) - 1.0) / 255.0;
@@ -640,8 +868,8 @@ uniform vec2 uResolution;
 uniform int uLightingMode;
 void main() {
   vec2 uv = gl_FragCoord.xy / max(uResolution, vec2(1.0));
-  vec3 top = uLightingMode == 1 ? vec3(0.86, 0.90, 0.95) : vec3(0.88, 0.88, 0.87);
-  vec3 bottom = uLightingMode == 1 ? vec3(0.72, 0.75, 0.79) : vec3(0.69, 0.67, 0.64);
+  vec3 top = uLightingMode == 1 ? vec3(0.86, 0.90, 0.95) : uLightingMode == 3 ? vec3(0.18, 0.20, 0.25) : uLightingMode == 2 ? vec3(0.91, 0.92, 0.94) : vec3(0.88, 0.88, 0.87);
+  vec3 bottom = uLightingMode == 1 ? vec3(0.72, 0.75, 0.79) : uLightingMode == 3 ? vec3(0.09, 0.10, 0.13) : uLightingMode == 2 ? vec3(0.74, 0.76, 0.79) : vec3(0.69, 0.67, 0.64);
   vec3 c = mix(bottom, top, smoothstep(0.0, 1.0, uv.y));
   float d = length((uv - 0.5) * vec2(1.12, 1.0)) * 1.32;
   c *= clamp(1.0 - 0.30 * pow(d, 2.6), 0.0, 1.0);
@@ -706,8 +934,11 @@ export class RoomWebGLRenderer {
     this.project = null;
     this.selectedCabinetId = null;
     this.doorsOpen = false;
+    this.openProgress = 0;
+    this._doorAnimRaf = null;
+    this.rayTracing = true;
     this.wallMode = 'cutaway'; // 'cutaway' | 'all'
-    this.lightingMode = 'evening'; // 'day' | 'evening'
+    this.lightingMode = 'evening'; // 'day' | 'evening' | 'studio' | 'night-led'
     this.floorStyle = 'oak'; // 'oak' | 'ash' | 'walnut' | 'tile' | 'concrete'
     this.cameraPreset = 'corner-1';
     this.quality = 'high';
@@ -731,6 +962,23 @@ export class RoomWebGLRenderer {
     this.transparentVertexCount = 0;
     this.textureCache = new Map();
     this.opaqueBatches = [];
+
+    // Decoupled VBO caching for cutaway orbit optimization
+    this.wallBuffer = null;
+    this.furnitureBuffer = null;
+    this._cachedFurnitureFloats = null;
+    this._cachedFurnitureKey = null;
+    this._lastCulledWallsKey = null;
+    this._lastWallMode = this.wallMode;
+
+    // 3D Interactive Measurement Tape State
+    this.measureState = {
+      active: false,
+      start: null,
+      end: null,
+      distance: 0,
+      distanceHorizontal: 0,
+    };
 
     this.initGL();
     this.attachEvents();
@@ -783,6 +1031,9 @@ export class RoomWebGLRenderer {
         roughnessOverride: gl.getUniformLocation(this.mainProgram, 'uRoughnessOverride'),
         overheadSamples: gl.getUniformLocation(this.mainProgram, 'uOverheadSamples'),
         sunSamples: gl.getUniformLocation(this.mainProgram, 'uSunSamples'),
+        rayTracing: gl.getUniformLocation(this.mainProgram, 'uRayTracing'),
+        roomMin: gl.getUniformLocation(this.mainProgram, 'uRoomMin'),
+        roomMax: gl.getUniformLocation(this.mainProgram, 'uRoomMax'),
       };
       this.anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') || gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic') || null;
       this.maxAnisotropy = this.anisotropy ? Math.min(8, gl.getParameter(this.anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1) : 1;
@@ -819,6 +1070,8 @@ export class RoomWebGLRenderer {
 
       this.initShadowFBO();
       this.vbo = gl.createBuffer();
+      this.wallBuffer = gl.createBuffer();
+      this.furnitureBuffer = gl.createBuffer();
 
       this.textureCache = new Map();
       this.defaultTexture = gl.createTexture();
@@ -967,6 +1220,39 @@ export class RoomWebGLRenderer {
     this.floorStyle = style;
     this.render();
     return this.floorStyle;
+  }
+
+  setMeasureTool(active = true) {
+    this.measureState.active = Boolean(active);
+    if (!active) {
+      this.clearMeasure();
+    }
+    return this.measureState;
+  }
+
+  setMeasureState(p1, p2) {
+    const metrics = get3DMeasurementMetrics(p1, p2);
+    this.measureState = {
+      active: true,
+      start: p1,
+      end: p2,
+      distance: metrics.distance,
+      distanceHorizontal: metrics.distanceHorizontal,
+    };
+    this.render();
+    return this.measureState;
+  }
+
+  clearMeasure() {
+    this.measureState = {
+      active: this.measureState.active,
+      start: null,
+      end: null,
+      distance: 0,
+      distanceHorizontal: 0,
+    };
+    this.render();
+    return this.measureState;
   }
 
   setSelectedCabinet(cabinetId) {
@@ -1218,19 +1504,80 @@ export class RoomWebGLRenderer {
   }
 
   setLightingMode(mode) {
-    if (mode === 'day' || mode === 'evening') {
+    if (mode === 'day' || mode === 'evening' || mode === 'studio' || mode === 'night-led') {
       this.lightingMode = mode;
     } else {
       this.lightingMode = this.lightingMode === 'day' ? 'evening' : 'day';
     }
     if (this.lightingMode === 'day') {
       this.lightColor = [0.35, 0.35, 0.35];
+    } else if (this.lightingMode === 'studio') {
+      this.lightColor = [0.92, 0.90, 0.88];
+    } else if (this.lightingMode === 'night-led') {
+      this.lightColor = [0.28, 0.25, 0.22];
     } else {
       this.lightColor = [0.82, 0.80, 0.75];
     }
     this.buildGeometry();
     this.render();
     return this.lightingMode;
+  }
+
+  setRayTracing(value) {
+    this.rayTracing = value === undefined ? !this.rayTracing : Boolean(value);
+    this.render();
+    return this.rayTracing;
+  }
+
+  toggleRayTracing() {
+    return this.setRayTracing(!this.rayTracing);
+  }
+
+  setOpenProgress(progress) {
+    const p = Math.max(0, Math.min(1, Number.isFinite(Number(progress)) ? Number(progress) : 0));
+    this.openProgress = p;
+    this.doorsOpen = p > 0.005;
+    this.buildGeometry({ force: true });
+    this.render();
+    return this.openProgress;
+  }
+
+  animateDoors(targetOpen = !this.doorsOpen, durationMs = 400, onTick = null) {
+    const target = targetOpen ? 1 : 0;
+    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function' || durationMs <= 0) {
+      this.setOpenProgress(target);
+      onTick?.(this.openProgress);
+      return this.doorsOpen;
+    }
+    if (this._doorAnimRaf) {
+      window.cancelAnimationFrame?.(this._doorAnimRaf);
+      this._doorAnimRaf = null;
+    }
+    const startVal = Number.isFinite(this.openProgress) ? this.openProgress : (this.doorsOpen ? 1 : 0);
+    if (Math.abs(target - startVal) < 0.01) {
+      this.setOpenProgress(target);
+      onTick?.(this.openProgress);
+      return this.doorsOpen;
+    }
+    const startTime = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const step = (now) => {
+      const curr = Number.isFinite(now) ? now : Date.now();
+      const t = Math.max(0, Math.min(1, (curr - startTime) / durationMs));
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const val = startVal + (target - startVal) * eased;
+      this.openProgress = val;
+      this.doorsOpen = val > 0.005;
+      this.buildGeometry({ force: true });
+      this.render();
+      onTick?.(this.openProgress);
+      if (t < 1) {
+        this._doorAnimRaf = window.requestAnimationFrame(step);
+      } else {
+        this._doorAnimRaf = null;
+      }
+    };
+    this._doorAnimRaf = window.requestAnimationFrame(step);
+    return Boolean(targetOpen);
   }
 
   toggleWallMode() {
@@ -1240,40 +1587,46 @@ export class RoomWebGLRenderer {
     return this.wallMode;
   }
 
-  buildGeometry() {
+  buildGeometry(options = {}) {
     if (!this.gl || !this.project) return;
 
     const eye = this.getCameraEye();
     const isInside = this.isPointInsideRoom(eye[0], eye[2]) && eye[1] < (this.project.room?.height || 2700);
     const useCutaway = (this.wallMode === 'cutaway') && !isInside;
 
-    let scene;
+    let dir = null;
+    let culledWallsKey = '';
+    const room = this.project.room || {};
+    const outline = room.outline && room.outline.length >= 3 ? room.outline : [{ x: 0, z: 0 }, { x: room.width || 4000, z: 0 }, { x: room.width || 4000, z: room.depth || 3000 }, { x: 0, z: room.depth || 3000 }];
+    const signedArea = outline.reduce((s, p, i) => { const q = outline[(i + 1) % outline.length]; return s + p.x * q.z - q.x * p.z; }, 0) / 2;
+    const orient = signedArea >= 0 ? 1 : -1;
+
     if (useCutaway) {
-      // Vector pointing from room target towards eye (towards the camera)
       const dx = eye[0] - this.target[0];
       const dz = eye[2] - this.target[2];
       const dLen = Math.hypot(dx, dz) || 1;
-      const dir = [dx / dLen, 0.45, dz / dLen];
-      scene = makeScene(this.project, { room: true, allFaces: false, doorsOpen: this.doorsOpen }, dir);
+      dir = [dx / dLen, 0.45, dz / dLen];
+      culledWallsKey = outline.map((a, i) => {
+        const b = outline[(i + 1) % outline.length];
+        const len = Math.hypot(b.x - a.x, b.z - a.z);
+        if (!len) return '0';
+        const ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
+        const inward = [-uz * orient, 0, ux * orient];
+        return (inward[0] * dir[0] + inward[2] * dir[2] < -0.00001) ? '1' : '0';
+      }).join('');
     } else {
-      scene = makeScene(this.project, { room: true, allFaces: true, doorsOpen: this.doorsOpen }, null);
+      culledWallsKey = 'all';
     }
 
-    const faces = scene.faces || [];
-    const room = this.project.room || {};
-    const wallRgb = /^#[0-9a-f]{6}$/i.test(room.wallColor || '') ? hexToRgb(room.wallColor) : null;
+    const hwSig = (this.project.cabinets || []).map(c => `${c.id}:${c.handleStyle || ''}:${c.handleFinish || ''}:${c.hingeStyle || ''}:${c.drawerRailingStyle || ''}:${c.rodStyle || ''}`).join('|');
+    const effOpenProgress = Number.isFinite(this.openProgress) && (this.openProgress > 0 || !this.doorsOpen) ? this.openProgress : (this.doorsOpen ? 1 : 0);
+    const currentFurnitureKey = `${this.project.name || ''}:${this.project.cabinets?.length || 0}:${this.doorsOpen}:${effOpenProgress.toFixed(3)}:${this.selectedCabinetId}:${this.floorStyle}:${this.lightingMode}:${hwSig}`;
 
-    const casterFloats = [];
-    const wallCasterFloats = [];
-    const opaqueGroups = new Map();
-    const getOpaqueGroup = url => {
-      const k = url || '';
-      if (!opaqueGroups.has(k)) opaqueGroups.set(k, []);
-      return opaqueGroups.get(k);
-    };
-    const transparentFloats = [];
-    const edgeFloats = [];
-    const edgeKeys = new Set();
+    // Fast-path: When orbiting within the same cutaway quadrant with unchanged walls and unchanged furniture, skip rebuild completely
+    if (!options?.force && this._cachedFurnitureFloats && this._cachedFurnitureKey === currentFurnitureKey && this._lastCulledWallsKey === culledWallsKey && this._lastWallMode === this.wallMode) {
+      return;
+    }
+
     const FLOATS = 11; // pos(3) normal(3) color(4) material(1)
 
     const pushPoly = (targetArray, points, normal, colorRGBA, materialId = MATERIAL.furniture) => {
@@ -1290,8 +1643,8 @@ export class RoomWebGLRenderer {
       }
     };
 
-    // Shared panel edges are emitted once, in a darkened tone of the panel decor (or teal accent for selected cabinet).
-    const pushEdges = (points, rgb, isSelected = false) => {
+    const edgeKeys = new Set();
+    const pushEdges = (edgeFloats, points, rgb, isSelected = false) => {
       let edge;
       if (isSelected) {
         edge = [0.09, 0.65, 0.64, 0.85];
@@ -1313,9 +1666,102 @@ export class RoomWebGLRenderer {
       }
     };
 
+    const isWallFace = f => Boolean(f.room && !f.floor && !(f.obstacle && (f.freestanding || f.component === 'obstacle' && f.element?.freestanding)));
+
+    // 1. Build or reuse cached static furniture & floor geometry
+    let furnitureCasters = [];
+    let furnitureOpaqueGroups = new Map();
+    let furnitureTransparent = [];
+    let furnitureEdges = [];
+
+    const getFurnOpaque = url => {
+      const k = url || '';
+      if (!furnitureOpaqueGroups.has(k)) furnitureOpaqueGroups.set(k, []);
+      return furnitureOpaqueGroups.get(k);
+    };
+
+    if (!options?.force && this._cachedFurnitureFloats && this._cachedFurnitureKey === currentFurnitureKey) {
+      furnitureCasters = this._cachedFurnitureFloats.casterFloats;
+      furnitureOpaqueGroups = this._cachedFurnitureFloats.opaqueGroups;
+      furnitureTransparent = this._cachedFurnitureFloats.transparentFloats;
+      furnitureEdges = this._cachedFurnitureFloats.edgeFloats;
+    } else {
+      const furnScene = makeScene(this.project, { room: true, allFaces: true, doorsOpen: this.doorsOpen, openProgress: effOpenProgress, internalDrawersOpen: this.doorsOpen || effOpenProgress > 0.01 }, null);
+      for (const f of (furnScene.faces || [])) {
+        if (!f.points || f.points.length < 3) continue;
+        if (isWallFace(f)) continue;
+
+        let norm = f.normal;
+        if (!norm || norm.length < 3) {
+          const p0 = f.points[0], p1 = f.points[1], p2 = f.points[2];
+          const v1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+          const v2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+          const nx = v1[1] * v2[2] - v1[2] * v2[1];
+          const ny = v1[2] * v2[0] - v1[0] * v2[2];
+          const nz = v1[0] * v2[1] - v1[1] * v2[0];
+          const len = Math.hypot(nx, ny, nz) || 1;
+          norm = [nx / len, ny / len, nz / len];
+        }
+
+        let rgb = hexToRgb(f.rawColor || f.color);
+        const isTransparent = f.doorLeaf || (f.opacity !== undefined && f.opacity < 0.9);
+        const alpha = isTransparent ? (f.opacity ?? 0.85) : 1.0;
+        const materialId = classifyFaceMaterial(f);
+        const rgba = [rgb[0], rgb[1], rgb[2], alpha];
+        const isSelectedCab = Boolean(this.selectedCabinetId && f.id && f.id === this.selectedCabinetId);
+
+        const isFurnitureCaster = (!f.room || f.obstacle) && !isTransparent;
+        if (isFurnitureCaster) {
+          pushPoly(furnitureCasters, f.points, norm, rgba, materialId);
+          if (f.stroke !== 'transparent' || isSelectedCab) pushEdges(furnitureEdges, f.points, rgb, isSelectedCab);
+        }
+
+        if (isTransparent) {
+          pushPoly(furnitureTransparent, f.points, norm, rgba, materialId);
+        } else {
+          const texUrl = (materialId === MATERIAL.furniture) ? (resolveFaceTexture(f, this.project) || '') : '';
+          pushPoly(getFurnOpaque(texUrl), f.points, norm, rgba, materialId);
+        }
+      }
+
+      this._cachedFurnitureFloats = {
+        casterFloats: furnitureCasters,
+        opaqueGroups: furnitureOpaqueGroups,
+        transparentFloats: furnitureTransparent,
+        edgeFloats: furnitureEdges,
+      };
+      this._cachedFurnitureKey = currentFurnitureKey;
+
+      if (this.furnitureBuffer && this.gl) {
+        const furnTotal = new Float32Array(furnitureCasters.length + furnitureTransparent.length);
+        furnTotal.set(furnitureCasters, 0);
+        furnTotal.set(furnitureTransparent, furnitureCasters.length);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.furnitureBuffer);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, furnTotal, this.gl.STATIC_DRAW);
+      }
+    }
+
+    // 2. Build dynamic wall geometry for current camera cutaway
+    let scene;
+    if (useCutaway) {
+      scene = makeScene(this.project, { room: true, allFaces: false, doorsOpen: this.doorsOpen, openProgress: effOpenProgress }, dir);
+    } else {
+      scene = makeScene(this.project, { room: true, allFaces: true, doorsOpen: this.doorsOpen, openProgress: effOpenProgress }, null);
+    }
+
+    const wallFaces = (scene.faces || []).filter(isWallFace);
+    const wallRgb = /^#[0-9a-f]{6}$/i.test(room.wallColor || '') ? hexToRgb(room.wallColor) : null;
+    const wallCasterFloats = [];
+    const wallOpaqueGroups = new Map();
+    const getWallOpaque = url => {
+      const k = url || '';
+      if (!wallOpaqueGroups.has(k)) wallOpaqueGroups.set(k, []);
+      return wallOpaqueGroups.get(k);
+    };
+    const wallTransparentFloats = [];
     const visibleWallIndices = new Set();
 
-    for (const f of faces) {
+    for (const f of wallFaces) {
       if (!f.points || f.points.length < 3) continue;
 
       let norm = f.normal;
@@ -1334,48 +1780,40 @@ export class RoomWebGLRenderer {
         visibleWallIndices.add(f.wallIndex);
       }
 
-      // Handle window glass and architectural window framing
       if (f.window && f.points.length === 4) {
         const [p0, p1, , p3] = f.points;
         const wLen = Math.hypot(p1[0] - p0[0], p1[2] - p0[2]);
         const hLen = Math.abs(p3[1] - p0[1]);
-
         if (wLen > 50 && hLen > 50) {
           const ux = (p1[0] - p0[0]) / wLen, uz = (p1[2] - p0[2]) / wLen;
-          const fw = Math.min(45, wLen * 0.08); // frame border width
-
+          const fw = Math.min(45, wLen * 0.08);
           const frameColor = [0.93, 0.93, 0.92, 1.0];
           const sillColor = [0.90, 0.89, 0.86, 1.0];
           const glassColor = [0.70, 0.82, 0.92, 0.22];
 
-          // 1. Window sill at bottom
           const sillExt = 40;
           const s0 = [p0[0] - ux * 25 + norm[0] * sillExt, p0[1], p0[2] - uz * 25 + norm[2] * sillExt];
           const s1 = [p1[0] + ux * 25 + norm[0] * sillExt, p1[1], p1[2] + uz * 25 + norm[2] * sillExt];
-          pushPoly(getOpaqueGroup(''), [s0, s1, [s1[0], s1[1] - 22, s1[2]], [s0[0], s0[1] - 22, s0[2]]], norm, sillColor);
-          pushPoly(getOpaqueGroup(''), [s0, s1, [p1[0] + ux * 25, p1[1], p1[2] + uz * 25], [p0[0] - ux * 25, p0[1], p0[2] - uz * 25]], [0, 1, 0], sillColor);
+          pushPoly(getWallOpaque(''), [s0, s1, [s1[0], s1[1] - 22, s1[2]], [s0[0], s0[1] - 22, s0[2]]], norm, sillColor);
+          pushPoly(getWallOpaque(''), [s0, s1, [p1[0] + ux * 25, p1[1], p1[2] + uz * 25], [p0[0] - ux * 25, p0[1], p0[2] - uz * 25]], [0, 1, 0], sillColor);
 
-          // 2. Outer 4-edge window frame
           const pt = (u, v, inset = 0) => [p0[0] + ux * u + norm[0] * inset, p0[1] + v, p0[2] + uz * u + norm[2] * inset];
-          pushPoly(getOpaqueGroup(''), [pt(0, 0, 8), pt(wLen, 0, 8), pt(wLen, fw, 8), pt(0, fw, 8)], norm, frameColor);
-          pushPoly(getOpaqueGroup(''), [pt(0, hLen - fw, 8), pt(wLen, hLen - fw, 8), pt(wLen, hLen, 8), pt(0, hLen, 8)], norm, frameColor);
-          pushPoly(getOpaqueGroup(''), [pt(0, fw, 8), pt(fw, fw, 8), pt(fw, hLen - fw, 8), pt(0, hLen - fw, 8)], norm, frameColor);
-          pushPoly(getOpaqueGroup(''), [pt(wLen - fw, fw, 8), pt(wLen, fw, 8), pt(wLen, hLen - fw, 8), pt(wLen - fw, hLen - fw, 8)], norm, frameColor);
+          pushPoly(getWallOpaque(''), [pt(0, 0, 8), pt(wLen, 0, 8), pt(wLen, fw, 8), pt(0, fw, 8)], norm, frameColor);
+          pushPoly(getWallOpaque(''), [pt(0, hLen - fw, 8), pt(wLen, hLen - fw, 8), pt(wLen, hLen, 8), pt(0, hLen, 8)], norm, frameColor);
+          pushPoly(getWallOpaque(''), [pt(0, fw, 8), pt(fw, fw, 8), pt(fw, hLen - fw, 8), pt(0, hLen - fw, 8)], norm, frameColor);
+          pushPoly(getWallOpaque(''), [pt(wLen - fw, fw, 8), pt(wLen, fw, 8), pt(wLen, hLen - fw, 8), pt(wLen - fw, hLen - fw, 8)], norm, frameColor);
 
-          // 3. Central mullion bar for wider windows
           if (wLen > 750) {
             const mw = 30, mx = wLen * 0.5;
-            pushPoly(getOpaqueGroup(''), [pt(mx - mw / 2, fw, 8), pt(mx + mw / 2, fw, 8), pt(mx + mw / 2, hLen - fw, 8), pt(mx - mw / 2, hLen - fw, 8)], norm, frameColor);
+            pushPoly(getWallOpaque(''), [pt(mx - mw / 2, fw, 8), pt(mx + mw / 2, fw, 8), pt(mx + mw / 2, hLen - fw, 8), pt(mx - mw / 2, hLen - fw, 8)], norm, frameColor);
           }
 
-          // 4. Transparent glass pane recessed inside frame
           const g0 = pt(fw, fw, -10), g1 = pt(wLen - fw, fw, -10), g2 = pt(wLen - fw, hLen - fw, -10), g3 = pt(fw, hLen - fw, -10);
-          pushPoly(transparentFloats, [g0, g1, g2, g3], norm, glassColor, MATERIAL.glass);
+          pushPoly(wallTransparentFloats, [g0, g1, g2, g3], norm, glassColor, MATERIAL.glass);
         }
         continue;
       }
 
-      // Skip empty door openings so the door opening is an open portal
       if (f.door) continue;
 
       let rgb = hexToRgb(f.rawColor || f.color);
@@ -1383,35 +1821,23 @@ export class RoomWebGLRenderer {
       const alpha = isTransparent ? (f.opacity ?? 0.85) : 1.0;
       const materialId = classifyFaceMaterial(f);
       if (materialId === MATERIAL.wall && wallRgb && !isTransparent) {
-        // Keep the slight tone difference between wall orientations / reveals
         const shade = (rgb[0] + rgb[1] + rgb[2]) / 3 / 0.93;
         rgb = wallRgb.map(v => Math.min(1, v * shade));
       }
       const rgba = [rgb[0], rgb[1], rgb[2], alpha];
-      const isSelectedCab = Boolean(this.selectedCabinetId && f.id && f.id === this.selectedCabinetId);
 
-      // Only furniture and obstacles cast into the overhead shadow / occlusion map.
-      const isFurnitureCaster = (!f.room || f.obstacle) && !isTransparent;
-      if (isFurnitureCaster) {
-        pushPoly(casterFloats, f.points, norm, rgba, materialId);
-        if (f.stroke !== 'transparent' || isSelectedCab) pushEdges(f.points, rgb, isSelectedCab);
-      } else if (materialId === MATERIAL.wall && !isTransparent && !(norm[1] > 0.5 && Math.max(...f.points.map(p => p[1])) < 5)) {
-        // Walls block the sun: daylight enters only through windows and door openings
+      if (materialId === MATERIAL.wall && !isTransparent && !(norm[1] > 0.5 && Math.max(...f.points.map(p => p[1])) < 5)) {
         pushPoly(wallCasterFloats, f.points, norm, rgba, materialId);
       }
 
       if (isTransparent) {
-        pushPoly(transparentFloats, f.points, norm, rgba, materialId);
+        pushPoly(wallTransparentFloats, f.points, norm, rgba, materialId);
       } else {
-        const texUrl = (materialId === MATERIAL.furniture) ? (resolveFaceTexture(f, this.project) || '') : '';
-        pushPoly(getOpaqueGroup(texUrl), f.points, norm, rgba, materialId);
+        pushPoly(getWallOpaque(''), f.points, norm, rgba, materialId);
       }
     }
 
-    // Architectural skirting / baseboards along visible walls (height 65mm, depth 14mm)
-    const outline = room.outline?.length >= 3 ? room.outline : [{ x: 0, z: 0 }, { x: room.width || 4000, z: 0 }, { x: room.width || 4000, z: room.depth || 3000 }, { x: 0, z: room.depth || 3000 }];
-    const signedArea = outline.reduce((s, p, i) => { const q = outline[(i + 1) % outline.length]; return s + p.x * q.z - q.x * p.z; }, 0) / 2;
-    const orient = signedArea >= 0 ? 1 : -1;
+    // Skirting along visible walls
     const wallLookup = { back: 0, right: 1, front: 2, left: 3 };
     const skirtColor = [0.95, 0.94, 0.92, 1.0];
     const skirtH = 65, skirtD = 14;
@@ -1436,23 +1862,21 @@ export class RoomWebGLRenderer {
         const p10 = [a.x + ux * u1, 0, a.z + uz * u1];
         const p01 = [p00[0] + inX * skirtD, 0, p00[2] + inZ * skirtD];
         const p11 = [p10[0] + inX * skirtD, 0, p10[2] + inZ * skirtD];
-        // Front face of baseboard
-        pushPoly(getOpaqueGroup(''), [p01, p11, [p11[0], skirtH, p11[2]], [p01[0], skirtH, p01[2]]], [inX, 0, inZ], skirtColor, MATERIAL.furniture);
-        // Top ledge of baseboard
-        pushPoly(getOpaqueGroup(''), [[p00[0], skirtH, p00[2]], [p01[0], skirtH, p01[2]], [p11[0], skirtH, p11[2]], [p10[0], skirtH, p10[2]]], [0, 1, 0], skirtColor, MATERIAL.furniture);
+        pushPoly(getWallOpaque(''), [p01, p11, [p11[0], skirtH, p11[2]], [p01[0], skirtH, p01[2]]], [inX, 0, inZ], skirtColor, MATERIAL.furniture);
+        pushPoly(getWallOpaque(''), [[p00[0], skirtH, p00[2]], [p01[0], skirtH, p01[2]], [p11[0], skirtH, p11[2]], [p10[0], skirtH, p10[2]]], [0, 1, 0], skirtColor, MATERIAL.furniture);
       }
     }
 
-    // Ceiling slab: only from below, so top / bird's-eye views stay open
+    // Ceiling slab
     const roomH = room.height || 2700;
     if (this.showCeiling && eye[1] < roomH - 20) {
       const ceilRgb = /^#[0-9a-f]{6}$/i.test(room.ceilingColor || '') ? hexToRgb(room.ceilingColor) : [0.96, 0.955, 0.94];
       const ceilingPoints = outline.map(p => [p.x, roomH, p.z]);
-      pushPoly(getOpaqueGroup(''), ceilingPoints, [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
+      pushPoly(getWallOpaque(''), ceilingPoints, [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
       pushPoly(wallCasterFloats, ceilingPoints, [0, -1, 0], [...ceilRgb, 1.0], MATERIAL.wall);
     }
 
-    // Round ceiling luminaire: emissive diffuser with a satin trim ring
+    // Luminaire
     if (this.lightPos) {
       const lx = this.lightPos[0], ly = this.lightPos[1], lz = this.lightPos[2];
       const r = 180;
@@ -1466,30 +1890,43 @@ export class RoomWebGLRenderer {
         const c0 = [lx, ly - 30, lz];
         const p1 = [lx + Math.cos(a1) * (r - 18), ly - 30, lz + Math.sin(a1) * (r - 18)];
         const p2 = [lx + Math.cos(a2) * (r - 18), ly - 30, lz + Math.sin(a2) * (r - 18)];
-        pushPoly(getOpaqueGroup(''), [c0, p1, p2], down, glowColor, MATERIAL.emissive);
+        pushPoly(getWallOpaque(''), [c0, p1, p2], down, glowColor, MATERIAL.emissive);
 
         const t1 = [lx + Math.cos(a1) * r, ly - 30, lz + Math.sin(a1) * r];
         const t2 = [lx + Math.cos(a2) * r, ly - 30, lz + Math.sin(a2) * r];
-        pushPoly(getOpaqueGroup(''), [p1, t1, t2, p2], down, trimColor);
-        // Outer rim of the fitting
+        pushPoly(getWallOpaque(''), [p1, t1, t2, p2], down, trimColor);
         const u1 = [t1[0], ly, t1[2]], u2 = [t2[0], ly, t2[2]];
         const mid = (a1 + a2) / 2;
-        pushPoly(getOpaqueGroup(''), [t1, u1, u2, t2], [Math.cos(mid), 0, Math.sin(mid)], trimColor);
+        pushPoly(getWallOpaque(''), [t1, u1, u2, t2], [Math.cos(mid), 0, Math.sin(mid)], trimColor);
       }
     }
 
-    // Pack single unified VBO:
-    // [0 .. furniture casters] -> overhead occlusion map
-    // [0 .. furniture + wall/ceiling casters] -> sun shadow map
-    // [casters .. allOpaqueFloats] -> used for opaque pass
-    // [allOpaqueFloats .. transparentFloats] -> used for transparent pass
-    const furnitureCasterCount = casterFloats.length / FLOATS;
-    for (let i = 0; i < wallCasterFloats.length; i++) casterFloats.push(wallCasterFloats[i]);
+    if (this.wallBuffer && this.gl) {
+      const wallTotal = new Float32Array(wallCasterFloats.length + wallTransparentFloats.length);
+      wallTotal.set(wallCasterFloats, 0);
+      wallTotal.set(wallTransparentFloats, wallCasterFloats.length);
+      this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.wallBuffer);
+      this.gl.bufferData(this.gl.ARRAY_BUFFER, wallTotal, this.gl.STATIC_DRAW);
+    }
+
+    // 3. Combine furniture + walls into single unified render VBO
+    const combinedCasters = [...furnitureCasters, ...wallCasterFloats];
+    const combinedOpaqueGroups = new Map();
+    for (const [k, v] of furnitureOpaqueGroups.entries()) {
+      combinedOpaqueGroups.set(k, [...v]);
+    }
+    for (const [k, v] of wallOpaqueGroups.entries()) {
+      if (!combinedOpaqueGroups.has(k)) combinedOpaqueGroups.set(k, []);
+      combinedOpaqueGroups.get(k).push(...v);
+    }
+    const combinedTransparent = [...furnitureTransparent, ...wallTransparentFloats];
+
+    const furnitureCasterCount = furnitureCasters.length / FLOATS;
     const opaqueBatches = [];
     const allOpaqueFloats = [];
-    let currentBatchOffset = casterFloats.length / FLOATS;
+    let currentBatchOffset = combinedCasters.length / FLOATS;
 
-    for (const [texUrl, floats] of opaqueGroups.entries()) {
+    for (const [texUrl, floats] of combinedOpaqueGroups.entries()) {
       const count = floats.length / FLOATS;
       if (count > 0) {
         opaqueBatches.push({ textureUrl: texUrl || null, offset: currentBatchOffset, count });
@@ -1497,25 +1934,29 @@ export class RoomWebGLRenderer {
         for (let i = 0; i < floats.length; i++) allOpaqueFloats.push(floats[i]);
       }
     }
+
     this.opaqueBatches = opaqueBatches;
     this.casterVertexCount = furnitureCasterCount;
-    this.sunCasterVertexCount = casterFloats.length / FLOATS;
-    this.opaqueOffset = casterFloats.length / FLOATS;
+    this.sunCasterVertexCount = combinedCasters.length / FLOATS;
+    this.opaqueOffset = combinedCasters.length / FLOATS;
     this.opaqueVertexCount = allOpaqueFloats.length / FLOATS;
-    this.transparentOffset = (casterFloats.length + allOpaqueFloats.length) / FLOATS;
-    this.transparentVertexCount = transparentFloats.length / FLOATS;
+    this.transparentOffset = (combinedCasters.length + allOpaqueFloats.length) / FLOATS;
+    this.transparentVertexCount = combinedTransparent.length / FLOATS;
 
-    const fullBuffer = new Float32Array(casterFloats.length + allOpaqueFloats.length + transparentFloats.length);
-    fullBuffer.set(casterFloats, 0);
-    fullBuffer.set(allOpaqueFloats, casterFloats.length);
-    fullBuffer.set(transparentFloats, casterFloats.length + allOpaqueFloats.length);
+    const fullBuffer = new Float32Array(combinedCasters.length + allOpaqueFloats.length + combinedTransparent.length);
+    fullBuffer.set(combinedCasters, 0);
+    fullBuffer.set(allOpaqueFloats, combinedCasters.length);
+    fullBuffer.set(combinedTransparent, combinedCasters.length + allOpaqueFloats.length);
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, fullBuffer, gl.STATIC_DRAW);
 
-    this.edgeVertexCount = edgeFloats.length / 7;
+    this.edgeVertexCount = furnitureEdges.length / 7;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeVbo);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(edgeFloats), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(furnitureEdges), gl.STATIC_DRAW);
+
+    this._lastCulledWallsKey = culledWallsKey;
+    this._lastWallMode = this.wallMode;
   }
 
 
@@ -1608,9 +2049,12 @@ export class RoomWebGLRenderer {
 
     // 2. Main Render Pass
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    const modeInt = this.lightingMode === 'day' ? 1 : this.lightingMode === 'studio' ? 2 : this.lightingMode === 'night-led' ? 3 : 0;
     // Fallback clear colour (overdrawn by the gradient backdrop)
     if (this.lightingMode === 'day') {
       gl.clearColor(0.92, 0.94, 0.96, 1.0);
+    } else if (this.lightingMode === 'night-led') {
+      gl.clearColor(0.14, 0.16, 0.20, 1.0);
     } else {
       gl.clearColor(0.86, 0.88, 0.87, 1.0);
     }
@@ -1621,7 +2065,7 @@ export class RoomWebGLRenderer {
       gl.disable(gl.DEPTH_TEST);
       gl.useProgram(this.bgProgram);
       gl.uniform2f(this.bgUniforms.resolution, this.canvas.width, this.canvas.height);
-      gl.uniform1i(this.bgUniforms.lightingMode, this.lightingMode === 'day' ? 1 : 0);
+      gl.uniform1i(this.bgUniforms.lightingMode, modeInt);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.bgVbo);
       gl.enableVertexAttribArray(this.bgAttribs.pos);
       gl.vertexAttribPointer(this.bgAttribs.pos, 2, gl.FLOAT, false, 0, 0);
@@ -1641,6 +2085,7 @@ export class RoomWebGLRenderer {
     const viewMatrix = new Float32Array(16);
     mat4LookAt(viewMatrix, eye, this.target, [0, 1, 0]);
 
+    const rb = this.roomBounds || { minX: 0, maxX: 4000, minZ: 0, maxZ: 3000, height: 2700 };
     gl.uniformMatrix4fv(this.mainUniforms.projection, false, projMatrix);
     gl.uniformMatrix4fv(this.mainUniforms.view, false, viewMatrix);
     gl.uniformMatrix4fv(this.mainUniforms.lightSpace, false, lightSpaceMatrix);
@@ -1648,11 +2093,14 @@ export class RoomWebGLRenderer {
     gl.uniform3fv(this.mainUniforms.lightColor, this.lightColor);
     gl.uniform3fv(this.mainUniforms.cameraPos, eye);
     gl.uniform1i(this.mainUniforms.useShadows, 1);
-    gl.uniform1i(this.mainUniforms.lightingMode, this.lightingMode === 'day' ? 1 : 0);
+    gl.uniform1i(this.mainUniforms.lightingMode, modeInt);
     gl.uniform1i(this.mainUniforms.floorStyle, FLOOR_STYLES[this.floorStyle]?.id ?? 0);
     gl.uniform2f(this.mainUniforms.resolution, this.canvas.width, this.canvas.height);
-    gl.uniform1f(this.mainUniforms.roomHeight, (this.roomBounds && this.roomBounds.height) || 2700);
+    gl.uniform1f(this.mainUniforms.roomHeight, rb.height || 2700);
     gl.uniform1f(this.mainUniforms.shadowTexel, 1 / (this.shadowSize || 2048));
+    if (this.mainUniforms.rayTracing) gl.uniform1i(this.mainUniforms.rayTracing, this.rayTracing !== false ? 1 : 0);
+    if (this.mainUniforms.roomMin) gl.uniform3f(this.mainUniforms.roomMin, rb.minX || 0, 0, rb.minZ || 0);
+    if (this.mainUniforms.roomMax) gl.uniform3f(this.mainUniforms.roomMax, rb.maxX || 4000, rb.height || 2700, rb.maxZ || 3000);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.shadowTexture);
@@ -1975,6 +2423,47 @@ export class RoomWebGLRenderer {
     }
 
     if (closestId) {
+      // Check wall occlusion
+      const room = this.project?.room || {};
+      const outline = room.outline && room.outline.length >= 3
+        ? room.outline
+        : [{ x: 0, z: 0 }, { x: room.width || 4000, z: 0 }, { x: room.width || 4000, z: room.depth || 3000 }, { x: 0, z: room.depth || 3000 }];
+      const roomHeight = room.height || 2700;
+      const wallThickness = room.wallThickness || 150;
+      const eye = this.getCameraEye();
+      const isInside = this.isPointInsideRoom(eye[0], eye[2]) && eye[1] < roomHeight;
+      const useCutaway = (this.wallMode === 'cutaway') && !isInside;
+
+      let dir = null;
+      if (useCutaway) {
+        const dx = eye[0] - this.target[0];
+        const dz = eye[2] - this.target[2];
+        const dLen = Math.hypot(dx, dz) || 1;
+        dir = [dx / dLen, 0.45, dz / dLen];
+      }
+
+      const signedArea = outline.reduce((s, p, i) => { const q = outline[(i + 1) % outline.length]; return s + p.x * q.z - q.x * p.z; }, 0) / 2;
+      const orient = signedArea >= 0 ? 1 : -1;
+
+      for (let i = 0; i < outline.length; i++) {
+        const a = outline[i];
+        const b = outline[(i + 1) % outline.length];
+        const len = Math.hypot(b.x - a.x, b.z - a.z);
+        if (len < 1) continue;
+
+        if (useCutaway && dir) {
+          const ux = (b.x - a.x) / len, uz = (b.z - a.z) / len;
+          const inward = [-uz * orient, 0, ux * orient];
+          const isNearWall = (inward[0] * dir[0] + inward[2] * dir[2] < -0.00001);
+          if (isNearWall) continue; // This wall is cut away
+        }
+
+        const wallBounds = { start: a, end: b, bottom: 0, top: roomHeight, thickness: wallThickness };
+        if (isRayOccludedByWall(ray, wallBounds, closestDist)) {
+          return null; // Occluded by solid wall
+        }
+      }
+
       this.setSelectedCabinet(closestId);
       this.onSelect?.(closestId);
     }
@@ -1983,6 +2472,7 @@ export class RoomWebGLRenderer {
 
   toggleDoors() {
     this.doorsOpen = !this.doorsOpen;
+    this.openProgress = this.doorsOpen ? 1 : 0;
     this.buildGeometry();
     this.render();
     return this.doorsOpen;
@@ -1997,6 +2487,8 @@ export class RoomWebGLRenderer {
   destroy() {
     if (this.gl) {
       if (this.vbo) this.gl.deleteBuffer(this.vbo);
+      if (this.wallBuffer) this.gl.deleteBuffer(this.wallBuffer);
+      if (this.furnitureBuffer) this.gl.deleteBuffer(this.furnitureBuffer);
       if (this.shadowFBO) this.gl.deleteFramebuffer(this.shadowFBO);
       if (this.shadowTexture) this.gl.deleteTexture(this.shadowTexture);
       if (this.shadowDepthRB) this.gl.deleteRenderbuffer(this.shadowDepthRB);

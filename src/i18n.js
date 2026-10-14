@@ -70,6 +70,13 @@ DXF: раскладка на листах 1:1 в мм. Пропил задаёт
 Из-за соседних отверстий превышен заданный шаг сверловки.|Komşu delikler nedeniyle seçilen aralık aşıldı.|Neighbouring holes cause the selected spacing to be exceeded.
 Сверловка корпуса под конфирматы|Confirmat vidaları için gövde delikleri|Carcass drilling for confirmat screws
 Мебельный винт (конфирмат). Крышка, дно и перегородки; съёмные полки и фурнитура не сверлятся автоматически.|Mobilya vidası (confirmat). Üst, alt ve ara paneller; sökülebilir raflar ve donanım için otomatik delik oluşturulmaz.|Furniture screw (confirmat). Tops, bottoms and dividers; removable shelves and hardware are not drilled automatically.
+Царга передняя|Ön üst kuşak|Front stretcher
+Царга задняя|Arka üst kuşak|Rear stretcher
+Царга|Kuşak|Stretcher
+Царги|Kuşaklar|Stretchers
+Планки вместо крышки|Kapak yerine üst kuşaklar|Traverse rails instead of top panel
+Ширина царги|Kuşak genişliği|Stretcher width
+Тип верха корпуса|Gövde üst tipi|Carcass top type
 Параметры сверления|Delik ayarları|Drilling settings
 Диаметр винта|Vida çapı|Screw diameter
 Длина винта|Vida uzunluğu|Screw length
@@ -1096,7 +1103,291 @@ X / Z, мм|X / Z, mm|X / Z, mm
 Убрать раковину|Evyeyi kaldır|Remove sink
 Раковина на столешнице|Tezgah üstü evye|Sink on countertop
 Встраивание снизу в дно навесного шкафа|Üst dolap tabanına alttan montaj|Built-in from the bottom of wall cabinet
+ЛКМ — вращение · ПКМ — сдвиг · Двойной клик / F — фокус на шкаф · W,A,S,D — полёт|Sol tık: döndürme · Sağ tık: kaydırma · Çift tık / F: dolaba odaklan · W,A,S,D: serbest uçuş|Left click: rotate · Right click: pan · Double click / F: focus cabinet · W,A,S,D: fly
+по нормам EN 1116 требуется защитная зона ≥ 400 мм|EN 1116 standardına göre ≥ 400 mm güvenlik alanı gereklidir|per EN 1116 a safety zone ≥ 400 mm is required
+по нормам пожарной безопасности требуется термозазор ≥ 100 мм|yangın güvenliği standartlarına göre ≥ 100 mm ısı boşluğu gereklidir|fire safety standards require thermal clearance ≥ 100 mm
+по нормам безопасности требуется зазор не менее 650 мм|güvenlik standartlarına göre en az 650 mm dikey mesafe gereklidir|safety standards require at least 650 mm clearance
+по нормам EN 1116 минимальная ширина прохода должна быть не менее 900 мм|EN 1116 standardına göre asgari geçiş koridoru en az 900 mm olmalıdır|per EN 1116 minimum aisle width must be at least 900 mm
+требуется угловой добор ≥ 50 мм для предотвращения столкновения фасадов и ручек|kapak ve kulpların çarpışmasını önlemek için ≥ 50 mm köşe dolgu paneli gereklidir|corner filler post ≥ 50 mm required to prevent facade and handle collisions
+микроволновая печь в секции|bölmedeki mikrodalga fırın|microwave oven in section
+рекомендуемый максимум безопасности — 1500 мм для защиты от ожогов|yanık tehlikesine karşı önerilen azami güvenlik sınırı 1500 mm|recommended safety maximum is 1500 mm to prevent burns
+встраиваемый холодильник в секции|bölmedeki ankastre buzdolabı|built-in refrigerator in section
+требует вентиляционную решётку в цоколе|bazada havalandırma menfezi gereklidir|requires plinth ventilation grille
+секция с вытяжкой закрыта дверцами|davlumbazlı bölme kapaklarla kapalı|range hood section is enclosed by doors
+обеспечьте выход воздуховода|hava çıkışını sağlayın|ensure duct outlet
+режим рециркуляции с решёткой|menfezli devridaim modu|recirculation mode with grille
+варочная панель в секции опускается в корпус|bölmedeki ocak gövdenin içine iniyor|cooktop in section extends into carcass
+верхний ящик расположен слишком близко к столешнице|üst çekmece tezgaha çok yakın|top drawer is too close to countertop
+Верхний короб ящика может задевать корпус варочной панели|Üst çekmece kasası ocak gövdesine çarpabilir|Top drawer box may hit cooktop
+чаша раковины не помещается в секцию по ширине|evye haznesi genişlik bakımından bölmeye sığmıyor|sink bowl does not fit section in width
+чаша раковины не помещается в секцию по глубине|evye haznesi derinlik bakımından bölmeye sığmıyor|sink bowl does not fit section in depth
+требуется свободная зона 350 мм под столешницей|tezgah altında 350 mm boş alan gereklidir|350 mm clearance required below countertop
+для сифона и коммуникаций требуется ящик с U-образным вырезом или распашные двери|sifon ve tesisat için U kesimli çekmece veya menteşeli kapaklar gereklidir|siphon and plumbing require U-shaped cutout drawer or hinged doors
+Режим рулетки включён|Mezura modu etkin|Tape measure mode enabled
+Режим рулетки выключен|Mezura modu kapalı|Tape measure mode disabled
+Рулетка включена|Mezura açıldı|Tape measure enabled
+Рулетка выключена|Mezura kapatıldı|Tape measure disabled
 `);
+
+export const DICTIONARY = {
+  ru: {
+    work_triangle_bounds: 'Нарушены пропорции рабочего треугольника',
+    aisle_clearance_too_narrow: 'Слишком узкий проход между шкафами',
+    cooktop_hood_clearance: 'Недостаточный зазор между плитой и вытяжкой',
+    corner_filler_clearance: 'Угловой зазор фасадов меньше нормы',
+    tool_measure: 'Рулетка',
+    measure_dist: 'Расстояние',
+    obstacle_pillar: 'Колонна / пилон',
+    obstacle_column: 'Колонна',
+
+    'work-triangle-bounds': 'Нарушены пропорции рабочего треугольника',
+    'aisle-clearance-too-narrow': 'Слишком узкий проход между шкафами',
+    'cooktop-hood-clearance': 'Недостаточный зазор между плитой и вытяжкой',
+    'corner-filler-clearance': 'Угловой зазор фасадов меньше нормы',
+
+    cooktop_sink_clearance: 'Защитная зона между плитой и мойкой меньше 400 мм',
+    'en1116-cooktop-sink': 'Защитная зона между плитой и мойкой меньше 400 мм',
+    cooktop_tall_clearance: 'Термозазор между плитой и высоким шкафом меньше 100 мм',
+    'cooktop-fire-clearance': 'Термозазор между плитой и высоким шкафом меньше 100 мм',
+    microwave_height: 'Высота установки СВЧ превышает безопасный уровень 1500 мм',
+    'microwave-height': 'Высота установки СВЧ превышает безопасный уровень 1500 мм',
+    fridge_ventilation: 'Требуется вентиляционная решётка в цоколе для холодильника',
+    'fridge-ventilation': 'Требуется вентиляционная решётка в цоколе для холодильника',
+    oven_ventilation: 'Недостаточный задний вентиляционный зазор духовки',
+    'appliance-oven-ventilation': 'Недостаточный задний вентиляционный зазор духовки',
+    sink_drawers: 'Секция с мойкой требует выреза в ящике под сифон',
+    'sink-drawers': 'Секция с мойкой требует выреза в ящике под сифон',
+    hood_duct_cutout: 'Требуется вырез под воздуховод над вытяжкой',
+    'hood-duct-cutout': 'Требуется вырез под воздуховод над вытяжкой',
+    hood_airflow: 'Обеспечьте выход воздуховода или режим рециркуляции',
+    'hood-airflow': 'Обеспечьте выход воздуховода или режим рециркуляции',
+    cooktop_drawer_collision: 'Верхний ящик слишком близко к варочной панели',
+    'cooktop-drawer-collision': 'Верхний ящик слишком близко к варочной панели',
+
+    measure_start: 'Начальная точка',
+    measure_end: 'Конечная точка',
+    measure_clear: 'Очистить измерение',
+    measure_hint: 'Кликните две точки для измерения расстояния',
+    measure_enabled: 'Режим рулетки включён',
+    measure_disabled: 'Режим рулетки выключен',
+
+    obstacle_pylon: 'Пилон',
+    obstacle_pipe: 'Труба',
+    obstacle_box: 'Короб',
+    obstacle_beam: 'Балка',
+    obstacle_vent: 'Вентканал',
+    obstacle_freestanding: 'Отдельностоящая колонна',
+
+    drc_status_ok: 'Ошибок не обнаружено',
+    drc_status_clean: 'DRC: норма',
+    drc_badge_clean: 'Проект проверен: замечаний нет',
+    drc_warnings_title: 'Предупреждения проектирования',
+    drc_warnings_count: 'Предупреждений',
+    drc_issues_count: 'Замечаний',
+    drc_errors_count: 'Ошибок',
+    drc_view_issues: 'Показать замечания',
+    drc_details: 'Проверка эргономики и норм',
+    drc_violations: 'Нарушения норм проектирования',
+
+    fix_reduce_cabinet_width: 'Уменьшить ширину шкафа',
+    fix_reduce_cabinet_height: 'Уменьшить высоту шкафа',
+    fix_split_vertical: 'Разделить перегородкой',
+    fix_fit_appliance: 'Подогнать нишу под технику',
+    fix_increase_depth: 'Увеличить глубину корпуса (+50 мм)',
+    fix_remove_shelves: 'Убрать полки под мойкой',
+
+    traverse_rail_front: 'Царга передняя',
+    traverse_rail_rear: 'Царга задняя',
+    traverse_rails: 'Царги',
+
+    countertop_run: 'Столешница (погонные метры)',
+    countertop_area: 'Столешница (кв. метры)',
+    countertop_sink_cutout: 'Вырез под мойку',
+    countertop_cooktop_cutout: 'Вырез под варочную панель',
+    materials_palette: 'Палитра материалов',
+    cabinet_specification: 'Спецификация шкафов',
+    page: 'Стр.',
+    of_pages: 'из',
+  },
+  tr: {
+    work_triangle_bounds: 'Çalışma üçgeni oranları standarda uygun değil',
+    aisle_clearance_too_narrow: 'Dolaplar arasındaki geçiş koridoru çok dar',
+    cooktop_hood_clearance: 'Ocak ve davlumbaz arasında yetersiz dikey mesafe',
+    corner_filler_clearance: 'Köşe cephe boşluğu normun altında',
+    tool_measure: 'Mezura',
+    measure_dist: 'Mesafe',
+    obstacle_pillar: 'Kolon / Sütun',
+    obstacle_column: 'Sütun',
+
+    'work-triangle-bounds': 'Çalışma üçgeni oranları standarda uygun değil',
+    'aisle-clearance-too-narrow': 'Dolaplar arasındaki geçiş koridoru çok dar',
+    'cooktop-hood-clearance': 'Ocak ve davlumbaz arasında yetersiz dikey mesafe',
+    'corner-filler-clearance': 'Köşe cephe boşluğu normun altında',
+
+    cooktop_sink_clearance: "Ocak ve evye arası güvenlik mesafesi 400 mm'den az",
+    'en1116-cooktop-sink': "Ocak ve evye arası güvenlik mesafesi 400 mm'den az",
+    cooktop_tall_clearance: "Ocak ve boy dolabı arası ısı boşluğu 100 mm'den az",
+    'cooktop-fire-clearance': "Ocak ve boy dolabı arası ısı boşluğu 100 mm'den az",
+    microwave_height: 'Mikrodalga montaj yüksekliği 1500 mm güvenlik sınırını aşıyor',
+    'microwave-height': 'Mikrodalga montaj yüksekliği 1500 mm güvenlik sınırını aşıyor',
+    fridge_ventilation: 'Buzdolabı için bazada havalandırma ızgarası gereklidir',
+    'fridge-ventilation': 'Buzdolabı için bazada havalandırma ızgarası gereklidir',
+    oven_ventilation: 'Fırın arkasında yetersiz havalandırma boşluğu',
+    'appliance-oven-ventilation': 'Fırın arkasında yetersiz havalandırma boşluğu',
+    sink_drawers: 'Evye bölmesinde sifon için çekmece U kesimi gereklidir',
+    'sink-drawers': 'Evye bölmesinde sifon için çekmece U kesimi gereklidir',
+    hood_duct_cutout: 'Davlumbaz üstündeki raflarda baca borusu kesimi gereklidir',
+    'hood-duct-cutout': 'Davlumbaz üstündeki raflarda baca borusu kesimi gereklidir',
+    hood_airflow: 'Hava çıkışı veya menfezli sirkülasyon modu sağlayın',
+    'hood-airflow': 'Hava çıkışı veya menfezli sirkülasyon modu sağlayın',
+    cooktop_drawer_collision: 'Üst çekmece ocağa çok yakın',
+    'cooktop-drawer-collision': 'Üst çekmece ocağa çok yakın',
+
+    measure_start: 'Başlangıç noktası',
+    measure_end: 'Bitiş noktası',
+    measure_clear: 'Ölçümü temizle',
+    measure_hint: 'Mesafe ölçmek için iki noktaya tıklayın',
+    measure_enabled: 'Mezura modu etkin',
+    measure_disabled: 'Mezura modu kapalı',
+
+    obstacle_pylon: 'Pilon',
+    obstacle_pipe: 'Boru',
+    obstacle_box: 'Kutu',
+    obstacle_beam: 'Kiriş',
+    obstacle_vent: 'Havalandırma kanalı',
+    obstacle_freestanding: 'Müstakil kolon',
+
+    drc_status_ok: 'Hata bulunamadı',
+    drc_status_clean: 'DRC: normal',
+    drc_badge_clean: 'Proje denetlendi: sorun yok',
+    drc_warnings_title: 'Tasarım uyarıları',
+    drc_warnings_count: 'Uyarı',
+    drc_issues_count: 'Sorun',
+    drc_errors_count: 'Hata',
+    drc_view_issues: 'Sorunları göster',
+    drc_details: 'Ergonomi ve standart denetimi',
+    drc_violations: 'Tasarım kuralı ihlalleri',
+
+    fix_reduce_cabinet_width: 'Dolap genişliğini azalt',
+    fix_reduce_cabinet_height: 'Dolap yüksekliğini azalt',
+    fix_split_vertical: 'Dikey panelle böl',
+    fix_fit_appliance: 'Nişi cihaza göre ayarla',
+    fix_increase_depth: 'Gövde derinliğini artır (+50 mm)',
+    fix_remove_shelves: 'Evye altındaki rafları kaldır',
+
+    traverse_rail_front: 'Ön üst kuşak',
+    traverse_rail_rear: 'Arka üst kuşak',
+    traverse_rails: 'Üst kuşaklar',
+
+    countertop_run: 'Tezgah (tül metre)',
+    countertop_area: 'Tezgah (metrekare)',
+    countertop_sink_cutout: 'Evye yeri kesimi',
+    countertop_cooktop_cutout: 'Ocak yeri kesimi',
+    materials_palette: 'Malzeme paleti',
+    cabinet_specification: 'Dolap listesi',
+    page: 'Sayfa',
+    of_pages: '/',
+  },
+  en: {
+    work_triangle_bounds: 'Kitchen work triangle proportions violate guidelines',
+    aisle_clearance_too_narrow: 'Walkway aisle corridor between cabinets is too narrow',
+    cooktop_hood_clearance: 'Insufficient vertical clearance between cooktop and hood',
+    corner_filler_clearance: 'Corner facade clearance below recommended minimum',
+    tool_measure: 'Tape Measure',
+    measure_dist: 'Distance',
+    obstacle_pillar: 'Column / Pillar',
+    obstacle_column: 'Column',
+
+    'work-triangle-bounds': 'Kitchen work triangle proportions violate guidelines',
+    'aisle-clearance-too-narrow': 'Walkway aisle corridor between cabinets is too narrow',
+    'cooktop-hood-clearance': 'Insufficient vertical clearance between cooktop and hood',
+    'corner-filler-clearance': 'Corner facade clearance below recommended minimum',
+
+    cooktop_sink_clearance: 'Clearance between cooktop and sink is less than 400 mm',
+    'en1116-cooktop-sink': 'Clearance between cooktop and sink is less than 400 mm',
+    cooktop_tall_clearance: 'Clearance between cooktop and tall cabinet is less than 100 mm',
+    'cooktop-fire-clearance': 'Clearance between cooktop and tall cabinet is less than 100 mm',
+    microwave_height: 'Microwave installation height exceeds safe limit of 1500 mm',
+    'microwave-height': 'Microwave installation height exceeds safe limit of 1500 mm',
+    fridge_ventilation: 'Built-in refrigerator requires plinth ventilation grille',
+    'fridge-ventilation': 'Built-in refrigerator requires plinth ventilation grille',
+    oven_ventilation: 'Insufficient rear ventilation clearance for oven',
+    'appliance-oven-ventilation': 'Insufficient rear ventilation clearance for oven',
+    sink_drawers: 'Sink section requires U-shaped drawer cutout for siphon',
+    'sink-drawers': 'Sink section requires U-shaped drawer cutout for siphon',
+    hood_duct_cutout: 'Shelves above range hood require duct cutouts',
+    'hood-duct-cutout': 'Shelves above range hood require duct cutouts',
+    hood_airflow: 'Ensure duct outlet or recirculation mode with grille',
+    'hood-airflow': 'Ensure duct outlet or recirculation mode with grille',
+    cooktop_drawer_collision: 'Top drawer box is too close to cooktop body',
+    'cooktop-drawer-collision': 'Top drawer box is too close to cooktop body',
+
+    measure_start: 'Start point',
+    measure_end: 'End point',
+    measure_clear: 'Clear measurement',
+    measure_hint: 'Click two points to measure distance',
+    measure_enabled: 'Tape measure mode enabled',
+    measure_disabled: 'Tape measure mode disabled',
+
+    obstacle_pylon: 'Pillar',
+    obstacle_pipe: 'Pipe',
+    obstacle_box: 'Box',
+    obstacle_beam: 'Beam',
+    obstacle_vent: 'Vent shaft',
+    obstacle_freestanding: 'Freestanding column',
+
+    drc_status_ok: 'No issues detected',
+    drc_status_clean: 'DRC: OK',
+    drc_badge_clean: 'Project verified: no issues',
+    drc_warnings_title: 'Design warnings',
+    drc_warnings_count: 'Warnings',
+    drc_issues_count: 'Issues',
+    drc_errors_count: 'Errors',
+    drc_view_issues: 'Show issues',
+    drc_details: 'Ergonomics & DRC Inspection',
+    drc_violations: 'Design rule violations',
+
+    fix_reduce_cabinet_width: 'Reduce cabinet width',
+    fix_reduce_cabinet_height: 'Reduce cabinet height',
+    fix_split_vertical: 'Split with partition',
+    fix_fit_appliance: 'Fit niche to appliance',
+    fix_increase_depth: 'Increase carcass depth (+50 mm)',
+    fix_remove_shelves: 'Remove shelves under sink',
+
+    traverse_rail_front: 'Front stretcher',
+    traverse_rail_rear: 'Rear stretcher',
+    traverse_rails: 'Stretchers',
+
+    countertop_run: 'Countertop (linear meters)',
+    countertop_area: 'Countertop (square meters)',
+    countertop_sink_cutout: 'Sink cutout',
+    countertop_cooktop_cutout: 'Cooktop cutout',
+    materials_palette: 'Materials palette',
+    cabinet_specification: 'Cabinet specification',
+    page: 'Page',
+    of_pages: 'of',
+  }
+};
+
+// Register all dictionary keys into runtime translation tables
+for (const [key, ruVal] of Object.entries(DICTIONARY.ru)) {
+  const trVal = DICTIONARY.tr[key];
+  const enVal = DICTIONARY.en[key];
+  if (ruVal && trVal && enVal && ruVal !== key) {
+    const entry = { ru: ruVal, tr: trVal, en: enVal };
+    if (!exactTranslations.has(ruVal)) exactTranslations.set(ruVal, entry);
+    const lower = ruVal.toLocaleLowerCase('ru-RU');
+    if (!translations.has(lower)) translations.set(lower, entry);
+  }
+}
+
+/**
+ * Return localized text for key in specified language.
+ */
+export function t(key, lang = 'ru') {
+  const selectedLanguage = LANGUAGES.includes(lang) ? lang : 'ru';
+  return DICTIONARY[selectedLanguage]?.[key] ?? DICTIONARY.ru?.[key] ?? key;
+}
 
 let phrasePattern;
 const regexEscape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1173,6 +1464,53 @@ Kapak Panel (глянцевые)|Kapak Panel (Parlak)|Front Panel (Gloss)
 Поиск декора по названию или коду…|Dekor adı veya koduna göre ara…|Search decor by name or code…
 Декоры не найдены|Dekor bulunamadı|No decors found
 Выбрать декор|Dekoru seç|Select decor
+✨ Фурнитура, ручки и 3D-дизайн|✨ Donanım, Kulplar ve 3D Tasarım|✨ Hardware, Handles & 3D Design
+ВАРИАНТ РУЧЕК ФАСАДОВ|KAPAK KULP MODELİ|HANDLE STYLE
+ЦВЕТ И ПОКРЫТИЕ РУЧЕК|KULP RENGİ VE KAPLAMASI|HANDLE FINISH & COLOR
+ТИП МЕБЕЛЬНЫХ ПЕТЕЛЬ (3D)|MENTEŞE TİPİ (3D)|HINGE TYPE (3D)
+БОКОВИНЫ И РЕЙЛИНГИ ЯЩИКОВ (3D)|ÇEKMECE BORDÜR VE RAY SİSTEMİ (3D)|DRAWER RAILING SYSTEM (3D)
+ТИП ШТАНГ И ПАНТОГРАФОВ (3D)|ASKI BORUSU VE ASANSÖR TİPİ (3D)|WARDROBE ROD & PANTOGRAPH TYPE (3D)
+Тип штанги / пантографа|Askı borusu / asansör tipi|Rod / pantograph style
+Рейлинг-скоба|Çubuk kulp (Bar)|Bar handle
+П-скоба (Лофт)|U-profil kulp (Loft)|Slim arch (Loft)
+Классическая дуга|Klasik kavisli kulp|Classic bow handle
+Ручка-кнопка|Düğme kulp (Knob)|Knob handle
+Профиль Gola|Gola gizli profil|Gola edge profile
+Врезная раковина|Gömme kulp|Recessed handle
+Push-to-Open (без ручки)|Bas-Aç (Kulpsuz)|Push-to-Open (handleless)
+Матовый хром|Mat krom|Brushed Chrome
+Чёрный матовый|Mat siyah|Matte Black
+Золото / Латунь|Altın / Pirinç|Brushed Gold / Brass
+Тёмная бронза|Koyu bronz|Dark Bronze
+Графит / Титан|Grafit / Titanyum|Graphite / Titanium
+Белый матовый|Mat beyaz|Matte White
+С доводчиком Soft-Close|Frenli menteşe (Soft-Close)|Soft-Close concealed hinge
+Стандартная 110°|Standart 110° menteşe|Standard 110° Clip-On
+Широкого открывания 155° (Тандем)|Geniş açılı 155° menteşe|Wide-angle 155° zero-protrusion
+Петля Push + толкатель Tip-On|Bas-Aç menteşe + Tip-On|Push hinge + Tip-On plunger
+Одинарный круглый рейлинг|Tekli yuvarlak bordür rayı|Single round gallery rail
+Двойной рейлинг Tandembox|Çiftli Tandembox bordür rayı|Double round Tandembox railing
+Прямоугольный рейлинг Boxside|Dikdörtgen Boxside bordür|Rectangular Boxside railing
+Стеклянные боковины Legrabox|Cam yanaklı Legrabox sistemi|Legrabox glass side panels
+Без верхнего рейлинга|Üst bordürsüz|No upper gallery rail
+Круглая Ø25 мм|Yuvarlak boru Ø25 mm|Round tube Ø25 mm
+Овальная 30×15 мм|Oval profil 30×15 mm|Oval profile 30×15 mm
+С LED-подсветкой|LED aydınlatmalı askı borusu|LED illuminated rod
+Пантограф (лифт)|Dolap içi pantograf (asansör)|Wardrobe lift pantograph
+✨ Фото-рендер 3D|✨ 3D Foto-Render|✨ 3D Photo Render
+Открыть реалистичный 3D-рендер с трассировкой лучей|Işın izlemeli gerçekçi 3D render görünümünü aç|Open realistic ray-traced 3D render view
+Открыть 3D фото-рендер с трассировкой|Işın izlemeli 3D foto-render aç|Open 3D ray-traced photo render
+Трассировка лучей и отражений|Işın izleme ve gerçekçi yansımalar|Ray tracing and reflections
+Трассировка лучей включена|Işın izleme (Ray Tracing) açıldı|Ray tracing enabled
+Трассировка лучей выключена|Işın izleme (Ray Tracing) kapatıldı|Ray tracing disabled
+Плавное открытие дверей и ящиков|Kapak ve çekmeceleri kademeli aç|Smooth door and drawer opening
+Открытие|Açılma|Opening
+Студия|Stüdyo|Studio
+Ночь LED|Gece LED|Night LED
+Вариант ручки|Kulp modeli|Handle style
+Цвет фурнитуры|Donanım rengi|Hardware finish
+Ручка|Kulp|Handle
+PBR WebGL-рендер · трассировка лучей, металл, керамика, текстуры и тени|PBR WebGL render · ışın izleme, metal, seramik, dokular ve gölgeler|PBR WebGL render · ray tracing, metal, ceramic, textures and shadows
 `);
 
 const factoryDecors = {

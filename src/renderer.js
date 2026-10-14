@@ -39,6 +39,47 @@ const doorOpeningText = opening => ({left:'Влево',right:'Вправо',up:'
 
 const COMPACT_LABEL_FONT = 14;
 export const PANEL_EDGE_CODES = { left: 'E1', right: 'E2', top: 'E3', bottom: 'E4' };
+
+export const HANDLE_STYLES = {
+  bar:       { label: 'Рейлинг-скоба', icon: '═══' },
+  'slim-arch': { label: 'П-скоба Loft', icon: '┏━┓' },
+  bow:       { label: 'Классическая дуга', icon: '╭─╮' },
+  knob:      { label: 'Ручка-кнопка', icon: '◉' },
+  gola:      { label: 'Профиль Gola (торцевой)', icon: '▬▬' },
+  recessed:  { label: 'Врезная раковина', icon: '▭' },
+  push:      { label: 'Push-to-Open (без ручки)', icon: '⚡' },
+};
+
+export const HANDLE_FINISHES = {
+  chrome:   { label: 'Матовый хром',   bar: '#a9afb2', post: '#8b9194', accent: '#dce4e7', swatch: '#b8c0c4' },
+  black:    { label: 'Чёрный матовый', bar: '#25292c', post: '#171a1c', accent: '#454c52', swatch: '#222629' },
+  gold:     { label: 'Золото / Латунь', bar: '#d4af37', post: '#aa8822', accent: '#f5df8b', swatch: '#d4af37' },
+  bronze:   { label: 'Тёмная бронза',  bar: '#8f5b3c', post: '#6c4128', accent: '#bc8360', swatch: '#8f5b3c' },
+  graphite: { label: 'Графит / Титан', bar: '#4e565c', post: '#373d42', accent: '#717b84', swatch: '#4e565c' },
+  white:    { label: 'Белый матовый',  bar: '#eceff1', post: '#cfd6da', accent: '#ffffff', swatch: '#eceff1' },
+};
+
+export const HINGE_STYLES = {
+  'soft-close': { label: 'С доводчиком (Blumotion / Sensys)' },
+  standard:     { label: 'Стандартная 110° Clip-On' },
+  'wide-155':   { label: 'Широкого открывания 155°' },
+  'push-hinge': { label: 'Петля Push / Tip-On' },
+};
+
+export const DRAWER_RAILING_STYLES = {
+  'single-round':   { label: 'Одинарный круглый рейлинг' },
+  'double-round':   { label: 'Двойной рейлинг (Tandembox)' },
+  rectangular:      { label: 'Прямоугольный рейлинг (Boxside)' },
+  'legrabox-glass': { label: 'Боковины со стеклом (Legrabox)' },
+  none:             { label: 'Без верхнего рейлинга' },
+};
+
+export const ROD_STYLES = {
+  round:      { label: 'Круглая штанга Ø25 мм' },
+  oval:       { label: 'Овальная штанга 30×15 мм' },
+  led:        { label: 'Штанга с LED-подсветкой' },
+  pantograph: { label: 'Пантограф (мебельный лифт)' },
+};
 function physicalPartEdges(part) {
   return part.orientation === 'horizontal'
     ? { top: 'Сзади', bottom: 'Спереди', left: 'Слева', right: 'Справа' }
@@ -326,13 +367,97 @@ export function makeScene(project, options = {}, direction = null) {
   // Standard furniture handle hole spacings (centre-to-centre), mm.
   const HANDLE_SPACINGS = [320, 256, 192, 160, 128, 96];
   const handleSpacing = available => HANDLE_SPACINGS.find(cc => cc + 24 <= available) ?? 96;
+  const openProgress = Number.isFinite(options.openProgress)
+    ? Math.max(0, Math.min(1, Number(options.openProgress)))
+    : (options.doorsOpen ? 1 : 0);
+  const isDoorsOpen = Boolean(options.doorsOpen || openProgress > 0.005);
+
   /**
-   * Bar ("рейлинг") handle on the front face: chamfered 12×10 mm bar on two
-   * 8×8 mm posts, 24 mm stand-off. `vertical` bars run along b, others along a.
-   * (a0, b0) is the exact minimum corner of the bar in door coordinates.
+   * Multi-style 3D furniture handle generator supporting 7 handle styles and 6 finishes.
    */
-  const barHandle = (W, frontT, { vertical, a0, b0, length }, extras) => {
-    const cc = length - 24, bar = '#a9afb2', post = '#8b9194', n0 = frontT + 24, n1 = n0 + 10;
+  const barHandle = (W, frontT, { vertical, a0, b0, length, style = 'bar', finish = 'chrome', fw = 400, fh = 720, rightHinge = false }, extras) => {
+    if (style === 'push') return;
+    const fin = HANDLE_FINISHES[finish] || HANDLE_FINISHES.chrome;
+    const bar = fin.bar, post = fin.post, accent = fin.accent;
+    const cc = Math.max(32, length - 24), n0 = frontT + 24, n1 = n0 + 10;
+
+    if (style === 'knob') {
+      const ka = vertical ? a0 + 6 : a0 + length / 2;
+      const kb = vertical ? b0 + length * 0.35 : b0 + 6;
+      localPrism(W, 'n', circle(ka, kb, 10, 14), frontT, frontT + 3, post, { ...extras, handlePart: 'post' });
+      localPrism(W, 'n', circle(ka, kb, 5.5, 12), frontT + 3, frontT + 16, post, { ...extras, handlePart: 'post' });
+      localPrism(W, 'n', circle(ka, kb, 15.5, 18), frontT + 16, frontT + 24, bar, { ...extras, handlePart: 'bar' });
+      localPrism(W, 'n', circle(ka, kb, 12, 16), frontT + 24, frontT + 26, accent, { ...extras, handlePart: 'bar' });
+      return;
+    }
+
+    if (style === 'slim-arch') {
+      const archN0 = frontT + 22, archN1 = archN0 + 5;
+      if (vertical) {
+        localPrism(W, 'b', [[a0, archN0], [a0 + 14, archN0], [a0 + 14, archN1], [a0, archN1]], b0, b0 + length, bar, { ...extras, handlePart: 'bar' });
+        for (const py of [b0, b0 + length - 5]) {
+          localPrism(W, 'n', [[a0, py], [a0 + 14, py], [a0 + 14, py + 5], [a0, py + 5]], frontT, archN0, post, { ...extras, handlePart: 'post' });
+        }
+      } else {
+        localPrism(W, 'a', [[b0, archN0], [b0 + 14, archN0], [b0 + 14, archN1], [b0, archN1]], a0, a0 + length, bar, { ...extras, handlePart: 'bar' });
+        for (const px of [a0, a0 + length - 5]) {
+          localPrism(W, 'n', [[px, b0], [px + 5, b0], [px + 5, b0 + 14], [px, b0 + 14]], frontT, archN0, post, { ...extras, handlePart: 'post' });
+        }
+      }
+      return;
+    }
+
+    if (style === 'bow') {
+      if (vertical) {
+        localPrism(W, 'b', octagon(a0 - 1, n0 - 2, 14, 9), b0 + 10, b0 + length - 10, bar, { ...extras, handlePart: 'bar' });
+        localPrism(W, 'b', octagon(a0 + 1, n0 + 5, 10, 5), b0 + 24, b0 + length - 24, accent, { ...extras, handlePart: 'bar' });
+        for (const pc of [b0 + 12, b0 + 12 + cc]) {
+          localPrism(W, 'n', octagon(a0 - 1, pc - 9, 14, 18, 3), frontT, frontT + 3.5, post, { ...extras, handlePart: 'post' });
+          localPrism(W, 'n', octagon(a0 + 2, pc - 5, 8, 10, 2), frontT + 3.5, n0 - 1, post, { ...extras, handlePart: 'post' });
+        }
+      } else {
+        localPrism(W, 'a', octagon(b0 - 1, n0 - 2, 14, 9), a0 + 10, a0 + length - 10, bar, { ...extras, handlePart: 'bar' });
+        localPrism(W, 'a', octagon(b0 + 1, n0 + 5, 10, 5), a0 + 24, a0 + length - 24, accent, { ...extras, handlePart: 'bar' });
+        for (const pc of [a0 + 12, a0 + 12 + cc]) {
+          localPrism(W, 'n', octagon(pc - 9, b0 - 1, 18, 14, 3), frontT, frontT + 3.5, post, { ...extras, handlePart: 'post' });
+          localPrism(W, 'n', octagon(pc - 5, b0 + 2, 10, 8, 2), frontT + 3.5, n0 - 1, post, { ...extras, handlePart: 'post' });
+        }
+      }
+      return;
+    }
+
+    if (style === 'gola') {
+      if (vertical) {
+        const edgeA = rightHinge ? 0 : Math.max(0, fw - 18);
+        const span = Math.min(fh - 12, Math.max(length + 40, fh * 0.55));
+        const startB = Math.max(6, (fh - span) / 2);
+        localPrism(W, 'b', [[edgeA, frontT], [edgeA + 18, frontT], [edgeA + 18, frontT + 4], [edgeA, frontT + 4]], startB, startB + span, post, { ...extras, handlePart: 'post' });
+        const lipA = rightHinge ? 0 : Math.max(0, fw - 6);
+        localPrism(W, 'b', [[lipA, frontT], [lipA + 6, frontT], [lipA + 6, frontT + 19], [lipA, frontT + 19]], startB, startB + span, bar, { ...extras, handlePart: 'bar' });
+      } else {
+        const span = Math.min(fw - 8, Math.max(length + 40, fw * 0.82));
+        const startA = (fw - span) / 2;
+        const topB = Math.max(0, fh - 18);
+        localPrism(W, 'a', [[topB, frontT], [fh, frontT], [fh, frontT + 4], [topB, frontT + 4]], startA, startA + span, post, { ...extras, handlePart: 'post' });
+        localPrism(W, 'a', [[fh - 5, frontT], [fh, frontT], [fh, frontT + 19], [fh - 5, frontT + 19]], startA, startA + span, bar, { ...extras, handlePart: 'bar' });
+      }
+      return;
+    }
+
+    if (style === 'recessed') {
+      const rw = Math.min(length, 148), rh = 38;
+      if (vertical) {
+        const ra = a0 - 12, rb = b0 + (length - rw) / 2;
+        localPrism(W, 'n', octagon(ra, rb, rh, rw, 4), frontT, frontT + 2.8, bar, { ...extras, handlePart: 'bar' });
+        localPrism(W, 'n', octagon(ra + 6, rb + 8, rh - 12, rw - 16, 2), frontT + 2.8, frontT + 3.6, '#1a1e21', { ...extras, handlePart: 'post' });
+      } else {
+        const ra = a0 + (length - rw) / 2, rb = b0 - 12;
+        localPrism(W, 'n', octagon(ra, rb, rw, rh, 4), frontT, frontT + 2.8, bar, { ...extras, handlePart: 'bar' });
+        localPrism(W, 'n', octagon(ra + 8, rb + 6, rw - 16, rh - 12, 2), frontT + 2.8, frontT + 3.6, '#1a1e21', { ...extras, handlePart: 'post' });
+      }
+      return;
+    }
+
     if (vertical) {
       localPrism(W, 'b', octagon(a0, n0, 12, n1 - n0), b0, b0 + length, bar, { ...extras, handlePart: 'bar' });
       for (const pc of [b0 + 12, b0 + 12 + cc]) localPrism(W, 'n', octagon(a0 + 2, pc - 4, 8, 8, 1.5), frontT, n0, post, { ...extras, handlePart: 'post' });
@@ -342,15 +467,9 @@ export function makeScene(project, options = {}, direction = null) {
     }
   };
   /**
-   * Concealed 35 mm cup hinge (110°, clip-on) for a side-hung door.
-   * - cup Ø35 in the door back, centre 22.5 mm from the hinge edge, with
-   *   flange screws 9.5 mm towards the door centre at ±22.5 mm;
-   * - cruciform mounting plate on the side/partition inner face, centred on
-   *   the System 32 line 37 mm behind the front edge, screws 32 mm apart;
-   * - arm clipped to the plate; half-overlay (shared partition) arms carry the
-   *   9 mm crank so two doors can share one 16–18 mm partition.
+   * Concealed 35 mm cup hinge (110°/155°, clip-on, soft-close damper) for a side-hung door.
    */
-  const concealedHinge = ({ W, rightHinge, inner, station, stationY, a, fz, opened, halfOverlay, inset }, extras) => {
+  const concealedHinge = ({ W, rightHinge, inner, station, stationY, a, fz, opened, halfOverlay, inset, hingeStyle = 'soft-close' }, extras) => {
     const side = rightHinge ? 1 : -1, into = -side; // `into` points from the panel into the opening
     const xr = (o0, o1) => [inner + into * o0, inner + into * o1].sort((p, q) => p - q);
     const boxAt = (o0, o1, y0, y1, z0, z1, color, part) => { const [xa, xb] = xr(o0, o1); rawBox(xa, y0, z0, xb - xa, y1 - y0, z1 - z0, color, sid(), { ...extras, hingePart: part }); };
@@ -370,6 +489,15 @@ export function makeScene(project, options = {}, direction = null) {
     const armFront = fz - 4;
     boxAt(2, 17, stationY - 8, stationY + 8, zp - 22, armFront, steel, 'arm');
     for (const z of [zp - 10, armFront - 12]) { const [xa, xb] = xr(17, 18.5); cylinderX(xa, stationY, z, xb - xa, 6.5, dark, sid(), { ...extras, hingePart: 'arm-cam' }); }
+    // Soft-close hydraulic damper cartridge & quick-release clip
+    if (hingeStyle === 'soft-close') {
+      boxAt(4, 15, stationY + 8, stationY + 13.5, zp - 14, armFront - 4, '#526068', 'damper');
+      boxAt(3, 16, stationY - 5, stationY + 5, zp - 22, zp - 17, '#3b76a8', 'clip-latch');
+    } else if (hingeStyle === 'wide-155') {
+      boxAt(3, 28, stationY - 11, stationY + 11, zp - 18, armFront - 2, '#9aa5ab', 'wide-knuckle');
+    } else if (hingeStyle === 'push-hinge') {
+      boxAt(2, 12, stationY + 18, stationY + 26, zp - 20, fz - 1, '#475259', 'push-plunger');
+    }
     let noseOffset = 9.5;
     if (inset) {
       boxAt(14, 28, stationY - 7, stationY + 7, armFront - 16, armFront, '#c5ced2', 'arm-crank');
@@ -430,7 +558,7 @@ export function makeScene(project, options = {}, direction = null) {
     const extras = { component, sectionId: part.sectionId, interiorSectionId:part.interiorSectionId, parentSectionId:part.parentSectionId, partId: part.id, braceId: part.braceId, drawerIndex:part.drawerIndex, internalDrawerIndex:part.internalDrawerIndex, noCutout: true, materialId: part.materialId, textureUrl: partMat?.textureUrl || partMat?.previewUrl };
     const internal=component.startsWith('internal-drawer')?engine.getInternalDrawerLayout(c,project).find(drawer=>drawer.sectionId===part.sectionId&&drawer.index===part.internalDrawerIndex):null;
     const external=part.component==='external-drawer-box'?engine.getExternalDrawerLayout?.(c,project).find(drawer=>drawer.sectionId===part.sectionId&&drawer.index===part.drawerIndex):null;
-    const slide = external&&options.doorsOpen ? Math.min(number(section?.usableDepth,number(external.depth,layout.bodyDepth))*.48,260) : internal&&options.doorsOpen&&options.internalDrawersOpen ? Math.min(internal.box.depth*.48,260) : component === 'pull-out-shelf' && options.doorsOpen ? Math.min(number(section?.usableDepth, number(section?.depth, c.depth)) * .48, 260) : 0;
+    const slide = external&&isDoorsOpen ? Math.min(number(section?.usableDepth,number(external.depth,layout.bodyDepth))*.48,260)*openProgress : internal&&isDoorsOpen&&options.internalDrawersOpen ? Math.min(internal.box.depth*.48,260)*openProgress : component === 'pull-out-shelf' && isDoorsOpen ? Math.min(number(section?.usableDepth, number(section?.depth, c.depth)) * .48, 260)*openProgress : 0;
     const x = c.x + position.x, y = c.y + c.plinth + position.y, z = c.z + position.z + slide, color = partMat?.color || '#deddd9';
     if (part.orientation === 'horizontal') {
       const outline = part.finishedOutline ?? part.outline ?? [{ x: 0, y: 0 }, { x: pw, y: 0 }, { x: pw, y: ph }, { x: 0, y: ph }];
@@ -530,10 +658,11 @@ export function makeScene(project, options = {}, direction = null) {
       const g = obstacleGeometry(project.room || {}, element);
       if (!g) continue;
       const inward = [g.frame.inward.x, 0, g.frame.inward.z];
-      const nearWall = !options.allFaces && direction && dot(inward, direction) < -.00001;
+      const isFreestanding = Boolean(g.freestanding || g.frame?.freestanding || g.element?.freestanding);
+      const nearWall = !isFreestanding && !options.allFaces && direction && dot(inward, direction) < -.00001;
       // Elements on a cut-away near wall would float in front of the camera.
       if (nearWall) continue;
-      const extras = { room: true, component: 'obstacle', obstacle: true, obstacleKind: g.kind, obstacleId: element.id };
+      const extras = { room: true, component: 'obstacle', obstacle: true, obstacleKind: g.kind, obstacleId: element.id, freestanding: isFreestanding };
       if (g.kind === 'pipe') {
         const pipeColor = '#73848c', clampColor = '#2f393d', p = g.pipe;
         const axisPoint = s => p.axis === 'y' ? [p.center.x, p.center.y + s, p.center.z] : [p.from.x + g.frame.u.x * s, p.from.y, p.from.z + g.frame.u.z * s];
@@ -599,17 +728,39 @@ export function makeScene(project, options = {}, direction = null) {
     }
     const modelParts = engine.generateParts({ ...project, settings: { ...project.settings, deductEdge: false }, cabinets: [raw] });
     modelParts.forEach(part => productionPanel(part, c));
+    const cabFinish = HANDLE_FINISHES[raw.handleFinish] || HANDLE_FINISHES.chrome;
     for(const rod of engine.getRodLayout?.(raw,project)||[]){
-      const rx=x+rod.x,ry=bodyY+rod.y,rz=z+rod.z,extras={component:'rod',rodId:rod.rodId||rod.id,sectionId:rod.sectionId,interiorSectionId:rod.interiorSectionId,rodLength:rod.length,rodDiameter:rod.diameter};
-      cylinderX(rx,ry,rz,rod.length,rod.diameter,'#647874',id,extras);
+      const rodSec = layout.sections.find(s => s.id === rod.sectionId);
+      const rodStyle = rod.style || rodSec?.node?.rodStyle || raw.rodStyle || 'round';
+      const rodFinish = HANDLE_FINISHES[rodSec?.node?.handleFinish || raw.handleFinish] || cabFinish;
+      const rx=x+rod.x,ry=bodyY+rod.y,rz=z+rod.z,extras={component:'rod',rodId:rod.rodId||rod.id,sectionId:rod.sectionId,interiorSectionId:rod.interiorSectionId,rodLength:rod.length,rodDiameter:rod.diameter,rodStyle};
+      cylinderX(rx,ry,rz,rod.length,rod.diameter,rodFinish.bar || '#647874',id,extras);
       const highlight=rod.diameter/2*Math.SQRT1_2;
-      line([rx,ry+highlight,rz+highlight],[rx+rod.length,ry+highlight,rz+highlight],'#c8d5cf',.65,id,{...extras,component:'rod-highlight'});
+      line([rx,ry+highlight,rz+highlight],[rx+rod.length,ry+highlight,rz+highlight],rodFinish.accent || '#c8d5cf',.65,id,{...extras,component:'rod-highlight'});
       const holderLength=Math.min(6,rod.length/4);
-      cylinderX(rx,ry,rz,holderLength,rod.diameter+.6,'#435b55',id,{...extras,component:'rod-holder',holderIndex:0});
-      cylinderX(rx+rod.length-holderLength,ry,rz,holderLength,rod.diameter+.6,'#435b55',id,{...extras,component:'rod-holder',holderIndex:1});
+      cylinderX(rx,ry,rz,holderLength,rod.diameter+.6,rodFinish.post || '#435b55',id,{...extras,component:'rod-holder',holderIndex:0});
+      cylinderX(rx+rod.length-holderLength,ry,rz,holderLength,rod.diameter+.6,rodFinish.post || '#435b55',id,{...extras,component:'rod-holder',holderIndex:1});
+      if (rodStyle === 'oval') {
+        rawBox(rx + holderLength, ry + rod.diameter * 0.42, rz - 4, Math.max(4, rod.length - 2 * holderLength), 3.5, 8, '#2b3135', id, { ...extras, component: 'rod-detail' });
+        rawBox(rx, ry, rz - 3.5, holderLength, 24, 7, rodFinish.post, id, { ...extras, component: 'rod-detail' });
+        rawBox(rx + rod.length - holderLength, ry, rz - 3.5, holderLength, 24, 7, rodFinish.post, id, { ...extras, component: 'rod-detail' });
+      } else if (rodStyle === 'led') {
+        rawBox(rx + holderLength, ry - rod.diameter * 0.56, rz - 3.5, Math.max(4, rod.length - 2 * holderLength), 3.2, 7, '#fff3cf', id, { ...extras, component: 'led-core' });
+      } else if (rodStyle === 'pantograph' && rod.length >= 220) {
+        const armH = Math.min(260, Math.max(120, rod.y * 0.35));
+        rawBox(rx + 2, ry - armH, rz - 14, 18, 95, 28, '#2c3338', id, { ...extras, component: 'rod-detail' });
+        rawBox(rx + rod.length - 20, ry - armH, rz - 14, 18, 95, 28, '#2c3338', id, { ...extras, component: 'rod-detail' });
+        cylinderY(rx + 11, ry - armH + 80, rz, Math.max(30, armH - 80), 10, rodFinish.bar, id, { ...extras, component: 'rod-detail' });
+        cylinderY(rx + rod.length - 11, ry - armH + 80, rz, Math.max(30, armH - 80), 10, rodFinish.bar, id, { ...extras, component: 'rod-detail' });
+        const pullY = Math.max(bodyY + 80, ry - armH - 60);
+        cylinderY(rx + rod.length / 2, pullY, rz + 12, Math.max(40, ry - pullY), 8, '#2c3338', id, { ...extras, component: 'rod-detail' });
+        cylinderX(rx + rod.length / 2 - 55, pullY, rz + 12, 110, 14, '#1e2327', id, { ...extras, component: 'rod-detail' });
+      }
     }
-    const renderDrawerRailings = (boxData, frontDepth, frontH, slideDistance, drawerExtras) => {
-      if (!boxData || (frontH < 150 && boxData.height < 80)) return;
+    const renderDrawerRailings = (boxData, frontDepth, frontH, slideDistance, drawerExtras, style = 'single-round', finish = 'chrome') => {
+      if (!boxData || style === 'none' || (frontH < 150 && boxData.height < 80)) return;
+      const fin = HANDLE_FINISHES[finish] || HANDLE_FINISHES.chrome;
+      const railColor = fin.bar || '#c0c8cc', connColor = fin.post || '#7e888d', hiColor = fin.accent || '#eaf1f5';
       const railDiameter = 10, connectorDiameter = 14;
       const railY = bodyY + boxData.y + boxData.height - 2;
       const zStart = bodyZ + boxData.z + 8 + slideDistance;
@@ -621,10 +772,32 @@ export function makeScene(project, options = {}, direction = null) {
       const rightX = x + boxData.x + boxData.width - boxData.panelThickness / 2;
 
       for (const rx of [leftX, rightX]) {
-        cylinderZ(rx, railY, zStart + 10, railLength - 20, railDiameter, '#c0c8cc', id, { ...drawerExtras, component: 'drawer-railing' });
-        cylinderZ(rx, railY, zEnd - 10, 10, connectorDiameter, '#7e888d', id, { ...drawerExtras, component: 'drawer-railing-connector' });
-        cylinderZ(rx, railY, zStart, 10, connectorDiameter, '#7e888d', id, { ...drawerExtras, component: 'drawer-railing-connector' });
-        line([rx, railY + railDiameter / 2, zStart + 10], [rx, railY + railDiameter / 2, zEnd - 10], '#eaf1f5', 1.2, id, { ...drawerExtras, component: 'drawer-railing-highlight' });
+        if (style === 'rectangular') {
+          rawBox(rx - 4.5, railY - 7, zStart + 8, 9, 15, railLength - 16, railColor, id, { ...drawerExtras, component: 'drawer-railing' });
+          rawBox(rx - 6, railY - 9, zEnd - 12, 12, 19, 12, connColor, id, { ...drawerExtras, component: 'drawer-railing-connector' });
+          rawBox(rx - 6, railY - 9, zStart, 12, 19, 12, connColor, id, { ...drawerExtras, component: 'drawer-railing-connector' });
+          line([rx, railY + 8, zStart + 8], [rx, railY + 8, zEnd - 8], hiColor, 1.2, id, { ...drawerExtras, component: 'drawer-railing-highlight' });
+        } else if (style === 'legrabox-glass') {
+          const glassH = Math.max(38, Math.min(95, frontH * 0.42));
+          const glassY = bodyY + boxData.y + Math.min(boxData.height - 12, 42);
+          rawBox(rx - 6.5, bodyY + boxData.y, zStart - 6, 13, 44, railLength + 10, connColor, id, { ...drawerExtras, component: 'drawer-railing-connector' });
+          rawBox(rx - 3, glassY, zStart + 6, 6, glassH, railLength - 14, '#bfe3ec', id, { ...drawerExtras, component: 'drawer-glass', opacity: 0.36 });
+          rawBox(rx - 5, glassY + glassH, zStart + 4, 10, 5, railLength - 10, railColor, id, { ...drawerExtras, component: 'drawer-railing' });
+          line([rx, glassY + glassH + 5, zStart + 4], [rx, glassY + glassH + 5, zEnd - 6], hiColor, 1.2, id, { ...drawerExtras, component: 'drawer-railing-highlight' });
+        } else {
+          cylinderZ(rx, railY, zStart + 10, railLength - 20, railDiameter, railColor, id, { ...drawerExtras, component: 'drawer-railing' });
+          cylinderZ(rx, railY, zEnd - 10, 10, connectorDiameter, connColor, id, { ...drawerExtras, component: 'drawer-railing-connector' });
+          cylinderZ(rx, railY, zStart, 10, connectorDiameter, connColor, id, { ...drawerExtras, component: 'drawer-railing-connector' });
+          line([rx, railY + railDiameter / 2, zStart + 10], [rx, railY + railDiameter / 2, zEnd - 10], hiColor, 1.2, id, { ...drawerExtras, component: 'drawer-railing-highlight' });
+          if (style === 'double-round' && (frontH >= 190 || boxData.height >= 100)) {
+            const railY2 = railY + Math.min(54, Math.max(32, frontH * 0.22));
+            cylinderZ(rx, railY2, zStart + 10, railLength - 20, railDiameter, railColor, id, { ...drawerExtras, component: 'drawer-railing' });
+            cylinderZ(rx, railY2, zEnd - 10, 10, connectorDiameter, connColor, id, { ...drawerExtras, component: 'drawer-railing-connector' });
+            cylinderZ(rx, railY2, zStart, 10, connectorDiameter, connColor, id, { ...drawerExtras, component: 'drawer-railing-connector' });
+            cylinderY(rx, bodyY + boxData.y + boxData.height - 6, zStart + railLength * 0.5, railY2 - (bodyY + boxData.y + boxData.height - 6) + 6, 8, connColor, id, { ...drawerExtras, component: 'drawer-railing-connector' });
+            line([rx, railY2 + railDiameter / 2, zStart + 10], [rx, railY2 + railDiameter / 2, zEnd - 10], hiColor, 1.1, id, { ...drawerExtras, component: 'drawer-railing-highlight' });
+          }
+        }
       }
     };
     const renderDrawerRunners = (boxX, boxY, boxZ, boxW, boxH, boxD, slideDistance, leftWallX, rightWallX, drawerExtras) => {
@@ -749,12 +922,16 @@ export function makeScene(project, options = {}, direction = null) {
         }
       }
 
-      const slide = options.doorsOpen && options.internalDrawersOpen ? Math.min(internal.box.depth * .48, 260) : 0;
+      const outerSec = layout.sections.find(s => s.id === internal.sectionId);
+      const iFinishKey = outerSec?.node?.handleFinish || raw.handleFinish || 'chrome';
+      const iRailingStyle = outerSec?.node?.drawerRailingStyle || raw.drawerRailingStyle || 'single-round';
+      const slide = isDoorsOpen && options.internalDrawersOpen ? Math.min(internal.box.depth * .48, 260) * openProgress : 0;
       if (internal.openingMechanism !== 'push') {
         const handleWidth = Math.min(160, internal.width * .38), iz = bodyZ + internal.depth + internal.frontThickness + 7 + slide;
-        box(x + internal.x + (internal.width - handleWidth) / 2, bodyY + internal.y + internal.height * .65, iz, handleWidth, 7, 9, '#6a655b', id, { component: 'internal-drawer-handle', sectionId: internal.sectionId, internalDrawerIndex: internal.index, handle: true, noCutout: true });
+        const iFin = HANDLE_FINISHES[iFinishKey] || HANDLE_FINISHES.chrome;
+        box(x + internal.x + (internal.width - handleWidth) / 2, bodyY + internal.y + internal.height * .65, iz, handleWidth, 7, 9, iFin.bar || '#6a655b', id, { component: 'internal-drawer-handle', sectionId: internal.sectionId, internalDrawerIndex: internal.index, handle: true, noCutout: true });
       }
-      renderDrawerRailings(internal.box, internal.depth + internal.frontThickness, internal.height, slide, { sectionId: internal.sectionId, internalDrawerIndex: internal.index });
+      renderDrawerRailings(internal.box, internal.depth + internal.frontThickness, internal.height, slide, { sectionId: internal.sectionId, internalDrawerIndex: internal.index }, iRailingStyle, iFinishKey);
 
       // Render internal drawer telescopic runners
       const ibox = internal.box;
@@ -903,6 +1080,10 @@ export function makeScene(project, options = {}, direction = null) {
       const fMat = material(project, fMatId);
       const fColor = fMat?.color || c.frontColor;
       const fFrontT = Math.max(3, number(fMat?.thickness, frontT));
+      const fHandleStyle = section?.node?.handleStyle || raw.handleStyle || 'bar';
+      const fHandleFinish = section?.node?.handleFinish || raw.handleFinish || 'chrome';
+      const fHingeStyle = section?.node?.hingeStyle || raw.hingeStyle || (f.openingMechanism === 'push' ? 'push-hinge' : 'soft-close');
+      const fDrawerRailingStyle = section?.node?.drawerRailingStyle || raw.drawerRailingStyle || 'single-round';
       const fx = x + number(f.x), fy = bodyY + number(f.y), fw = number(f.width), fh = number(f.height), fz = bodyZ + fd;
       const opening = f.kind === 'door' ? doorOpening(f) : null;
       const frontExtras = { component: 'front', sectionId: f.sectionId, frontIndex: f.index, openingMechanism: f.openingMechanism || 'handle', ...(opening ? { doorOpening: opening } : {}), materialId: fMatId, textureUrl: fMat?.textureUrl || fMat?.previewUrl };
@@ -918,15 +1099,16 @@ export function makeScene(project, options = {}, direction = null) {
       const sharedPartitionHinge = sideHung ? isDoorOnSharedPartition(f, fronts, layout, w) : false;
       const isInset = f.frontMount === 'inset';
       const closedW = (a, b, n) => [fx + a, fy + b, fz + n];
-      const doorAngle = 85 * Math.PI / 180, doorCos = Math.cos(doorAngle), doorSin = Math.sin(doorAngle);
+      const maxSwingDeg = fHingeStyle === 'wide-155' ? 125 : 85;
+      const doorAngle = (maxSwingDeg * openProgress) * Math.PI / 180, doorCos = Math.cos(doorAngle), doorSin = Math.sin(doorAngle);
       const hingePlaneX = opening === 'right' ? (sharedPartitionHinge || isInset ? fx + fw : wallRight) : (sharedPartitionHinge || isInset ? fx : wallLeft);
-      const doorW = !options.doorsOpen || !sideHung ? closedW
+      const doorW = !isDoorsOpen || !sideHung ? closedW
         : opening === 'right' ? (a, b, n) => [hingePlaneX - (fw - a) * doorCos - (fFrontT - n) * doorSin, fy + b, fz + (fw - a) * doorSin - (fFrontT - n) * doorCos]
         : (a, b, n) => [hingePlaneX + a * doorCos + (fFrontT - n) * doorSin, fy + b, fz + a * doorSin - (fFrontT - n) * doorCos];
       if (f.kind === 'door' && showHinges && !options.interior) {
         const count = hingeRows.find(row => row.sectionId === f.sectionId && row.index === f.index)?.quantity ?? (f.hingesPerDoor || (fh >= 2000 ? 5 : fh >= 1600 ? 4 : fh >= 900 ? 3 : 2));
         const rightHinge = opening === 'right', topHinge = opening === 'up';
-        const hingeSymbols = createDoorHingeSymbols({ width: fw, height: fh, thickness: fFrontT, opening, opened: Boolean(options.doorsOpen), count });
+        const hingeSymbols = createDoorHingeSymbols({ width: fw, height: fh, thickness: fFrontT, opening, opened: isDoorsOpen, count });
         for (const hinge of hingeSymbols) {
           const world = p => [fx + p[0], fy + p[1], fz + p[2]];
           const extras = { component: 'hinge', sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, hingeIndex: hinge.index, hingeType: isInset ? 'inset' : (sharedPartitionHinge ? 'half-overlay' : 'full-overlay'), sharedPartition: sharedPartitionHinge, schematic: true, stroke: '#53605e' };
@@ -937,7 +1119,7 @@ export function makeScene(project, options = {}, direction = null) {
             rawBox(hx - 14, wallTop - t, fz - 44, 28, 4, 30, '#b0b8bc', id, { ...extras, hingePart: 'plate' });
             rawBox(hx - 7.5, wallTop - t - 10, fz - 32, 15, 12, 34, '#c5ced2', id, { ...extras, hingePart: 'arm' });
           } else {
-            concealedHinge({ W: doorW, rightHinge, inner: rightHinge ? wallRight - t : wallLeft + t, station, stationY, a: rightHinge ? fw - 22.5 : 22.5, fz, opened: Boolean(options.doorsOpen), halfOverlay: sharedPartitionHinge, inset: isInset }, extras);
+            concealedHinge({ W: doorW, rightHinge, inner: rightHinge ? wallRight - t : wallLeft + t, station, stationY, a: rightHinge ? fw - 22.5 : 22.5, fz, opened: isDoorsOpen, halfOverlay: sharedPartitionHinge, inset: isInset, hingeStyle: fHingeStyle }, extras);
           }
 
           // Lines for 2D schematic mode compatibility
@@ -946,10 +1128,10 @@ export function makeScene(project, options = {}, direction = null) {
       }
       if (f.kind === 'drawer') {
         const usableDepth = number(section?.usableDepth, fd), rearOffset = number(section?.rearOffset);
-        const slide = options.doorsOpen ? Math.min(usableDepth * .48, 260) : 0;
+        const slide = isDoorsOpen ? Math.min(usableDepth * .48, 260) * openProgress : 0;
         const boxData = externalDrawers.find(drawer => drawer.index === f.index && drawer.sectionId === f.sectionId)?.box;
         if (boxData) {
-          renderDrawerRailings(boxData, fd, fh, slide, { sectionId: f.sectionId, drawerIndex: f.index });
+          renderDrawerRailings(boxData, fd, fh, slide, { sectionId: f.sectionId, drawerIndex: f.index }, fDrawerRailingStyle, fHandleFinish);
         }
         if (!modelParts.some(part => part.component === 'external-drawer-box' && part.drawerIndex === f.index && part.sectionId === f.sectionId && part.position && part.orientation)) {
           const drawerMaterial = material(project, raw.drawerMaterialId || raw.materialId);
@@ -976,15 +1158,15 @@ export function makeScene(project, options = {}, direction = null) {
         box(fx, fy, fz + slide, fw, fh, fFrontT, fColor, id, frontExtras);
         if (f.openingMechanism !== 'push') {
           const length = handleSpacing(Math.max(120, Math.min(fw * .45, 344))) + 24;
-          barHandle((a, b, n) => [fx + a, fy + b, fz + slide + n], fFrontT, { vertical: false, a0: (fw - length) / 2, b0: fh < 250 ? fh / 2 - 6 : fh - 66, length }, { handle: true, component: 'drawer-handle', sectionId: f.sectionId, frontIndex: f.index, stroke: 'transparent' });
+          barHandle((a, b, n) => [fx + a, fy + b, fz + slide + n], fFrontT, { vertical: false, a0: (fw - length) / 2, b0: fh < 250 ? fh / 2 - 6 : fh - 66, length, style: fHandleStyle, finish: fHandleFinish, fw, fh }, { handle: true, component: 'drawer-handle', sectionId: f.sectionId, frontIndex: f.index, stroke: 'transparent' });
         }
       } else if (options.interior) {
         continue;
-      } else if (options.doorsOpen && f.kind !== 'blind-panel') {
+      } else if (isDoorsOpen && f.kind !== 'blind-panel') {
         const rightHinge = opening === 'right', topHinge = opening === 'up';
         const handleExtras = { component: 'door-handle', handle: true, sectionId: f.sectionId, frontIndex: f.index, doorOpening: opening, stroke: 'transparent' };
         if (topHinge) {
-          const angle = Math.PI * .44, cos = Math.cos(angle), sin = Math.sin(angle);
+          const angle = Math.PI * .44 * openProgress, cos = Math.cos(angle), sin = Math.sin(angle);
           const u = [1, 0, 0], v = [0, -cos, sin], n = [0, sin, cos];
           const origin = [fx, fy + fh, fz];
           const transform = (a, b, depth) => add(origin, add(mul(u, a), add(mul(v, b), mul(n, depth))));
@@ -992,16 +1174,16 @@ export function makeScene(project, options = {}, direction = null) {
           [[0, 1, 2, 3], [4, 5, 6, 7], [3, 2, 6, 7], [1, 5, 6, 2], [0, 4, 7, 3], [0, 1, 5, 4]].forEach((indices, i) => face(indices.map(j => doorPoints[j]), colorShade(fColor, i === 2 ? 1.03 : .94), null, id, frontExtras));
           if (f.openingMechanism !== 'push') {
             const length = handleSpacing(Math.max(120, fw * .4)) + 24;
-            barHandle((a, b, depth) => transform(a, fh - b, depth), fFrontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length }, handleExtras);
+            barHandle((a, b, depth) => transform(a, fh - b, depth), fFrontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length, style: fHandleStyle, finish: fHandleFinish, fw, fh, rightHinge }, handleExtras);
           }
         } else {
-          // Side-hung door swung 90° about its hinge plane (wall face, or its own
+          // Side-hung door swung about its hinge plane (wall face, or its own
           // edge on a shared partition); the front face stays on the outside.
           const corners = [[0, 0, 0], [fw, 0, 0], [fw, fh, 0], [0, fh, 0], [0, 0, fFrontT], [fw, 0, fFrontT], [fw, fh, fFrontT], [0, fh, fFrontT]].map(v => doorW(...v));
           [[[0, 3, 2, 1], [0, 0, -1]], [[4, 5, 6, 7], [0, 0, 1]], [[0, 4, 7, 3], [-1, 0, 0]], [[1, 2, 6, 5], [1, 0, 0]], [[3, 7, 6, 2], [0, 1, 0]], [[0, 1, 5, 4], [0, -1, 0]]].forEach(([indices], i) => face(indices.map(j => corners[j]), colorShade(fColor, i === 1 ? 1.03 : .94), null, id, frontExtras));
           if (f.openingMechanism !== 'push') {
             const length = handleSpacing(Math.max(120, fh * .3)) + 24;
-            barHandle(doorW, fFrontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length }, handleExtras);
+            barHandle(doorW, fFrontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length, style: fHandleStyle, finish: fHandleFinish, fw, fh, rightHinge }, handleExtras);
           }
         }
       } else {
@@ -1011,10 +1193,10 @@ export function makeScene(project, options = {}, direction = null) {
         if (f.openingMechanism === 'push' || f.kind === 'blind-panel') continue;
         if (topHinge) {
           const length = handleSpacing(Math.max(120, fw * .4)) + 24;
-          barHandle(closedW, fFrontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length }, handleExtras);
+          barHandle(closedW, fFrontT, { vertical: false, a0: (fw - length) / 2, b0: 26, length, style: fHandleStyle, finish: fHandleFinish, fw, fh, rightHinge }, handleExtras);
         } else {
           const length = handleSpacing(Math.max(120, fh * .3)) + 24;
-          barHandle(closedW, fFrontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length }, handleExtras);
+          barHandle(closedW, fFrontT, { vertical: true, a0: rightHinge ? 26 : fw - 34, b0: fh * .43, length, style: fHandleStyle, finish: fHandleFinish, fw, fh, rightHinge }, handleExtras);
         }
       }
     }

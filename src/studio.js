@@ -6,7 +6,7 @@ import {resizeCabinetOnPlan} from './cabinet-plan-resize.js';
 import {getInteriorLayout,createInteriorFromSection,findInteriorNode,splitInteriorSection,removeInteriorSection} from './cabinet-interior.js';
 import {getInteriorDrawerHardwareOwner,setInteriorDrawerHingeGap} from './interior-hardware.js';
 import {checkImport,csvCell} from './project-io.js';
-import {FurnitureViewport,createDrawingSvg,createAssemblySvg,generateDrawingHTML,createPartSvg,describePartEdges,generateCabinet3DHTML,generateRoom3DHTML,generateHardwareHTML,generateCostPrintHTML} from './renderer.js';
+import {FurnitureViewport,createDrawingSvg,createAssemblySvg,generateDrawingHTML,createPartSvg,describePartEdges,generateCabinet3DHTML,generateRoom3DHTML,generateHardwareHTML,generateCostPrintHTML,HANDLE_STYLES,HANDLE_FINISHES,HINGE_STYLES,DRAWER_RAILING_STYLES,ROD_STYLES} from './renderer.js';
 import {generateRoomPlanHTML} from './room-print.js';
 import {generateRoomPresentationHTML} from './room-presentation.js';
 import {generateRoomOBJ,downloadRoomOBJ} from './room-obj.js';
@@ -38,25 +38,26 @@ import {inspectCabinetPart} from './part-inspection.js';
 import {createPartInspectionSvg} from './part-inspection-diagram.js';
 import {setPartEdgeBanding,getPartEdgeBandingOverride} from './part-edge-banding.js';
 
-const $=s=>document.querySelector(s);
+const $=s=>typeof document!=='undefined'?document.querySelector(s):null;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=(v,d=0)=>Number(v||0).toLocaleString('ru-RU',{maximumFractionDigits:d});
 const rounded=v=>Math.round(Number(v)*10)/10;
 const uid=p=>`${p}-${crypto.randomUUID().slice(0,8)}`;
 const clone=v=>structuredClone(v);
 const key='atolye.project.v1',pricingKey='atolye.pricing.v1';
-const demoMode=new URLSearchParams(location.search).has('demo');
-let interfaceLanguage='tr';try{const language=localStorage.getItem('atolye.ui.language');if(['ru','tr','en'].includes(language))interfaceLanguage=language;}catch{}
-const paths={plus:'M12 5v14M5 12h14',cube:'m12 3 9 5v8l-9 5-9-5V8l9-5Zm0 10v8M3 8l9 5 9-5',room:'M3 3h18v18H3V3Zm9 0v8h9',drawing:'M4 3h16v18H4V3Zm4 5h8m-8 4h5m-5 4h8',cut:'M3 3h18v18H3V3Zm7 0v18m0-12h11m-11 6h11',undo:'m8 4-5 5 5 5M3 9h10a7 7 0 0 1 7 7v3',redo:'m16 4 5 5-5 5m5-5H11a7 7 0 0 0-7 7v3',close:'m6 6 12 12M6 18 18 6',menu:'M4 6h16M4 12h16M4 18h16',download:'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',settings:'M4 7h16M4 17h16M8 4v6M16 14v6',copy:'M8 8h13v13H8V8Zm0 8H3V3h13v5',trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15',reset:'M3 10a9 9 0 1 1 2 8M3 3v7h7',door:'M4 3h16v18H4V3Zm8 0v18m-3-10v3m6-3v3',drawer:'M3 4h18v16H3V4Zm0 8h18M9 8h6m-6 8h6',open:'M3 3h18v18H3V3Zm0 9h18',splitH:'M3 3h18v18H3V3Zm0 9h18m-6-6 3 3 3-3m-6 12 3-3 3 3',splitV:'M3 3h18v18H3V3Zm9 0v18M6 9l3 3-3 3m12-6-3 3 3 3',print:'M6 8V3h12v5M6 17H3V8h18v9h-3M6 14h12v7H6v-7Z',check:'m5 12 4 4L19 6',info:'M12 11v6m0-10v1',camera:'M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'};
+const locSearch=typeof location!=='undefined'?location.search:'';
+const demoMode=new URLSearchParams(locSearch).has('demo');
+let interfaceLanguage='tr';try{const language=typeof localStorage!=='undefined'?localStorage.getItem('atolye.ui.language'):null;if(['ru','tr','en'].includes(language))interfaceLanguage=language;}catch{}
+const paths={plus:'M12 5v14M5 12h14',cube:'m12 3 9 5v8l-9 5-9-5V8l9-5Zm0 10v8M3 8l9 5 9-5',room:'M3 3h18v18H3V3Zm9 0v8h9',drawing:'M4 3h16v18H4V3Zm4 5h8m-8 4h5m-5 4h8',cut:'M3 3h18v18H3V3Zm7 0v18m0-12h11m-11 6h11',undo:'m8 4-5 5 5 5M3 9h10a7 7 0 0 1 7 7v3',redo:'m16 4 5 5-5 5m5-5H11a7 7 0 0 0-7 7v3',close:'m6 6 12 12M6 18 18 6',menu:'M4 6h16M4 12h16M4 18h16',download:'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',settings:'M4 7h16M4 17h16M8 4v6M16 14v6',copy:'M8 8h13v13H8V8Zm0 8H3V3h13v5',trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15',reset:'M3 10a9 9 0 1 1 2 8M3 3v7h7',door:'M4 3h16v18H4V3Zm8 0v18m-3-10v3m6-3v3',drawer:'M3 4h18v16H3V4Zm0 8h18M9 8h6m-6 8h6',open:'M3 3h18v18H3V3Zm0 9h18',splitH:'M3 3h18v18H3V3Zm0 9h18m-6-6 3 3 3-3m-6 12 3-3 3 3',splitV:'M3 3h18v18H3V3Zm9 0v18M6 9l3 3-3 3m12-6-3 3 3 3',print:'M6 8V3h12v5M6 17H3V8h18v9h-3M6 14h12v7H6v-7Z',check:'m5 12 4 4L19 6',info:'M12 11v6m0-10v1',measure:'M3 17l4 4L21 7l-4-4L3 17Zm4 4l-4-4m8-8l-2 2m4-2l-2 2m4-2l-2 2',camera:'M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'};
 const icon=name=>`<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.cube}"/></svg>`;
-let project=(new Map([['laundry',createLaundryExample],['interior',createInteriorExample],['rods',createRodsExample]]).get(new URLSearchParams(location.search).get('demo'))??createDefaultProject)(interfaceLanguage),restored=false;
+let project=(new Map([['laundry',createLaundryExample],['interior',createInteriorExample],['rods',createRodsExample]]).get(new URLSearchParams(locSearch).get('demo'))??createDefaultProject)(interfaceLanguage),restored=false;
 if(!demoMode)applyApplicationPricing(project);
-try{const saved=demoMode?null:JSON.parse(localStorage.getItem(key));if(saved?.project){checkImport(saved.project);project=saved.project;restored=true;}}catch{}
+try{const saved=demoMode?null:(typeof localStorage!=='undefined'?JSON.parse(localStorage.getItem(key)):null);if(saved?.project){checkImport(saved.project);project=saved.project;restored=true;}}catch{}
 function prepare(p){ensureDefaultBackMaterial(p);if(p.settings.drilling)p.settings.drilling=normalizeDrillingSettings(p.settings.drilling);p.settings.deductEdge=true;p.room.outline??=getRoomOutline(p.room);p.cabinets.forEach(c=>{c.includeBack??=true;c.rotation??=0;});syncMezzanines(p);p.version=2;return p;}
 prepare(project);
 let cabinetId=project.cabinets[0]?.id,sectionId=null,mode='cabinet',cabinetView='scheme',drawingView='front',selectedWall=0,factoryCabinetId=null,drawingAssemblyPage=1;
 let history=[],future=[],parts=[],cutting={sheets:[],unplaced:[],totalSheets:0,utilization:0},warnings=[];
-let expanded=new Set(),toastTimer,roomView='plan';
+let expanded=new Set(['hardware-design']),toastTimer,roomView='plan';
 let propertyContext='';
 let interiorParentId=null;
 let drawingZoom,partZoom,drawingZoomView=null;
@@ -67,26 +68,46 @@ let inspectionMarkerId=null;
 let inspectionCache=null;
 let refreshPartModal=null;
 
+let cabinetEditor=null,viewport=null,roomViewport=null,roomRenderer=null,roomEditor=null;
+
+if(typeof document!=='undefined'&&$('#app')){
 $('#app').innerHTML=`<header class="studio-header"><a class="brand" href="#" aria-label="ATÖLYE"><span class="brand-mark">A</span><strong>ATÖLYE</strong></a><button class="project-name" data-action="rename"></button><div class="mode-tabs" role="tablist"><button data-mode="cabinet">${icon('cube')}Шкаф</button><button data-mode="room">${icon('room')}Помещение</button><button data-mode="cutting">${icon('cut')}Раскрой</button></div><span class="local-state">На вашем компьютере</span><div class="header-right"><button class="text-button" data-action="help">Как работать</button><span class="units">мм</span><button class="icon-button" data-action="undo" aria-label="Отменить" title="Ctrl+Z">${icon('undo')}</button><button class="icon-button" data-action="redo" aria-label="Повторить" title="Ctrl+Y">${icon('redo')}</button><button class="button" data-action="file">${icon('menu')}Проект</button></div></header>
 <main class="studio-workspace"><aside class="project-sidebar"><div class="sidebar-heading">ШКАФЫ ПРОЕКТА <span id="cabinet-count"></span></div><div id="cabinet-list"></div><button class="add-cabinet" data-action="add-cabinet">${icon('plus')}Добавить шкаф</button><div class="sidebar-bottom"><button class="text-button" data-action="materials">${icon('settings')}Материалы</button></div></aside>
-<section class="studio-stage"><div class="stage-header"><div class="stage-title-wrap"><span class="eyebrow" id="stage-eyebrow"></span><h1 id="stage-title"></h1></div><div class="stage-center-tools"><div class="view-switch" id="cabinet-view-switch" role="toolbar" aria-label="Виды шкафа"><button data-cabinet-view="scheme">Схема</button><button data-cabinet-view="3d">3D</button><button data-cabinet-view="drawings">Чертежи</button></div><div class="cabinet-3d-toolbar" id="cabinet-3d-tools" hidden><button class="button" data-action="explode-parts">Раздвинуть детали</button><button class="button quiet" data-action="open-fronts">Открыть фасады</button><button class="button quiet" data-action="open-internal" hidden>Открыть внутренние ящики</button><button class="button quiet" data-action="cabinet-3d-print">Печать 3D-вида</button></div></div><div id="stage-actions"></div></div>
+<section class="studio-stage"><div class="stage-header"><div class="stage-title-wrap"><span class="eyebrow" id="stage-eyebrow"></span><h1 id="stage-title"></h1></div><div class="stage-center-tools"><div class="view-switch" id="cabinet-view-switch" role="toolbar" aria-label="Виды шкафа"><button data-cabinet-view="scheme">Схема</button><button data-cabinet-view="3d">3D</button><button data-cabinet-view="drawings">Чертежи</button><button type="button" class="raytrace-tab-btn" data-action="open-raytrace-3d" title="Открыть реалистичный 3D-рендер с трассировкой лучей">✨ Фото-рендер 3D</button></div><div class="cabinet-3d-toolbar" id="cabinet-3d-tools" hidden><button class="button" data-action="explode-parts">Раздвинуть детали</button><button class="button quiet" data-action="open-fronts">Открыть фасады</button><label class="render-color open-slider-wrap" title="Плавное открытие дверей и ящиков"><span id="cabinet-open-label">Открытие: 0%</span><input type="range" min="0" max="100" step="1" data-action="cabinet-open-slider" id="cabinet-open-slider" value="0"></label><button class="button quiet" data-action="open-internal" hidden>Открыть внутренние ящики</button><button class="button quiet" data-action="cabinet-3d-print">Печать 3D-вида</button></div></div><div id="stage-actions"></div></div>
 <div class="design-canvas" id="design-shell"><div class="canvas-top"><div class="canvas-edit-tools" id="cabinet-tools" role="toolbar" aria-label="Инструменты секции"><button class="button" data-split="horizontal" title="Разделить выбранную секцию по высоте">${icon('splitH')}По высоте</button><button class="button" data-split="vertical" title="Разделить выбранную секцию по ширине">${icon('splitV')}По ширине</button><button class="icon-button" data-action="extend-left" title="Добавить секцию слева" aria-label="Добавить секцию слева">←${icon('plus')}</button><button class="icon-button" data-action="extend-right" title="Добавить секцию справа" aria-label="Добавить секцию справа">${icon('plus')}→</button><button class="icon-button" data-action="delete-section" title="Удалить выбранную секцию, расширив соседнюю" aria-label="Удалить секцию">${icon('trash')}</button></div><button class="icon-button" data-action="reset-view" title="Уместить на экране" aria-label="Уместить на экране">${icon('reset')}</button></div><div id="cabinet-editor"></div><canvas id="cabinet-viewport" hidden></canvas></div>
-<div class="room-canvas" id="room-shell" hidden><div class="room-tools" id="room-tools" role="toolbar" aria-label="Инструменты помещения"><button class="button" data-action="add-window">${icon('plus')}Окно</button><button class="button" data-action="add-door">${icon('door')}Дверь</button><button class="button" data-action="add-pipe" title="Труба у выбранной стены">Труба</button><button class="button" data-action="add-box" title="Короб, колонна или вентканал у выбранной стены">Короб</button><button class="button" data-action="room-niche">Ниша</button><button class="button" data-action="room-protrusion">Выступ</button><button class="icon-button" data-action="add-corner" title="Добавить угол на выбранной стене" aria-label="Добавить угол">${icon('plus')}</button><button class="icon-button" data-action="remove-corner" title="Удалить выбранный угол" aria-label="Удалить угол">${icon('trash')}</button></div><div id="room-editor"></div><canvas id="room-viewport" hidden></canvas><canvas id="room-render-viewport" hidden></canvas></div>
+<div class="room-canvas" id="room-shell" hidden><div class="room-tools" id="room-tools" role="toolbar" aria-label="Инструменты помещения"><button class="button" data-action="add-window">${icon('plus')}Окно</button><button class="button" data-action="add-door">${icon('door')}Дверь</button><button class="button" data-action="add-pipe" title="Труба у выбранной стены">Труба</button><button class="button" data-action="add-box" title="Короб, колонна или вентканал у выбранной стены">Короб</button><button class="button" data-action="room-niche">Ниша</button><button class="button" data-action="room-protrusion">Выступ</button><button class="button" data-action="toggle-measure" title="Рулетка: измерение расстояний">${icon('measure')}Рулетка</button><button class="icon-button" data-action="add-corner" title="Добавить угол на выбранной стене" aria-label="Добавить угол">${icon('plus')}</button><button class="icon-button" data-action="remove-corner" title="Удалить выбранный угол" aria-label="Удалить угол">${icon('trash')}</button></div><div id="room-editor"></div><canvas id="room-viewport" hidden></canvas><canvas id="room-render-viewport" hidden></canvas><div class="render-hud-overlay" id="render-hud" hidden></div></div>
 <div class="drawing-stage" id="drawings-shell" hidden></div><div class="cutting-stage" id="cutting-shell" hidden></div><div class="stage-status" id="stage-status"></div></section>
 <aside class="properties"><div id="properties-content"></div></aside></main><footer class="studio-footer"><span id="footer-info"></span><button class="text-button" data-action="validation" id="validation-button"></button></footer>`;
 
-$('[data-action="undo"]').insertAdjacentHTML('beforebegin',`<select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="tr">Türkçe</option><option value="en">English</option></select>`);
-$('#interface-language').value=interfaceLanguage;
-const cabinetEditor=new CabinetEditor($('#cabinet-editor'),{onSelect:id=>{sectionId=id;render();},onResize:(id,axis,mm)=>change(()=>{const c=selectedCabinet();return applyCabinetResult(c,interiorParentId?resizeConstrainedInteriorDivider(c,interiorParentId,id,axis,mm,project):resizeApplianceDivider(c,id,axis,mm,project));})});
-const viewport=new FurnitureViewport($('#cabinet-viewport'),{onSelect:id=>{if(id){if(id!==cabinetId)interiorParentId=null;cabinetId=id;sectionId=null;render();}},onPartSelect:id=>{if(inspectionPartId!==id)inspectionMarkerId=null;inspectionPartId=id;viewport.setOptions({selectedPartId:id});renderProperties();},onPartOpen:id=>{if(id)showPart(id);}});
-const roomViewport=new FurnitureViewport($('#room-viewport'),{onSelect:id=>{if(id){if(id!==cabinetId){interiorParentId=null;sectionId=null;}cabinetId=id;roomFocus='cabinet';selectedWindowId=null;roomViewport.setProject(project,cabinetId);renderProperties();renderList();}}});
-const roomRenderer=new RoomWebGLRenderer($('#room-render-viewport'),{onSelect:id=>{if(id){if(id!==cabinetId)interiorParentId=null;cabinetId=id;sectionId=null;roomFocus='cabinet';selectedWindowId=null;renderProperties();renderList();}}});
+$('[data-action="undo"]')?.insertAdjacentHTML('beforebegin',`<select id="interface-language" aria-label="Язык интерфейса"><option value="ru">Русский</option><option value="tr">Türkçe</option><option value="en">English</option></select>`);
+if($('#interface-language'))$('#interface-language').value=interfaceLanguage;
+cabinetEditor=new CabinetEditor($('#cabinet-editor'),{onSelect:id=>{sectionId=id;render();},onResize:(id,axis,mm)=>change(()=>{const c=selectedCabinet();return applyCabinetResult(c,interiorParentId?resizeConstrainedInteriorDivider(c,interiorParentId,id,axis,mm,project):resizeApplianceDivider(c,id,axis,mm,project));})});
+viewport=new FurnitureViewport($('#cabinet-viewport'),{onSelect:id=>{if(id){if(id!==cabinetId)interiorParentId=null;cabinetId=id;sectionId=null;render();}},onPartSelect:id=>{if(inspectionPartId!==id)inspectionMarkerId=null;inspectionPartId=id;viewport.setOptions({selectedPartId:id});renderProperties();},onPartOpen:id=>{if(id)showPart(id);}});
+roomViewport=new FurnitureViewport($('#room-viewport'),{onSelect:id=>{if(id){if(id!==cabinetId){interiorParentId=null;sectionId=null;}cabinetId=id;roomFocus='cabinet';selectedWindowId=null;roomViewport.setProject(project,cabinetId);renderProperties();renderList();}}});
+roomRenderer=new RoomWebGLRenderer($('#room-render-viewport'),{onSelect:id=>{if(id){if(id!==cabinetId)interiorParentId=null;cabinetId=id;sectionId=null;roomFocus='cabinet';selectedWindowId=null;renderProperties();renderList();renderHud();}}});
 try{const savedQuality=localStorage.getItem('atolye.render.quality');if(RENDER_QUALITY[savedQuality])roomRenderer.quality=savedQuality;}catch{}
 try{const savedFloor=localStorage.getItem('atolye.render.floorStyle');if(FLOOR_STYLES[savedFloor])roomRenderer.floorStyle=savedFloor;}catch{}
 try{const sun=JSON.parse(localStorage.getItem('atolye.render.sun')||'null');if(sun){if(Number.isFinite(sun.azimuth))roomRenderer.sunAzimuth=sun.azimuth;if(Number.isFinite(sun.elevation))roomRenderer.sunElevation=Math.max(5,Math.min(85,sun.elevation));if(sun.wallShadows===false)roomRenderer.wallShadows=false;}}catch{}
 const saveSun=()=>{try{localStorage.setItem('atolye.render.sun',JSON.stringify({azimuth:roomRenderer.sunAzimuth,elevation:roomRenderer.sunElevation,wallShadows:roomRenderer.wallShadows!==false}));}catch{}};
-document.addEventListener('input',e=>{const a=e.target?.dataset?.action;if(a!=='render-sun-azimuth'&&a!=='render-sun-elevation')return;const v=Number(e.target.value);roomRenderer.setSunAngles(a==='render-sun-azimuth'?{azimuth:v}:{elevation:v});const s=e.target.previousElementSibling;if(s)s.textContent=(a==='render-sun-azimuth'?'☀ ':'↑ ')+Math.round(v)+'°';saveSun();});
-const roomEditor=new RoomEditor($('#room-editor'),{
+document.addEventListener('input',e=>{
+ const a=e.target?.dataset?.action;
+ if(a==='cabinet-open-slider'){
+  const pct=Number(e.target.value);
+  viewport.setOpenProgress(pct/100);
+  const lbl=$('#cabinet-open-label');if(lbl)lbl.textContent=`${translateText('Открытие',interfaceLanguage)}: ${Math.round(pct)}%`;
+  $('[data-action="open-fronts"]').textContent=viewport.options.doorsOpen?translateText('Закрыть фасады',interfaceLanguage):translateText('Открыть фасады',interfaceLanguage);
+  return;
+ }
+ if(a==='render-open-slider'){
+  const pct=Number(e.target.value);
+  roomRenderer.setOpenProgress(pct/100);
+  const lbl=$('#render-open-label');if(lbl)lbl.textContent=`${Math.round(pct)}%`;
+  return;
+ }
+ if(a!=='render-sun-azimuth'&&a!=='render-sun-elevation')return;
+ const v=Number(e.target.value);roomRenderer.setSunAngles(a==='render-sun-azimuth'?{azimuth:v}:{elevation:v});const s=e.target.previousElementSibling;if(s)s.textContent=(a==='render-sun-azimuth'?'☀ ':'↑ ')+Math.round(v)+'°';saveSun();
+});
+roomEditor=new RoomEditor($('#room-editor'),{
  onChange:(outline,metadata)=>change(()=>{project.room.windows=remapWindows(project.room,outline,metadata);project.room.outline=outline;const b=roomBounds(project.room);project.room.width=b.width;project.room.depth=b.depth;selectedWall=Math.min(selectedWall,outline.length-1);}),
  onSelectWall:index=>{selectedWall=index;roomFocus='wall';selectedWindowId=null;roomEditor.setSelectedWindow(null);renderProperties();},
  onSelectCorner:index=>{roomFocus='corner';selectedWindowId=null;renderProperties();},
@@ -100,6 +121,7 @@ const roomEditor=new RoomEditor($('#room-editor'),{
  onMoveCabinet:(id,pos)=>change(()=>{const c=project.cabinets.find(c=>c.id===id);if(c){c.x=pos.x;c.z=pos.z;}}),
  onResizeCabinet:(id,dimensions)=>change(()=>{const c=project.cabinets.find(c=>c.id===id);return c?applyCabinetResult(c,resizeCabinetOnPlan(c,dimensions,project)):false;})
 });
+}
 function selectedCabinet(){return project.cabinets.find(c=>c.id===cabinetId);}
 function selectedOpening(){return project.room.windows.find(w=>w.id===selectedWindowId);}
 function editableSection(){const c=selectedCabinet();if(c)c.layout??=convertLegacyLayout(c);return selectedSection();}
@@ -139,7 +161,175 @@ function duplicateCabinetAction(sourceCab=selectedCabinet()){
  if(ok)closeModal();
  return ok;
 }
+
+let measureToolActive = false;
+
+export function setMeasureTool(active, studioContext = null) {
+  const next = Boolean(active);
+  const re = studioContext?.roomEditor ?? (typeof roomEditor !== 'undefined' ? roomEditor : null);
+  const rr = studioContext?.roomRenderer ?? (typeof roomRenderer !== 'undefined' ? roomRenderer : null);
+  if (re && typeof re.setTool === 'function') {
+    re.setTool(next ? 'measure' : 'select');
+  }
+  if (rr && typeof rr.setMeasureTool === 'function') {
+    rr.setMeasureTool(next);
+  }
+  if (studioContext) {
+    studioContext.measureToolActive = next;
+  } else {
+    measureToolActive = next;
+  }
+  if (typeof $ === 'function') {
+    const btn = $('[data-action="toggle-measure"]') || $('[data-action="measure"]');
+    if (btn) btn.classList.toggle('active', next);
+  }
+  return next;
+}
+
+export function getMeasureToolActive(studioContext = null) {
+  if (studioContext && 'measureToolActive' in studioContext) return Boolean(studioContext.measureToolActive);
+  return measureToolActive;
+}
+
+export function getDrcStatus(p = null) {
+  const proj = p ?? (typeof project !== 'undefined' ? project : null);
+  if (!proj) return { count: 0, errors: 0, warnings: 0, issues: [] };
+  const issues = validateProject(proj);
+  const errors = issues.filter(i => i.level === 'error').length;
+  const warns = issues.filter(i => i.level === 'warning').length;
+  return { count: issues.length, errors, warnings: warns, issues };
+}
+
+export function renderDrcStatusBadge(issuesOrCount, language = 'ru') {
+  const issues = Array.isArray(issuesOrCount) ? issuesOrCount : null;
+  const count = issues ? issues.length : Number(issuesOrCount || 0);
+  const errors = issues ? issues.filter(i => i.level === 'error').length : 0;
+  const level = errors ? 'error' : count ? 'warning' : 'ok';
+  const label = errors
+    ? `${errors} ${translateText('ошибок', language)}`
+    : count
+    ? `${count} ${translateText('замечаний', language)}`
+    : translateText('DRC: норма', language);
+  const title = count ? `${count} ${translateText('замечаний DRC', language)}` : translateText('Ошибок не обнаружено', language);
+  return `<button class="drc-status-badge text-button ${level}" data-action="validation" data-action-drc="true" title="${esc(title)}"><span>${esc(label)}</span></button>`;
+}
+
+export function switchMode(newMode, studioContext = null) {
+  if (!['cabinet', 'room', 'cutting', 'drawings'].includes(newMode)) return false;
+  if (studioContext) {
+    studioContext.mode = newMode;
+    if (typeof studioContext.onModeChange === 'function') studioContext.onModeChange(newMode);
+  } else {
+    mode = newMode;
+    if (typeof render === 'function') render();
+  }
+  return true;
+}
+
+export function switchRoomView(newView, studioContext = null) {
+  if (!['plan', '3d', 'render'].includes(newView)) return false;
+  if (studioContext) {
+    studioContext.roomView = newView;
+    if (typeof studioContext.onRoomViewChange === 'function') studioContext.onRoomViewChange(newView);
+  } else {
+    roomView = newView;
+    if (typeof render === 'function') render();
+  }
+  return true;
+}
+
+export function switchCabinetView(newView, studioContext = null) {
+  if (!['scheme', '3d', 'drawings'].includes(newView)) return false;
+  if (studioContext) {
+    studioContext.cabinetView = newView;
+    if (typeof studioContext.onCabinetViewChange === 'function') studioContext.onCabinetViewChange(newView);
+  } else {
+    cabinetView = newView;
+    if (typeof render === 'function') render();
+  }
+  return true;
+}
+
 function renderList(){$('#cabinet-count').textContent=project.cabinets.length;$('#cabinet-list').innerHTML=project.cabinets.map((c,i)=>`<button class="cabinet-list-item ${c.id===cabinetId?'active':''}" data-cabinet="${esc(c.id)}"><span>${String(i+1).padStart(2,'0')}</span><div><strong>${esc(c.name)}</strong><small>${fmt(c.width)} × ${fmt(c.height)} × ${fmt(c.depth)}${c.parentId?' · '+translateText('антресоль',interfaceLanguage):''}</small></div></button>`).join('');}
+function renderHud(){
+ const hud=$('#render-hud');if(!hud)return;
+ if(mode!=='room'||roomView!=='render'){hud.hidden=true;return;}
+ hud.hidden=false;
+ const c=selectedCabinet();
+ const openPct=Math.round((roomRenderer.openProgress??(roomRenderer.doorsOpen?1:0))*100);
+ const lm=roomRenderer.lightingMode||'day';
+ const rt=roomRenderer.rayTracing!==false;
+ hud.innerHTML=`<div class="render-hud-bar">
+  <button type="button" class="hud-pill raytrace-pill ${rt?'active':''}" data-action="render-raytracing" title="${esc(translateText('Трассировка лучей и отражений',interfaceLanguage))}">✨ Ray Tracing ${rt?'ON':'OFF'}</button>
+  <div class="hud-divider"></div>
+  <div class="hud-group" role="group" aria-label="${esc(translateText('Освещение',interfaceLanguage))}">
+   <button type="button" class="hud-pill ${lm==='day'?'active':''}" data-action="render-set-lighting" data-value="day">☀️ ${esc(translateText('День',interfaceLanguage))}</button>
+   <button type="button" class="hud-pill ${lm==='evening'?'active':''}" data-action="render-set-lighting" data-value="evening">🌙 ${esc(translateText('Вечер',interfaceLanguage))}</button>
+   <button type="button" class="hud-pill ${lm==='studio'?'active':''}" data-action="render-set-lighting" data-value="studio">💎 ${esc(translateText('Студия',interfaceLanguage))}</button>
+   <button type="button" class="hud-pill ${lm==='night-led'?'active':''}" data-action="render-set-lighting" data-value="night-led">✨ ${esc(translateText('Ночь LED',interfaceLanguage))}</button>
+  </div>
+  <div class="hud-divider"></div>
+  <div class="hud-group">
+   <button type="button" class="hud-pill ${roomRenderer.doorsOpen?'active':''}" data-action="render-doors">${esc(translateText(roomRenderer.doorsOpen?'Закрыть фасады':'Открыть фасады',interfaceLanguage))}</button>
+   <label class="hud-slider-wrap" title="${esc(translateText('Плавное открытие дверей и ящиков',interfaceLanguage))}">
+    <input type="range" min="0" max="100" step="1" data-action="render-open-slider" id="render-open-slider" value="${openPct}">
+    <span id="render-open-label">${openPct}%</span>
+   </label>
+  </div>
+  ${c?`<div class="hud-divider"></div>
+  <div class="hud-group hud-hw-group">
+   <select class="hud-select" data-action="hud-handle-style" title="${esc(translateText('Вариант ручки',interfaceLanguage))}">
+    ${HANDLE_STYLES.map(h=>`<option value="${h.id}" ${(c.handleStyle||'bar')===h.id?'selected':''}>${esc(translateText('Ручка',interfaceLanguage))}: ${esc(translateText(h.label,interfaceLanguage))}</option>`).join('')}
+   </select>
+   <div class="hud-swatches" title="${esc(translateText('Цвет фурнитуры',interfaceLanguage))}">
+    ${HANDLE_FINISHES.map(f=>`<button type="button" class="hud-swatch ${(c.handleFinish||'chrome')===f.id?'active':''}" data-action="set-cabinet-hw" data-field="handleFinish" data-value="${f.id}" title="${esc(translateText(f.label,interfaceLanguage))}" style="background:${f.color}"></button>`).join('')}
+   </div>
+  </div>`:''}
+ </div>`;
+}
+function hardwareDesignCardMarkup(c,s=null){
+ if(!c)return '';
+ const curHandle=s?.node?.handleStyle||c.handleStyle||'bar';
+ const curFinish=s?.node?.handleFinish||c.handleFinish||'chrome';
+ const curHinge=s?.node?.hingeStyle||c.hingeStyle||'soft-close';
+ const curRailing=s?.node?.drawerRailingStyle||c.drawerRailingStyle||'single-round';
+ const curRod=s?.node?.rodStyle||c.rodStyle||'round';
+ const handleIcons={bar:'━', 'slim-arch':'∏', bow:'⌒', knob:'●', gola:'▤', recessed:'▭', push:'⚡'};
+ const body=`<div class="hardware-design-card">
+  <div class="hw-section">
+   <span class="eyebrow">${esc(translateText('ВАРИАНТ РУЧЕК ФАСАДОВ',interfaceLanguage))}</span>
+   <div class="hw-pill-grid">
+    ${HANDLE_STYLES.map(h=>`<button type="button" class="hw-style-pill ${curHandle===h.id?'active':''}" data-action="set-cabinet-hw" data-field="handleStyle" data-value="${h.id}"><span class="hw-pill-icon">${handleIcons[h.id]||'━'}</span><span>${esc(translateText(h.label,interfaceLanguage))}</span></button>`).join('')}
+   </div>
+  </div>
+  <div class="hw-section">
+   <span class="eyebrow">${esc(translateText('ЦВЕТ И ПОКРЫТИЕ РУЧЕК',interfaceLanguage))}</span>
+   <div class="hw-finish-swatches">
+    ${HANDLE_FINISHES.map(f=>`<button type="button" class="hw-finish-chip ${curFinish===f.id?'active':''}" data-action="set-cabinet-hw" data-field="handleFinish" data-value="${f.id}" title="${esc(translateText(f.label,interfaceLanguage))}"><i class="hw-finish-dot" style="background:${f.color}"></i><span>${esc(translateText(f.label,interfaceLanguage))}</span></button>`).join('')}
+   </div>
+  </div>
+  <div class="hw-section">
+   <span class="eyebrow">${esc(translateText('ТИП МЕБЕЛЬНЫХ ПЕТЕЛЬ (3D)',interfaceLanguage))}</span>
+   <div class="hw-pill-grid hw-two-col">
+    ${HINGE_STYLES.map(h=>`<button type="button" class="hw-style-pill ${curHinge===h.id?'active':''}" data-action="set-cabinet-hw" data-field="hingeStyle" data-value="${h.id}"><span>🔩 ${esc(translateText(h.label,interfaceLanguage))}</span></button>`).join('')}
+   </div>
+  </div>
+  <div class="hw-section">
+   <span class="eyebrow">${esc(translateText('БОКОВИНЫ И РЕЙЛИНГИ ЯЩИКОВ (3D)',interfaceLanguage))}</span>
+   <div class="hw-pill-grid hw-two-col">
+    ${DRAWER_RAILING_STYLES.map(r=>`<button type="button" class="hw-style-pill ${curRailing===r.id?'active':''}" data-action="set-cabinet-hw" data-field="drawerRailingStyle" data-value="${r.id}"><span>轨 ${esc(translateText(r.label,interfaceLanguage))}</span></button>`).join('')}
+   </div>
+  </div>
+  <div class="hw-section">
+   <span class="eyebrow">${esc(translateText('ТИП ШТАНГ И ПАНТОГРАФОВ (3D)',interfaceLanguage))}</span>
+   <div class="hw-pill-grid hw-two-col">
+    ${ROD_STYLES.map(r=>`<button type="button" class="hw-style-pill ${curRod===r.id?'active':''}" data-action="set-cabinet-hw" data-field="rodStyle" data-value="${r.id}"><span>🧥 ${esc(translateText(r.label,interfaceLanguage))}</span></button>`).join('')}
+   </div>
+  </div>
+  ${mode!=='room'||roomView!=='render'?`<button type="button" class="button primary full raytrace-cta-btn" data-action="open-raytrace-3d">✨ ${esc(translateText('Открыть 3D фото-рендер с трассировкой',interfaceLanguage))}</button>`:''}
+ </div>`;
+ return disclosure('hardware-design',translateText('✨ Фурнитура, ручки и 3D-дизайн',interfaceLanguage),body);
+}
 function render(){
  if(mode==='cabinet'&&cabinetView==='drawings')mode='drawings';
  viewport.language=interfaceLanguage;roomViewport.language=interfaceLanguage;
@@ -152,7 +342,7 @@ function render(){
  $('#design-shell').hidden=mode!=='cabinet';$('#room-shell').hidden=mode!=='room';$('#drawings-shell').hidden=mode!=='drawings';$('#cutting-shell').hidden=mode!=='cutting';
  $('#stage-eyebrow').textContent={cabinet:'ВАША КОНСТРУКЦИЯ',room:'ПОМЕЩЕНИЕ ЛЮБОЙ ФОРМЫ',drawings:'РАЗМЕРЫ ДЛЯ ПРОИЗВОДСТВА',cutting:'ДЕТАЛИ И МАТЕРИАЛ'}[mode];
  $('#stage-title').textContent=['cabinet','drawings'].includes(mode)?(c?.name||'Новый шкаф'):{room:'Контур помещения',drawings:'Чертёж шкафа',cutting:'Карта раскроя'}[mode];
-    $('#stage-actions').innerHTML=mode==='cabinet'&&c?`<button class="text-button" data-action="duplicate" title="${esc(translateText('Дублировать шкаф (Ctrl+D)',interfaceLanguage))}">${icon('copy')}${translateText('Дублировать',interfaceLanguage)}</button><button class="text-button" data-action="cabinet-options">${icon('settings')}Шкаф</button>`:mode==='room'?`<div class="view-switch"><button data-room-view="plan" class="${roomView==='plan'?'active':''}">План</button><button data-room-view="3d" class="${roomView==='3d'?'active':''}">3D</button><button data-room-view="render" class="${roomView==='render'?'active':''}">Рендер</button></div>${roomView==='3d'?`<button class="button" data-action="room-open-fronts">${roomViewport.options.doorsOpen?'Закрыть все фасады':'Открыть все фасады'}</button>`:''}${roomView==='render'?`<select class="render-preset-select" data-action="render-preset" title="${esc(translateText('Ракурс камеры',interfaceLanguage))}"><option value="front" ${roomRenderer.cameraPreset==='front'?'selected':''}>${esc(translateText('Спереди',interfaceLanguage))}</option><option value="door" ${roomRenderer.cameraPreset==='door'?'selected':''}>${esc(translateText('От двери',interfaceLanguage))}</option><option value="corner-1" ${roomRenderer.cameraPreset==='corner-1'?'selected':''}>${esc(translateText('Угол 1',interfaceLanguage))}</option><option value="corner-2" ${roomRenderer.cameraPreset==='corner-2'?'selected':''}>${esc(translateText('Угол 2',interfaceLanguage))}</option><option value="top" ${roomRenderer.cameraPreset==='top'?'selected':''}>${esc(translateText('Сверху',interfaceLanguage))}</option></select><select class="render-preset-select" data-action="render-quality" title="${esc(translateText('Качество рендера',interfaceLanguage))}">${Object.entries(RENDER_QUALITY).map(([k,q])=>`<option value="${k}" ${roomRenderer.quality===k?'selected':''}>${esc(translateText('Качество',interfaceLanguage))}: ${esc(translateText(q.label,interfaceLanguage))}</option>`).join('')}</select><select class="render-preset-select" data-action="render-floor-style" title="Покрытие пола">${Object.entries(FLOOR_STYLES).map(([k,f])=>`<option value="${k}" ${roomRenderer.floorStyle===k?'selected':''}>Пол: ${esc(translateText(f.label,interfaceLanguage))}</option>`).join('')}</select><button class="button ${roomRenderer.showCeiling?'active':''}" data-action="render-ceiling" title="${esc(translateText('Показывать потолок',interfaceLanguage))}">${esc(translateText('Потолок',interfaceLanguage))}</button><label class="render-color" title="${esc(translateText('Цвет стен',interfaceLanguage))}"><span>${esc(translateText('Стены',interfaceLanguage))}</span><input type="color" data-action="render-wall-color" value="${esc(project.room.wallColor||'#efede6')}"></label><label class="render-color" title="${esc(translateText('Цвет потолка',interfaceLanguage))}"><span>${esc(translateText('Потолок',interfaceLanguage))}</span><input type="color" data-action="render-ceiling-color" value="${esc(project.room.ceilingColor||'#f5f4f0')}"></label>${roomRenderer.lightingMode==='day'?`<label class="render-color" title="Азимут солнца"><span>☀ ${Math.round(roomRenderer.sunAzimuth??127)}°</span><input type="range" min="0" max="359" step="1" data-action="render-sun-azimuth" value="${Math.round(roomRenderer.sunAzimuth??127)}"></label><label class="render-color" title="Высота солнца"><span>↑ ${Math.round(roomRenderer.sunElevation??50)}°</span><input type="range" min="5" max="85" step="1" data-action="render-sun-elevation" value="${Math.round(roomRenderer.sunElevation??50)}"></label><button class="button${roomRenderer.wallShadows!==false?' active':''}" data-action="render-wall-shadows" title="Тени от стен">▦ ${esc(translateText('Тени от стен',interfaceLanguage))}</button>`:''}<button class="button" data-action="render-lighting" title="${esc(translateText('Освещение',interfaceLanguage))}">${roomRenderer.lightingMode==='day'?'☀️ '+esc(translateText('День',interfaceLanguage)):'🌙 '+esc(translateText('Вечер',interfaceLanguage))}</button><button class="button" data-action="render-doors">${roomRenderer.doorsOpen?'Закрыть фасады':'Открыть фасады'}</button><button class="button" data-action="render-walls" title="Срезать ближние стены или показать все стены">${roomRenderer.wallMode==='cutaway'?'Стены: Срез':'Стены: Все'}</button>${c?`<button class="button" data-action="render-focus-cabinet" title="Сфокусировать камеру на выбранном шкафе (F или двойной клик)">🎯 Фокус</button>`:''}<button class="button" data-action="render-reset" title="Сбросить камеру">${icon('reset')}Сброс камеры</button><button class="button" data-action="render-screenshot" title="Снимок рендера">${icon('camera')}Снимок</button>`:''}<button class="button" data-action="room-obj" title="Экспорт плана и шкафов в OBJ">${icon('download')}OBJ</button><button class="button" data-action="${roomView==='3d'?'room-3d-print':'room-plan-print'}" title="${roomView==='3d'?'Печать 3D-вида помещения':'Печать плана помещения'}">${icon('print')}Печать / PDF</button><button class="button" data-action="room-presentation" title="${esc(translateText('Буклет-презентация проекта для клиента',interfaceLanguage))}">${icon('print')}${translateText('Презентация',interfaceLanguage)}</button>`:mode==='drawings'?`<button class="button" data-action="drawing-svg">${icon('download')}SVG</button><button class="button primary" data-action="drawing-print">${icon('print')}Печать / PDF</button>`:mode==='cutting'?`<button class="button" data-action="factory">${icon('download')}Для фабрики</button><button class="button" data-action="cutting-print">${icon('print')}Печать</button>`:'';
+    $('#stage-actions').innerHTML=mode==='cabinet'&&c?`<button class="text-button" data-action="duplicate" title="${esc(translateText('Дублировать шкаф (Ctrl+D)',interfaceLanguage))}">${icon('copy')}${translateText('Дублировать',interfaceLanguage)}</button><button class="text-button" data-action="cabinet-options">${icon('settings')}Шкаф</button>`:mode==='room'?`<div class="view-switch"><button data-room-view="plan" class="${roomView==='plan'?'active':''}">План</button><button data-room-view="3d" class="${roomView==='3d'?'active':''}">3D</button><button data-room-view="render" class="${roomView==='render'?'active':''}">Рендер</button></div>${roomView==='3d'?`<button class="button" data-action="room-open-fronts">${roomViewport.options.doorsOpen?'Закрыть все фасады':'Открыть все фасады'}</button>`:''}${roomView==='render'?`<select class="render-preset-select" data-action="render-preset" title="${esc(translateText('Ракурс камеры',interfaceLanguage))}"><option value="front" ${roomRenderer.cameraPreset==='front'?'selected':''}>${esc(translateText('Спереди',interfaceLanguage))}</option><option value="door" ${roomRenderer.cameraPreset==='door'?'selected':''}>${esc(translateText('От двери',interfaceLanguage))}</option><option value="corner-1" ${roomRenderer.cameraPreset==='corner-1'?'selected':''}>${esc(translateText('Угол 1',interfaceLanguage))}</option><option value="corner-2" ${roomRenderer.cameraPreset==='corner-2'?'selected':''}>${esc(translateText('Угол 2',interfaceLanguage))}</option><option value="top" ${roomRenderer.cameraPreset==='top'?'selected':''}>${esc(translateText('Сверху',interfaceLanguage))}</option></select><select class="render-preset-select" data-action="render-quality" title="${esc(translateText('Качество рендера',interfaceLanguage))}">${Object.entries(RENDER_QUALITY).map(([k,q])=>`<option value="${k}" ${roomRenderer.quality===k?'selected':''}>${esc(translateText('Качество',interfaceLanguage))}: ${esc(translateText(q.label,interfaceLanguage))}</option>`).join('')}</select><select class="render-preset-select" data-action="render-floor-style" title="Покрытие пола">${Object.entries(FLOOR_STYLES).map(([k,f])=>`<option value="${k}" ${roomRenderer.floorStyle===k?'selected':''}>Пол: ${esc(translateText(f.label,interfaceLanguage))}</option>`).join('')}</select><button class="button ${roomRenderer.showCeiling?'active':''}" data-action="render-ceiling" title="${esc(translateText('Показывать потолок',interfaceLanguage))}">${esc(translateText('Потолок',interfaceLanguage))}</button><label class="render-color" title="${esc(translateText('Цвет стен',interfaceLanguage))}"><span>${esc(translateText('Стены',interfaceLanguage))}</span><input type="color" data-action="render-wall-color" value="${esc(project.room.wallColor||'#efede6')}"></label><label class="render-color" title="${esc(translateText('Цвет потолка',interfaceLanguage))}"><span>${esc(translateText('Потолок',interfaceLanguage))}</span><input type="color" data-action="render-ceiling-color" value="${esc(project.room.ceilingColor||'#f5f4f0')}"></label>${roomRenderer.lightingMode==='day'?`<label class="render-color" title="Азимут солнца"><span>☀ ${Math.round(roomRenderer.sunAzimuth??127)}°</span><input type="range" min="0" max="359" step="1" data-action="render-sun-azimuth" value="${Math.round(roomRenderer.sunAzimuth??127)}"></label><label class="render-color" title="Высота солнца"><span>↑ ${Math.round(roomRenderer.sunElevation??50)}°</span><input type="range" min="5" max="85" step="1" data-action="render-sun-elevation" value="${Math.round(roomRenderer.sunElevation??50)}"></label><button class="button${roomRenderer.wallShadows!==false?' active':''}" data-action="render-wall-shadows" title="Тени от стен">▦ ${esc(translateText('Тени от стен',interfaceLanguage))}</button>`:''}<button class="button" data-action="render-lighting" title="${esc(translateText('Освещение',interfaceLanguage))}">${roomRenderer.lightingMode==='day'?'☀️ '+esc(translateText('День',interfaceLanguage)):roomRenderer.lightingMode==='studio'?'💎 '+esc(translateText('Студия',interfaceLanguage)):roomRenderer.lightingMode==='night-led'?'✨ '+esc(translateText('Ночь LED',interfaceLanguage)):'🌙 '+esc(translateText('Вечер',interfaceLanguage))}</button><button class="button" data-action="render-doors">${roomRenderer.doorsOpen?'Закрыть фасады':'Открыть фасады'}</button><button class="button" data-action="render-walls" title="Срезать ближние стены или показать все стены">${roomRenderer.wallMode==='cutaway'?'Стены: Срез':'Стены: Все'}</button>${c?`<button class="button" data-action="render-focus-cabinet" title="Сфокусировать камеру на выбранном шкафе (F или двойной клик)">🎯 Фокус</button>`:''}<button class="button" data-action="render-reset" title="Сбросить камеру">${icon('reset')}Сброс камеры</button><button class="button" data-action="render-screenshot" title="Снимок рендера">${icon('camera')}Снимок</button>`:''}<button class="button" data-action="room-obj" title="Экспорт плана и шкафов в OBJ">${icon('download')}OBJ</button><button class="button" data-action="${roomView==='3d'?'room-3d-print':'room-plan-print'}" title="${roomView==='3d'?'Печать 3D-вида помещения':'Печать плана помещения'}">${icon('print')}Печать / PDF</button><button class="button" data-action="room-presentation" title="${esc(translateText('Буклет-презентация проекта для клиента',interfaceLanguage))}">${icon('print')}${translateText('Презентация',interfaceLanguage)}</button>`:mode==='drawings'?`<button class="button" data-action="drawing-svg">${icon('download')}SVG</button><button class="button primary" data-action="drawing-print">${icon('print')}Печать / PDF</button>`:mode==='cutting'?`<button class="button" data-action="factory">${icon('download')}Для фабрики</button><button class="button" data-action="cutting-print">${icon('print')}Печать</button>`:'';
  if(mode==='cabinet'&&c)$('#stage-actions').insertAdjacentHTML('beforeend',`<button class="icon-button" data-action="delete-cabinet" aria-label="Удалить шкаф" title="Удалить шкаф">${icon('trash')}</button>`);
  if(mode==='cutting')$('#stage-actions').insertAdjacentHTML('afterbegin','<button class="button" data-action="prices">Цены и смета</button>');
  if(mode==='cabinet'){
@@ -163,9 +353,14 @@ function render(){
   cabinetEditor.setProject(project,cabinetId,sectionId,warnings);cabinetEditor.setInteriorParent(interiorParentId);viewport.setProject(project,cabinetId);viewport.setView('3d');viewport.setOptions({room:false,dimensions:true,focusCabinet:true,selectedSectionId:viewport.options.exploded?null:sectionId||interiorParentId,selectedPartId:inspectionPartId});viewport.resize();
   $('[data-action="explode-parts"]').textContent=viewport.options.exploded?'Собрать детали':'Раздвинуть детали';$('[data-action="explode-parts"]').classList.toggle('active',Boolean(viewport.options.exploded));$('[data-action="open-fronts"]').disabled=Boolean(viewport.options.exploded);$('[data-action="open-internal"]').disabled=Boolean(viewport.options.exploded);
   $('[data-action="open-fronts"]').textContent=viewport.options.doorsOpen?'Закрыть фасады':'Открыть фасады';
+  const openPct=Math.round((viewport.options.openProgress??(viewport.options.doorsOpen?1:0))*100);
+  const cabSlider=$('#cabinet-open-slider'),cabLbl=$('#cabinet-open-label');
+  if(cabSlider){cabSlider.value=String(openPct);cabSlider.disabled=Boolean(viewport.options.exploded);}
+  if(cabLbl)cabLbl.textContent=`${translateText('Открытие',interfaceLanguage)}: ${openPct}%`;
   $('[data-action="open-internal"]').hidden=!c||!getInternalDrawerLayout(c,project).length;
   $('[data-action="open-internal"]').textContent=viewport.options.internalDrawersOpen?'Закрыть внутренние ящики':'Открыть внутренние ящики';
  }
+ renderHud();
  if(mode==='room'){
   $('#room-editor').hidden=roomView!=='plan';
   $('#room-tools').hidden=roomView!=='plan';
@@ -185,7 +380,8 @@ function render(){
   }
  }
  if(mode==='drawings')renderDrawings();if(mode==='cutting'){renderCutting();$('#cutting-shell').insertAdjacentHTML('afterbegin',`<div class="estimate-panel">${generateCostHTML(project,{language:interfaceLanguage})}${generateHardwareHTML(project,{language:interfaceLanguage})}</div>`);}renderProperties();
- $('#stage-status').innerHTML=mode==='cabinet'?`<span>${c?`${editorLayout().sections.length} секций · `:''}${parts.filter(p=>!c||p.cabinetId===c.id).length} деталей</span><span>${viewport.options.exploded&&cabinetView==='3d'?'Клик — выбрать деталь · двойной клик — сверловка':'Глубина корпуса в мм · фасад добавляется снаружи'}</span>`:mode==='room'?(roomView==='render'?'<span>PBR WebGL-рендер · металл, керамика, текстуры и тени</span><span>ЛКМ — вращение · ПКМ — сдвиг · Двойной клик / F — фокус на шкаф · W,A,S,D — полёт</span>':`<span>${getRoomOutline(project.room).length} стен · высота ${fmt(project.room.height)} мм</span><span>Тяните углы и мебель на плане</span>`):mode==='drawings'?'<span>Проёмы, фасады и детали имеют отдельные размеры</span>':`<span>${cutting.totalSheets} листов · ${fmt(cutting.utilization,1)}% заполнение</span><span>Пропил ${project.settings.kerf} мм</span>`;
+  const drcStatusHtml = renderDrcStatusBadge(warnings, interfaceLanguage);
+  $('#stage-status').innerHTML=mode==='cabinet'?`<span>${c?`${editorLayout().sections.length} секций · `:''}${parts.filter(p=>!c||p.cabinetId===c.id).length} деталей</span><span>${viewport.options.exploded&&cabinetView==='3d'?'Клик — выбрать деталь · двойной клик — сверловка':'Глубина корпуса в мм · фасад добавляется снаружи'}</span>`:mode==='room'?(roomView==='render'?`<span>PBR WebGL-рендер · трассировка лучей, металл, керамика, текстуры и тени</span><span>ЛКМ — вращение · ПКМ — сдвиг · Двойной клик / F — фокус на шкаф · W,A,S,D — полёт</span>${drcStatusHtml}`:`<span>${getRoomOutline(project.room).length} стен · высота ${fmt(project.room.height)} мм</span><span>Тяните углы и мебель на плане</span>${drcStatusHtml}`):mode==='drawings'?'<span>Проёмы, фасады и детали имеют отдельные размеры</span>':`<span>${cutting.totalSheets} листов · ${fmt(cutting.utilization,1)}% заполнение</span><span>Пропил ${project.settings.kerf} мм</span>`;
  $('#footer-info').textContent=`${project.cabinets.length} шкафов · ${parts.length} деталей · миллиметры`;
  const errors=warnings.filter(w=>w.level==='error');$('#validation-button').innerHTML=`${icon(errors.length?'info':'check')}${errors.length?`${errors.length} ошибок`:warnings.length?`${warnings.length} замечаний`:'Геометрия проверена'}`;$('#validation-button').classList.toggle('error',!!errors.length);
 }
@@ -325,6 +521,7 @@ function renderProperties(){
    if(!inside&&node.front==='drawers'&&fronts.length>1)html+=disclosure('drawer-heights','Высоты отдельных фасадов',fronts.map((f,i)=>input(`Фасад ${i+1}`,'drawer-height-'+i,f.height,{min:60,max:s.frontHeight,scope:'section'})).join(''));
    html+='</div>';
   }
+  html+=hardwareDesignCardMarkup(c,s);
   let cabMultiFronts='';
   if(!c.layout){
     const cabDefMat=project.materials.find(m=>m.id===(c.frontMaterialId||c.materialId))||project.materials[0];
@@ -366,7 +563,7 @@ function renderProperties(){
     const defaultBlindW=c.type==='corner-wall'?340:600;
     const rawBlindW=Math.max(100,Math.min(c.width-200,Number(c.blindWidth)||defaultBlindW));
     const cleanDoorW=Math.max(0,Math.round(c.width-rawBlindW));
-    html+=`<div class="property-block"><span class="eyebrow">ВЫБРАН ШКАФ НА ПЛАНЕ${isMezzanine?' · '+translateText('АНТРЕСОЛЬ',interfaceLanguage):isCorner?' · '+translateText('УГЛОВОЙ МОДУЛЬ',interfaceLanguage):''}</span><h2 data-user-text>${esc(c.name)}</h2>${isMezzanine?`<p class="hint">${esc(translateText('Антресоль привязана к основному шкафу. Перемещайте основной шкаф.',interfaceLanguage))}</p>`:''}<div class="fields">${input('По горизонтали X','x',c.x,{min:-20000,max:20000,disabled:isMezzanine})}${input('В глубину Z','z',c.z,{min:-20000,max:20000,disabled:isMezzanine})}</div>${input('Низ шкафа от пола','y',c.y,{max:10000,disabled:isMezzanine})}${input('Поворот','rotation',c.rotation||0,{min:-180,max:180,step:.1,unit:'°',disabled:isMezzanine})}<button class="button full" data-action="rotate-cabinet" ${isMezzanine?'disabled':''}>Повернуть на 90°</button>${isCorner?`<button class="button full" data-action="flip-corner-side">Зеркально сменить сторону угла (${blindSide==='right'?'Справа ➔ Слева':'Слева ➔ Справа'})</button>`:''}${isMezzanine?'':obstacleCutoutMarkup(c)}<button class="button full" data-action="duplicate">${icon('copy')}${translateText('Дублировать шкаф',interfaceLanguage)}</button><button class="button full" data-action="design-selected">Редактировать этот шкаф</button></div>`;
+    html+=`<div class="property-block"><span class="eyebrow">ВЫБРАН ШКАФ НА ПЛАНЕ${isMezzanine?' · '+translateText('АНТРЕСОЛЬ',interfaceLanguage):isCorner?' · '+translateText('УГЛОВОЙ МОДУЛЬ',interfaceLanguage):''}</span><h2 data-user-text>${esc(c.name)}</h2>${isMezzanine?`<p class="hint">${esc(translateText('Антресоль привязана к основному шкафу. Перемещайте основной шкаф.',interfaceLanguage))}</p>`:''}<div class="fields">${input('По горизонтали X','x',c.x,{min:-20000,max:20000,disabled:isMezzanine})}${input('В глубину Z','z',c.z,{min:-20000,max:20000,disabled:isMezzanine})}</div>${input('Низ шкафа от пола','y',c.y,{max:10000,disabled:isMezzanine})}${input('Поворот','rotation',c.rotation||0,{min:-180,max:180,step:.1,unit:'°',disabled:isMezzanine})}<button class="button full" data-action="rotate-cabinet" ${isMezzanine?'disabled':''}>Повернуть на 90°</button>${isCorner?`<button class="button full" data-action="flip-corner-side">Зеркально сменить сторону угла (${blindSide==='right'?'Справа ➔ Слева':'Слева ➔ Справа'})</button>`:''}${isMezzanine?'':obstacleCutoutMarkup(c)}<button class="button full" data-action="duplicate">${icon('copy')}${translateText('Дублировать шкаф',interfaceLanguage)}</button><button class="button full" data-action="design-selected">Редактировать этот шкаф</button></div>${hardwareDesignCardMarkup(c,null)}`;
   }else if(roomFocus==='corner'&&roomEditor.getSelectedCorners().length>1){
    const count=roomEditor.getSelectedCorners().length;html+=`<div class="property-block"><span class="eyebrow">ВЫБРАНО НА ПЛАНЕ</span><h2>Углов выбрано: ${count}</h2><p class="hint">Удаление уберёт все выбранные углы одним действием. Контур должен оставаться корректным.</p><button class="button full" data-action="remove-corner">Удалить выбранные углы</button></div>`;
   }else if(roomFocus==='corner'&&Number.isInteger(roomEditor.selectedCorner)&&outline[roomEditor.selectedCorner]){
@@ -481,7 +678,7 @@ function braceInput(b,field,label,sectionId=null){return `<label class="field"><
 function sectionRodsMarkup(c,s){
  const items=getRodLayout(c,project).filter(rod=>(rod.interiorSectionId??rod.sectionId)===s.id);
  const rodInput=(rod,field,label,value,{min=0,max=6000,placeholder=''}={})=>`<label class="field"><span>${label}</span><div class="input-with-unit"><input type="number" data-rod="${esc(rod.id)}" data-rod-section="${esc(s.id)}" data-field="${field}" value="${value??''}" min="${min}" max="${max}" step="0.1" placeholder="${placeholder}"><small>мм</small></div></label>`;
- return `${(s.node.rods||[]).map((rod,i)=>{const physical=items.find(r=>r.rodId===rod.id);return `<div class="brace-row rod-row"><div class="row"><strong>Штанга ${i+1}</strong><button class="icon-button" data-delete-rod="${esc(rod.id)}" data-rod-section="${esc(s.id)}" aria-label="Удалить штангу">${icon('trash')}</button></div><div class="fields">${rodInput(rod,'y','Высота оси от дна секции',rod.y,{min:(rod.diameter??25)/2,max:s.height-(rod.diameter??25)/2})}${rodInput(rod,'frontInset','Отступ оси от переднего края',rod.frontInset,{min:(rod.diameter??25)/2,max:(s.usableDepth??s.depth)-(rod.diameter??25)/2})}${rodInput(rod,'length','Длина штанги',rod.length,{min:1,max:s.width-4,placeholder:'Длина автоматически'})}${rodInput(rod,'diameter','Диаметр штанги',rod.diameter??25,{min:10,max:60})}</div>${rod.length==null?`<p class="hint">Длина автоматически: ${fmt(physical?.length,1)} мм</p>`:`<button class="text-button" data-auto-rod="${esc(rod.id)}" data-rod-section="${esc(s.id)}">Длина автоматически</button>`}</div>`;}).join('')}<button class="button full" data-action="add-rod" ${(s.node.rods||[]).length>=12||s.node.front==='drawers'||s.node.appliance||s.node.interiorLayout||s.node.internalDrawerCount>0?'disabled':''}>${icon('plus')}Добавить штангу</button><p class="hint">Штанги считаются отдельно от листовых материалов.</p>`;
+ return `${(s.node.rods||[]).map((rod,i)=>{const physical=items.find(r=>r.rodId===rod.id),curStyle=rod.style||s.node.rodStyle||c.rodStyle||'round';return `<div class="brace-row rod-row"><div class="row"><strong>Штанга ${i+1}</strong><button class="icon-button" data-delete-rod="${esc(rod.id)}" data-rod-section="${esc(s.id)}" aria-label="Удалить штангу">${icon('trash')}</button></div><label class="field" style="margin-bottom:6px"><span>Тип штанги / пантографа</span><select data-rod="${esc(rod.id)}" data-rod-section="${esc(s.id)}" data-field="style">${ROD_STYLES.map(st=>`<option value="${st.id}" ${curStyle===st.id?'selected':''}>${esc(translateText(st.label,interfaceLanguage))}</option>`).join('')}</select></label><div class="fields">${rodInput(rod,'y','Высота оси от дна секции',rod.y,{min:(rod.diameter??25)/2,max:s.height-(rod.diameter??25)/2})}${rodInput(rod,'frontInset','Отступ оси от переднего края',rod.frontInset,{min:(rod.diameter??25)/2,max:(s.usableDepth??s.depth)-(rod.diameter??25)/2})}${rodInput(rod,'length','Длина штанги',rod.length,{min:1,max:s.width-4,placeholder:'Длина автоматически'})}${rodInput(rod,'diameter','Диаметр штанги',rod.diameter??25,{min:10,max:60})}</div>${rod.length==null?`<p class="hint">Длина автоматически: ${fmt(physical?.length,1)} мм</p>`:`<button class="text-button" data-auto-rod="${esc(rod.id)}" data-rod-section="${esc(s.id)}">Длина автоматически</button>`}</div>`;}).join('')}<button class="button full" data-action="add-rod" ${(s.node.rods||[]).length>=12||s.node.front==='drawers'||s.node.appliance||s.node.interiorLayout||s.node.internalDrawerCount>0?'disabled':''}>${icon('plus')}Добавить штангу</button><p class="hint">Штанги считаются отдельно от листовых материалов.</p>`;
 }
 function sectionBracesMarkup(c,s){return `<div class="section-braces">${(s.node.rearBraces||[]).map((b,i)=>`<div class="brace-row"><div class="row"><strong>Поперечина ${i+1}</strong><button class="icon-button" data-delete-brace="${esc(b.id)}" data-brace-section="${esc(s.id)}" aria-label="Удалить поперечину ${i+1}">${icon('trash')}</button></div><div class="fields">${braceInput(b,'y','Высота от дна секции',s.id)}${braceInput(b,'height','Высота планки',s.id)}</div><label class="field"><span>Материал</span><select data-brace="${esc(b.id)}" data-brace-section="${esc(s.id)}" data-field="materialId">${materialOptions(b.materialId||c.materialId)}</select></label></div>`).join('')}<button class="button full" data-action="add-section-brace">${icon('plus')}Добавить поперечину</button></div>`;}
 
@@ -509,6 +706,7 @@ function renderDrawings(){
 function sheetSvg(sheet,language=interfaceLanguage){return createCuttingSheetSvg(sheet,parts,{language});}
 function renderCutting(){$('#cutting-shell').innerHTML=`<div class="cutting-totals"><span><strong>${cutting.totalSheets}</strong> листов</span><span><strong>${fmt(cutting.utilization,1)}%</strong> заполнение</span><span>${parts.length} деталей</span><span><strong>${fmt(getEdgeBandingSummary(parts).lengthMeters,3)}</strong> м кромки</span></div>${edgeSummaryMarkup(parts)}${cutting.unplaced.length?`<div class="notice error">Не размещено ${cutting.unplaced.length} деталей. Проверьте формат и толщину листа.</div>`:''}<div class="sheet-grid">${cutting.sheets.map((s,i)=>`<article class="sheet-card"><header><span class="sheet-number">${String(i+1).padStart(2,'0')}</span><div><strong>${esc(project.materials.find(m=>m.id===s.materialId)?.name)}</strong><small>${s.thickness} мм · ${s.width} × ${s.height}</small></div></header>${sheetSvg(s)}<button class="text-button" data-sheet="${i}">${s.placements.length} деталей · посмотреть</button></article>`).join('')||'<div class="empty-state">Раскрой появится после добавления шкафа.</div>'}</div>`;}
 
+if(typeof document!=='undefined'){
 document.addEventListener('click',e=>{
  const edgeReset=e.target.closest('[data-part-edge-reset]');if(edgeReset){updatePartEdges(edgeReset.dataset.partEdgeReset,null);return;}
  const preview=e.target.closest('[data-inspection-open]');if(preview){showPart(preview.dataset.inspectionOpen);return;}
@@ -550,7 +748,8 @@ document.addEventListener('change',e=>{
  if(e.target.dataset.priceMaterial||e.target.dataset.priceRate){const el=e.target,value=Number(el.value);if(el.value!==''&&!validNumber(el,value))return;change(()=>{if(el.dataset.priceMaterial){const m=project.materials.find(m=>m.id===el.dataset.priceMaterial);if(!m)return false;if(el.value==='')delete m.pricePerSheet;else m.pricePerSheet=value;}else{project.settings.pricing??={};if(el.value==='')delete project.settings.pricing[el.dataset.priceRate];else project.settings.pricing[el.dataset.priceRate]=value;}});rememberPricing();updatePricingSummary();return;}
  if(e.target.id==='interface-language'){interfaceLanguage=e.target.value;try{localStorage.setItem('atolye.ui.language',interfaceLanguage);}catch{}render();applyLanguage();return;}
  if(e.target.id==='print-turkish'){change(()=>project.settings.printLanguage=e.target.checked?'tr':interfaceLanguage==='en'?'en':'ru');return;}
- const rodEl=e.target;if(rodEl.dataset.rod){const value=Number(rodEl.value),auto=rodEl.dataset.field==='length'&&rodEl.value==='';if(!auto&&!validNumber(rodEl,value)){renderProperties();return;}change(()=>{const s=editableSection();if(s?.id!==rodEl.dataset.rodSection)return false;const rod=s.node.rods?.find(r=>r.id===rodEl.dataset.rod);if(!rod)return false;if(auto)delete rod.length;else rod[rodEl.dataset.field]=value;});return;}
+ if(e.target.dataset.action==='hud-handle-style'){const val=e.target.value,c=selectedCabinet();if(c&&val)change(()=>{c.handleStyle=val;const s=selectedSection();if(s?.node?.handleStyle)s.node.handleStyle=val;});return;}
+ const rodEl=e.target;if(rodEl.dataset.rod){if(rodEl.dataset.field==='style'){const val=rodEl.value;change(()=>{const s=editableSection();if(s?.id!==rodEl.dataset.rodSection)return false;const rod=s.node.rods?.find(r=>r.id===rodEl.dataset.rod);if(!rod)return false;rod.style=val;});return;}const value=Number(rodEl.value),auto=rodEl.dataset.field==='length'&&rodEl.value==='';if(!auto&&!validNumber(rodEl,value)){renderProperties();return;}change(()=>{const s=editableSection();if(s?.id!==rodEl.dataset.rodSection)return false;const rod=s.node.rods?.find(r=>r.id===rodEl.dataset.rod);if(!rod)return false;if(auto)delete rod.length;else rod[rodEl.dataset.field]=value;});return;}
  const braceEl=e.target;if(braceEl.dataset.brace){const value=braceEl.type==='number'?Number(braceEl.value):braceEl.value;if(braceEl.type==='number'&&!validNumber(braceEl,value)){renderProperties();return;}change(()=>{const c=selectedCabinet(),owner=braceEl.dataset.braceSection?findLayoutNode(c.layout,braceEl.dataset.braceSection):c;if(!owner||braceEl.dataset.braceSection&&c.includeBack!==false)return false;const b=owner.rearBraces?.find(b=>b.id===braceEl.dataset.brace);if(b)b[braceEl.dataset.field]=value;});return;}
  const el=e.target;if(el.dataset.window&&el.dataset.field==='orientation'){change(()=>{const w=project.room.windows.find(w.id===el.dataset.window);if(!w)return false;const wall=w.wallIndex??legacyWall(w.wall);Object.assign(w,setPipeOrientation(w,el.value,{wallLength:wallLength(project.room,wall),roomHeight:project.room.height}));});return;}if(el.dataset.window){const value=Number(el.value);if(!validNumber(el,value)){renderProperties();return;}change(()=>{const w=project.room.windows.find(w=>w.id===el.dataset.window);if(w){w[el.dataset.field]=value;if(isObstacle(w))Object.assign(w,normalizeObstacle(w));}});return;}
  if(!el.dataset.scope)return;const field=el.dataset.field,scope=el.dataset.scope;
@@ -618,11 +817,59 @@ document.addEventListener('change',e=>{
   }
  });
 });
+}
 function validNumber(el,value){const integer=['doors','drawers','shelves','internalDrawerCount','hingesPerDoor'].includes(el.dataset.field);if(!Number.isFinite(value)||value<Number(el.min)||value>Number(el.max)||(integer&&!Number.isInteger(value))){toast(`Введите ${integer?'целое ':''}число от ${el.min} до ${el.max}`);return false;}return true;}
 function resizeOpening(c,id,axis,value){return applyCabinetResult(c,interiorParentId?resizeConstrainedInteriorSection(c,interiorParentId,id,axis,value,project):resizeApplianceSection(c,id,axis,value,project));}
 function setCabinetRotation(c,degrees){const old=(c.rotation||0)*Math.PI/180,next=degrees*Math.PI/180,center={x:c.x+c.width/2*Math.cos(old)-c.depth/2*Math.sin(old),z:c.z+c.width/2*Math.sin(old)+c.depth/2*Math.cos(old)};c.rotation=degrees;c.x=Math.round((center.x-c.width/2*Math.cos(next)+c.depth/2*Math.sin(next))*1000)/1000;c.z=Math.round((center.z-c.width/2*Math.sin(next)-c.depth/2*Math.cos(next))*1000)/1000;}
 function updateRoomDeleteTool(){const button=$('#room-tools [data-action="remove-corner"]');if(!button)return;const opening=roomFocus==='window'?selectedOpening():null,indices=roomEditor.getSelectedCorners();const label=opening?opening.kind==='door'?'Удалить дверной проём':'Удалить окно':indices.length>1?`Удалить выбранные углы (${indices.length})`:'Удалить выбранный угол';button.title=label;button.setAttribute('aria-label',label);button.disabled=!opening&&!indices.length;}
 function action(name, el=null){const c=selectedCabinet();
+ if(name==='open-raytrace-3d'){
+  mode='room';roomView='render';
+  if(c){roomFocus='cabinet';selectedWindowId=null;}
+  roomRenderer.setRayTracing(true);
+  render();
+  if(c)roomRenderer.focusOnCabinet(c.id);
+  return;
+ }
+ if(name==='set-cabinet-hw'&&c){
+  const field=el?.dataset.field,val=el?.dataset.value;
+  if(field&&val){
+   change(()=>{
+    c[field]=val;
+    const s=editableSection();
+    if(s?.node){
+     if(s.node[field])s.node[field]=val;
+     if(field==='rodStyle'&&Array.isArray(s.node.rods)){
+      s.node.rods.forEach(r=>{r.style=val;});
+     }
+    }
+   });
+   if( (field==='hingeStyle'||field==='drawerRailingStyle') && mode==='cabinet' && cabinetView==='scheme' ){
+    cabinetView='3d';
+    viewport.setOptions({doorsOpen:true,openProgress:1});
+    render();
+   }
+  }
+  return;
+ }
+ if(name==='render-raytracing'){
+  roomRenderer.toggleRayTracing();
+  renderHud();
+  toast(roomRenderer.rayTracing?translateText('Трассировка лучей включена',interfaceLanguage):translateText('Трассировка лучей выключена',interfaceLanguage));
+  return;
+ }
+ if(name==='render-set-lighting'){
+  const val=el?.dataset.value;
+  if(val){roomRenderer.setLightingMode(val);render();}
+  return;
+ }
+ if(name==='toggle-measure'||name==='measure'){
+  const next = !getMeasureToolActive();
+  setMeasureTool(next);
+  toast(next ? translateText('Рулетка включена', interfaceLanguage) : translateText('Рулетка выключена', interfaceLanguage));
+  return;
+ }
+ if(name==='view-drc'){action('validation');return;}
  if(name==='apply-quick-fix'){const idx=Number(el?.dataset.fixIdx),fix=warnings[idx]?.fix;if(fix){change(()=>{const ok=applyQuickFix(project,fix);if(ok)toast(`Применено: ${fix.label||'Автоисправление'}`);});if($('.modal'))closeModal();}return;}
  if(name==='set-room-door-swing'){const w=selectedOpening(),val=el?.dataset.value;if(w&&w.kind==='door'&&val)change(()=>{w.swing=val;});}
  if(name==='set-room-door-hinge'){const w=selectedOpening(),val=el?.dataset.value;if(w&&w.kind==='door'&&val)change(()=>{w.hinge=val;});}
@@ -646,13 +893,13 @@ function action(name, el=null){const c=selectedCabinet();
   if(name==='flip-corner-side'&&c){change(()=>{const isCorner=c.cornerType==='blind'||String(c.type).startsWith('corner');if(!isCorner)return false;c.blindSide=c.blindSide==='left'?'right':'left';c.doorOpening=c.blindSide==='left'?'right':'left';const targetNode=editableSection()?.node??selectedSection()?.node??(c.layout?.kind==='section'?c.layout:c.layout?.children?.[0]??c.layout);if(targetNode){targetNode.doors=1;targetNode.doorOpenings=[c.doorOpening];}});}
  if(name==='rotate-cabinet'&&c){if(c.parentId){toast(translateText('Антресоль привязана к основному шкафу. Перемещайте основной шкаф.',interfaceLanguage));return;}change(()=>{setCabinetRotation(c,(((c.rotation||0)+90+180)%360+360)%360-180);syncMezzanines(project);if(!canPlaceCabinet(c,project))throw Error('Размещение пересекает другой шкаф или нарушает границы помещения и монтажные отступы.');});}
  if(name==='reset-view'){cabinetEditor.reset();viewport.resetCamera();}
- if(name==='open-fronts'){const open=!viewport.options.doorsOpen;viewport.setOptions({doorsOpen:open,...(!open?{internalDrawersOpen:false}:{})});render();}
- if(name==='open-internal'){viewport.setOptions({doorsOpen:true,internalDrawersOpen:!viewport.options.internalDrawersOpen});render();}
- if(name==='room-open-fronts'){const open=!roomViewport.options.doorsOpen;roomViewport.setOptions({doorsOpen:open,internalDrawersOpen:open});render();}
+ if(name==='open-fronts'){const open=!viewport.options.doorsOpen;viewport.setOptions({doorsOpen:open,openProgress:open?1:0,...(!open?{internalDrawersOpen:false}:{})});render();}
+ if(name==='open-internal'){viewport.setOptions({doorsOpen:true,openProgress:1,internalDrawersOpen:!viewport.options.internalDrawersOpen});render();}
+ if(name==='room-open-fronts'){const open=!roomViewport.options.doorsOpen;roomViewport.setOptions({doorsOpen:open,openProgress:open?1:0,internalDrawersOpen:open});render();}
  if(name==='render-doors'){roomRenderer.toggleDoors();render();}
  if(name==='render-walls'){roomRenderer.toggleWallMode();render();}
  if(name==='render-ceiling'){roomRenderer.setShowCeiling();render();}
- if(name==='render-lighting'){roomRenderer.setLightingMode(roomRenderer.lightingMode==='day'?'evening':'day');render();}
+ if(name==='render-lighting'){const order=['day','evening','studio','night-led'];const next=order[(order.indexOf(roomRenderer.lightingMode)+1)%order.length];roomRenderer.setLightingMode(next);render();}
  if(name==='render-wall-shadows'){roomRenderer.setWallShadows();saveSun();render();}
  if(name==='render-focus-cabinet'&&c){roomRenderer.focusOnCabinet(c.id);return;}
  if(name==='render-reset')roomRenderer.resetCamera();
@@ -1156,10 +1403,61 @@ async function download(content,name,type){
 function printHTML(html){const w=window.open('','_blank');if(!w){toast('Разрешите окно печати в браузере');return;}let printed=false;const print=()=>{if(printed||w.closed)return;printed=true;w.focus();w.print();};w.onload=print;w.document.open();w.document.write(html);w.document.close();setTimeout(()=>{if(w.document.readyState==='complete')print();},700);}
 function showPrintPreview(title,html,suffix,previewTitle,saveLabel){modal(title,`<iframe class="print-3d-preview" title="${esc(previewTitle)}" srcdoc="${esc(html)}"></iframe><div class="print-3d-actions"><button class="button primary" id="print-room-sheet">${icon('print')}Печать / PDF</button><button class="button" id="save-room-sheet">${icon('download')}${saveLabel}</button></div>`,true);$('#print-room-sheet').onclick=()=>printHTML(html);$('#save-room-sheet').onclick=()=>download(html,`${filename()}-${suffix}.html`,'text/html;charset=utf-8');}
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),4500);}
-$('#project-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>3e6)throw Error('Файл больше 3 МБ');const data=JSON.parse(await file.text()),p=data.project||data;checkImport(p);change(()=>{project=prepare(p);cabinetId=project.cabinets[0]?.id;interiorParentId=null;sectionId=null;mode='cabinet';});closeModal();toast('Проект открыт');}catch(err){toast(`Не удалось открыть: ${err.message}`);}e.target.value='';});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();return;}const modalOpen=!!$('.modal');if(modalOpen)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();action('save');}if(e.target.matches('input,select,textarea'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){e.preventDefault();duplicateCabinetAction();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='c'){if(window.getSelection()?.toString())return;const c=selectedCabinet();if(c){e.preventDefault();cabinetClipboard=clone(c);toast(translateText('Шкаф скопирован в буфер',interfaceLanguage));}return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='v'){if(cabinetClipboard){e.preventDefault();duplicateCabinetAction(cabinetClipboard);}return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();action(e.shiftKey?'redo':'undo');}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();action('redo');}});
+export function handleGlobalKeydown(event, studioContext = null) {
+  if (!event || event.defaultPrevented) return false;
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+  const key = event.key;
+  if (key !== 'Delete' && key !== 'Backspace') return false;
+
+  const target = event.target;
+  if (target) {
+    const tagName = target.tagName ? String(target.tagName).toUpperCase() : '';
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
+      return false;
+    }
+    if (target.isContentEditable || (typeof target.matches === 'function' && target.matches('input, select, textarea, [contenteditable]'))) {
+      return false;
+    }
+  }
+
+  const doc = typeof document !== 'undefined' ? document : null;
+  const activeEl = doc?.activeElement;
+  if (activeEl && activeEl !== target) {
+    const activeTag = activeEl.tagName ? String(activeEl.tagName).toUpperCase() : '';
+    if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT' || activeEl.isContentEditable) {
+      return false;
+    }
+  }
+
+  const modalOpen = studioContext?.modalOpen ?? (typeof $ === 'function' && !!$('.modal'));
+  if (modalOpen) return false;
+
+  const currentMode = studioContext && 'mode' in studioContext ? studioContext.mode : (typeof mode !== 'undefined' ? mode : null);
+  const currentCabView = studioContext && 'cabinetView' in studioContext ? studioContext.cabinetView : (typeof cabinetView !== 'undefined' ? cabinetView : null);
+  const currentRoomView = studioContext && 'roomView' in studioContext ? studioContext.roomView : (typeof roomView !== 'undefined' ? roomView : null);
+  const currentCabinetId = studioContext && 'cabinetId' in studioContext ? studioContext.cabinetId : (typeof cabinetId !== 'undefined' ? cabinetId : null);
+  const doDeleteCabinet = studioContext && 'deleteCabinet' in studioContext ? studioContext.deleteCabinet : (typeof deleteCabinet === 'function' ? deleteCabinet : null);
+
+  const canDeleteInCabinet = (currentMode === 'cabinet' && currentCabView === 'scheme');
+  const canDeleteInRoom3D = (currentMode === 'room' && (currentRoomView === '3d' || currentRoomView === 'render'));
+
+  if ((canDeleteInCabinet || canDeleteInRoom3D) && currentCabinetId && typeof doDeleteCabinet === 'function') {
+    if (typeof event.preventDefault === 'function') {
+      event.preventDefault();
+    }
+    doDeleteCabinet(currentCabinetId);
+    return true;
+  }
+
+  return false;
+}
+
+if(typeof document!=='undefined'){
+$('#project-file')?.addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>3e6)throw Error('Файл больше 3 МБ');const data=JSON.parse(await file.text()),p=data.project||data;checkImport(p);change(()=>{project=prepare(p);cabinetId=project.cabinets[0]?.id;interiorParentId=null;sectionId=null;mode='cabinet';});closeModal();toast('Проект открыт');}catch(err){toast(`Не удалось открыть: ${err.message}`);}e.target.value='';});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();return;}const modalOpen=!!$('.modal');if(modalOpen)return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();action('save');}if(handleGlobalKeydown(e))return;if(e.target.matches('input,select,textarea'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){e.preventDefault();duplicateCabinetAction();return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='c'){if(window.getSelection()?.toString())return;const c=selectedCabinet();if(c){e.preventDefault();cabinetClipboard=clone(c);toast(translateText('Шкаф скопирован в буфер',interfaceLanguage));}return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='v'){if(cabinetClipboard){e.preventDefault();duplicateCabinetAction(cabinetClipboard);}return;}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();action(e.shiftKey?'redo':'undo');}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();action('redo');}});
 calculate();render();
 if(restored)toast('Ваш проект открыт в редакторе секций');
+}
 
 const APPLIANCE_CHOICES = [
   ['oven', 'Духовой шкаф'],
@@ -1425,10 +1723,13 @@ function applianceDialog(forcedType=null){
 }
 
 function printOptions(){const language=project.settings.printLanguage??'tr';return `<div class="property-block"><h2>Язык документов</h2><label class="check-row"><input id="print-turkish" type="checkbox" ${language==='tr'?'checked':''}>Печать на турецком</label>${language!=='tr'?`<label class="field"><span>Язык чертежей и раскроя</span><select data-scope="settings" data-field="printLanguage"><option value="ru" ${language==='ru'?'selected':''}>Русский</option><option value="en" ${language==='en'?'selected':''}>English</option></select></label>`:''}<p class="hint">Небольшие виды компонуются на одном листе. Сложные чертежи получают дополнительные страницы.</p></div>`;}
-function applyLanguage(){document.documentElement.lang=interfaceLanguage;$('#interface-language').setAttribute('aria-label',{ru:'Язык интерфейса',tr:'Arayüz dili',en:'Interface language'}[interfaceLanguage]);for(const element of [$('#app'),$('#modal-root'),$('#toast')])if(element)applyTranslations(element,interfaceLanguage);}
-const languageObserver=new MutationObserver(()=>applyLanguage());
-for(const element of [$('#app'),$('#modal-root'),$('#toast')])if(element)languageObserver.observe(element,{childList:true,subtree:true,characterData:true});
-applyLanguage();
+function applyLanguage(){if(typeof document==='undefined')return;document.documentElement.lang=interfaceLanguage;$('#interface-language')?.setAttribute('aria-label',{ru:'Язык интерфейса',tr:'Arayüz dili',en:'Interface language'}[interfaceLanguage]);for(const element of [$('#app'),$('#modal-root'),$('#toast')])if(element)applyTranslations(element,interfaceLanguage);}
+let languageObserver=null;
+if(typeof MutationObserver!=='undefined'){
+ languageObserver=new MutationObserver(()=>applyLanguage());
+ for(const element of [$('#app'),$('#modal-root'),$('#toast')])if(element)languageObserver.observe(element,{childList:true,subtree:true,characterData:true});
+ applyLanguage();
+}
 
 function cuttingHTML(){
  const language=project.settings.printLanguage??'tr',t=text=>esc(translatePrintText(text,language)),n=val=>esc(printNumber(val,language));
@@ -1448,11 +1749,14 @@ function updatePricingSummary(){const target=$('#pricing-summary');if(target)tar
 function rememberPricing(){if(demoMode)return;try{localStorage.setItem(pricingKey,JSON.stringify(getPricingPreferences(project)));}catch{}}
 function applyApplicationPricing(p){try{Object.assign(p,applyPricingPreferences(p,JSON.parse(localStorage.getItem(pricingKey))));}catch{}}
 
-window.addEventListener('resize',()=>{
- if(mode==='cabinet'&&cabinetView==='3d')viewport.resize();
- else if(mode==='room'){
-  if(roomView==='3d')roomViewport.resize();
-  else if(roomView==='render')roomRenderer.resize();
- }
-});
+if(typeof window!=='undefined'){
+ window.addEventListener('resize',()=>{
+  if(mode==='cabinet'&&cabinetView==='3d')viewport?.resize();
+  else if(mode==='room'){
+   if(roomView==='3d')roomViewport?.resize();
+   else if(roomView==='render')roomRenderer?.resize();
+  }
+ });
+ window.addEventListener('keydown',e=>handleGlobalKeydown(e));
+}
 
