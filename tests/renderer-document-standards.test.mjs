@@ -73,3 +73,47 @@ test('standalone cabinet and room illustrations cannot be mistaken for dimension
     assert.ok(projection.includes(printDocumentText('notToScale', language)));
   }
 });
+
+test('multi-compartment cabinet schedules with internal drawers and appliances paginate cleanly and size narrow columns without mid-word breaks', () => {
+  const project = createDefaultProject('tr'), cabinet = project.cabinets[0];
+  cabinet.name = 'Dolap 4';
+  cabinet.width = 1200; cabinet.height = 2200; cabinet.depth = 600;
+  cabinet.layout = {
+    id: 'root', kind: 'split', axis: 'vertical', sizes: [600, 600],
+    children: [
+      {
+        id: 'left-col', kind: 'section', front: 'doors', doors: 2, shelves: 0,
+        interiorLayout: {
+          id: 'int-split', kind: 'split', axis: 'horizontal', sizes: [600, 600, 800],
+          children: [
+            { id: 'int-1', kind: 'section', front: 'open', shelves: 1 },
+            { id: 'int-2', kind: 'section', front: 'open', shelves: 1 },
+            { id: 'int-3', kind: 'section', front: 'drawers', drawers: 3 }
+          ]
+        }
+      },
+      {
+        id: 'right-col', kind: 'section', front: 'open', shelves: 0,
+        appliance: { type: 'washer', label: 'Çamaşır makinesi', width: 600, height: 850, depth: 550, useClearances: true, clearances: { side: 15, top: 20, rear: 40 } }
+      }
+    ]
+  };
+  for (const language of ['tr', 'ru', 'en']) {
+    const html = generateDrawingHTML(project, { cabinetId: cabinet.id, language, compact: true });
+    assert.match(html, /\[data-schedule-kind=internal-fronts\] th:nth-child\(1\)[\s\S]*?\{width:12%\}/);
+    assert.match(html, /\[data-schedule-kind=internal-fronts\] th:nth-child\(6\)[\s\S]*?\{width:24%\}/);
+    assert.match(html, /\.sheet\.schedule\{height:auto;min-height:210mm;padding-bottom:14mm\}/);
+    assert.match(html, /\.schedule\{aspect-ratio:auto;height:auto;min-height:66\.46vw;padding-bottom:14mm\}/);
+    const pages = [...html.matchAll(/<section\b[^>]*class="sheet schedule[^"]*"[^>]*>[\s\S]*?<\/section>/g)].map(m => m[0]);
+    assert.ok(pages.length >= 2);
+    for (const page of pages) {
+      const est = page.match(/data-estimated-content-height="(\d+)"/);
+      const lim = page.match(/data-content-height-limit="(\d+)"/);
+      if (est && lim) {
+        const margin = page.includes('combined-schedule') ? 20 : 0;
+        assert.ok(Number(est[1]) <= Number(lim[1]) - margin, `Estimated height ${est[1]} must stay within limit ${lim[1]}`);
+      }
+    }
+  }
+});
+

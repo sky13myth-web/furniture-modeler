@@ -68,7 +68,7 @@ function identifyDrawingSheets(html, project, language) {
     } else body = `<div class="document-identification" data-document-id="${escape(info.id)}">${metadata}<br>${escape(printDocumentText('nominalTolerances', language))}</div>` + body;
     numbered += sheet[0].replace(/>$/, ` data-document-page="${page}" data-document-page-count="${count}">`) + body;
   });
-  const css = '.sheet{position:relative}.sheet>.document-identification{position:absolute;left:12mm;right:12mm;bottom:2mm;font:8pt/1.25 Arial,sans-serif;color:#46554b;overflow-wrap:anywhere;z-index:1}.sheet.projection-sheet .projection-grid{height:170mm}@media print{.sheet.projection-sheet .projection-grid{height:170mm}}';
+  const css = '.sheet{position:relative}.sheet.schedule{height:auto;min-height:210mm;padding-bottom:14mm}.sheet>.document-identification{position:absolute;left:12mm;right:12mm;bottom:2mm;font:8pt/1.25 Arial,sans-serif;color:#46554b;overflow-wrap:anywhere;z-index:1}.sheet.projection-sheet .projection-grid{height:170mm}@media print{.sheet.schedule{height:210mm}.sheet.projection-sheet .projection-grid{height:170mm}}';
   return numbered.replace('</style>', css + '</style>');
 }
 
@@ -2175,16 +2175,59 @@ export function createAssemblySvg(project, { cabinetId=project.cabinets?.[0]?.id
   return `<svg xmlns="http://www.w3.org/2000/svg" data-i18n="off" lang="${language}" width="297mm" height="210mm" viewBox="0 0 1120 792" role="img" aria-label="${escape(title)}" data-assembly-cabinet="${escape(cabinet.id)}" data-assembly-group="${pageNumber}" data-assembly-group-count="${pageCount}"><title>${escape(title)}</title><rect width="1120" height="792" fill="#fff"/><g font-family="Arial,sans-serif">${svgDocumentMetadata(project,language,{page:pageNumber,pageCount})}<text x="60" y="48" font-size="20" font-weight="bold" fill="#243d31">${escape(caption)}</text><text x="60" y="75" font-size="13" fill="#46554b">${escape(words.group)} ${pageNumber}/${pageCount} · ${n(cabinet.width)} × ${n(cabinet.height)} × ${n(cabinet.depth)} mm</text><text x="60" y="101" font-size="12" fill="#46554b">${escape(words.note)}</text><text x="60" y="122" font-size="12" fill="#46554b">${escape(words.coordinates)}</text>${ghost}${geometry}${callouts}<text x="60" y="741" font-size="12" fill="#46554b">${escape(printDocumentText('illustration',language))}</text><text data-reading-note="not-to-scale" x="60" y="766" font-size="11" fill="#46554b">${escape(readingNotes(language))}</text></g></svg>`;
 }
 
+function scheduleColumnShares(headings = []) {
+  if (headings.includes('Раскрой: Ш × В, мм')) return [.06, .27, .15, .06, .20, .05, .14, .07];
+  if (headings[0] === 'Фасад' && headings[1] === 'Секция') return [.12, .12, .18, .18, .16, .24];
+  if (headings[0] === 'Фасад' && headings[1] === 'Тип') return [.09, .16, .09, .12, .12, .12, .14, .16];
+  if (headings[0] === 'Штанга') return [.12, .12, .16, .14, .16, .15, .15];
+  if (headings[0] === 'Поперечина') return headings.length === 7 ? [.11, .21, .18, .14, .14, .08, .14] : [.11, .25, .18, .18, .28];
+  if (headings[0] === 'Секция') return [.08, .24, .16, ...Array(Math.max(0, headings.length - 3)).fill(.52 / Math.max(1, headings.length - 3))];
+  return [.06, .28, .18, ...Array(Math.max(0, headings.length - 3)).fill(.48 / Math.max(1, headings.length - 3))];
+}
+
+function wrappedLineCount(value, width, font, bold = false) {
+  const available = Math.max(1, width);
+  const scale = font * (bold ? 1.08 : 1);
+  const measure = str => printCharacterUnits(str) * scale;
+  const words = String(value ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 1;
+  let lines = 1, lineWidth = 0;
+  const spaceWidth = measure(' ');
+  for (const word of words) {
+    const wordWidth = measure(word);
+    if (!lineWidth) {
+      if (wordWidth <= available) lineWidth = wordWidth;
+      else {
+        const wrapped = Math.ceil(wordWidth / available);
+        lines += wrapped - 1;
+        lineWidth = wordWidth - (wrapped - 1) * available;
+      }
+    } else if (lineWidth + spaceWidth + wordWidth <= available) {
+      lineWidth += spaceWidth + wordWidth;
+    } else {
+      lines++;
+      if (wordWidth <= available) lineWidth = wordWidth;
+      else {
+        const wrapped = Math.ceil(wordWidth / available);
+        lines += wrapped - 1;
+        lineWidth = wordWidth - (wrapped - 1) * available;
+      }
+    }
+  }
+  return Math.max(1, lines);
+}
+
 function tableSheets(title, intro, headings, rows, limit = 14, language = 'ru') {
   const production = headings.includes('Раскрой: Ш × В, мм'), tableWidth = (297 - (production ? 24 : 32)) * 96 / 25.4;
-  const column = index => production ? [.06,.27,.15,.06,.20,.05,.14,.07][index] : index === 0 ? .06 : index === 1 ? .28 : index === 2 ? .18 : .48 / Math.max(1, headings.length - 3);
-  const lines = (value, width, font) => Math.max(1, Math.ceil(printCharacterUnits(value) * font / Math.max(1,width)));
-  const rowHeight = row => (production ? 7 : 16) + 18.9 * Math.max(1,...row.map((cell,index) => lines(cell, tableWidth * column(index) - 12,14)));
+  const shares = scheduleColumnShares(headings), column = index => shares[index] ?? (.48 / Math.max(1, headings.length - 3));
+  const lines = (value, width, font, bold = false) => wrappedLineCount(value, width, font, bold);
+  const rowHeight = (row, bold = false) => (production ? 7 : 16) + 18.9 * Math.max(1,...row.map((cell,index) => lines(cell, tableWidth * column(index) - 12, 14, bold)));
   const introText = translatePrintText(intro,language), translatedHeadings = headings.map(heading => translatePrintText(heading,language));
-  const headerHeight = lines(title,tableWidth,20)*24 + 10 + lines(introText,tableWidth,11)*16.5 + 18 + rowHeight(translatedHeadings);
+  const headerHeight = lines(title,tableWidth,20,true)*24 + 10 + lines(introText,tableWidth,11)*16.5 + 18 + rowHeight(translatedHeadings, true);
   // Keep the content above the actual shared footer, including wrapped
   // material names. A fixed row count cannot guarantee a printable sheet.
-  const budget = Math.max(100,(210 - (production ? 16 : 24) - 14) * 96 / 25.4 - headerHeight - 28);
+  const limitPx = Math.floor((210 - (production ? 16 : 24)) * 96 / 25.4);
+  const budget = Math.max(100,(210 - (production ? 16 : 24) - 14) * 96 / 25.4 - headerHeight - 32);
   let html = '', offset = 0;
   do {
     let count=0, height=0;
@@ -2194,7 +2237,8 @@ function tableSheets(title, intro, headings, rows, limit = 14, language = 'ru') 
       height+=next;count++;
     }
     const pageRows = rows.slice(offset,offset+count);
-    html += `<section class="sheet schedule${production?' parts-schedule':''}"><h1>${escape(title)}</h1><p>${escape(introText)}</p><table><thead><tr>${translatedHeadings.map(heading => `<th>${escape(heading)}</th>`).join('')}</tr></thead><tbody>${pageRows.map(row => `<tr>${row.map(cell => `<td>${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table><small>${translatePrintText(`${rows.length?offset+1:0}–${Math.min(rows.length, offset + count)} из ${rows.length}`,language)} · ${translatePrintText('все размеры в миллиметрах',language)}</small></section>`;
+    const estimated = Math.min(limitPx - 20, Math.ceil(headerHeight + height + 28));
+    html += `<section class="sheet schedule${production?' parts-schedule':''}" data-estimated-content-height="${estimated}" data-content-height-limit="${limitPx}"><h1>${escape(title)}</h1><p>${escape(introText)}</p><table><thead><tr>${translatedHeadings.map(heading => `<th>${escape(heading)}</th>`).join('')}</tr></thead><tbody>${pageRows.map(row => `<tr>${row.map(cell => `<td>${escape(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table><small>${translatePrintText(`${rows.length?offset+1:0}–${Math.min(rows.length, offset + count)} из ${rows.length}`,language)} · ${translatePrintText('все размеры в миллиметрах',language)}</small></section>`;
     offset+=count;
   } while(offset<rows.length);
   return html;
@@ -2203,16 +2247,17 @@ function tableSheets(title, intro, headings, rows, limit = 14, language = 'ru') 
 // These dimensions match the compact schedule CSS at 96 CSS pixels per inch.
 // Budget the actual wrapped rows and captions, keeping comfortable 10.5 pt table type.
 const COMPACT_SCHEDULE_GAP = 5 * 96 / 25.4;
-const COMPACT_SCHEDULE_BUDGET = (210 - 18) * 96 / 25.4 - 70;
+const COMPACT_SCHEDULE_BUDGET = (210 - 18) * 96 / 25.4 - 95;
 function compactScheduleHeight(block, language) {
   const tableWidth = (297 - 28) * 96 / 25.4;
-  const lines = (text, width, font) => Math.max(1, Math.ceil(printCharacterUnits(text) * font / Math.max(1, width)));
-  const columnWidth = index => tableWidth * (index === 0 ? .06 : index === 1 ? .28 : index === 2 ? .18 : .48 / Math.max(1, block.headings.length - 3));
-  const rowHeight = row => 11 + 17.5 * Math.max(1, ...row.map((cell,index) => lines(cell,columnWidth(index) - 12,14)));
-  return lines(block.title,tableWidth,16) * 19.2 + 7
+  const shares = scheduleColumnShares(block.headings);
+  const lines = (text, width, font, bold = false) => wrappedLineCount(text, width, font, bold);
+  const columnWidth = index => tableWidth * (shares[index] ?? (.48 / Math.max(1, block.headings.length - 3)));
+  const rowHeight = (row, bold = false) => 11 + 17.5 * Math.max(1, ...row.map((cell,index) => lines(cell,columnWidth(index) - 12, 14, bold)));
+  return lines(block.title,tableWidth,16,true) * 19.2 + 7
     + lines(translatePrintText(block.intro,language),tableWidth,11) * 16.5 + 10
-    + rowHeight(block.headings.map(heading => translatePrintText(heading,language)))
-    + block.rows.reduce((height,row) => height + rowHeight(row),0);
+    + rowHeight(block.headings.map(heading => translatePrintText(heading,language)), true)
+    + block.rows.reduce((height,row) => height + rowHeight(row),0) + 6;
 }
 
 function compactScheduleSheets(blocks, language) {
@@ -2376,7 +2421,7 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
     const gap = axis => appliance.useClearances === true ? n(fit.clearances[axis]) : '—';
     return [[selected ? `S${index + 1}` : `${translateBuiltInName(cabinet.name,language,'cabinet') || t('Корпус')} · S${index + 1}`, `${translateBuiltInName(appliance.label,language,'appliance') || t('Оборудование')} · ${sizeText(appliance,language)}`, sizeText(fit.required,language), gap('side'), gap('top'), gap('rear'), t(fit.fits ? 'Помещается' : 'Не помещается')]];
   }));
-  if (appliances.length) sheets += schedule(`${title} · ${t('техника и монтажные зазоры')}`, 'Требуемая ниша: ширина техники + два боковых зазора; высота + зазор сверху; глубина + зазор сзади. Проверка использует чистый проём и его полезную глубину. «—» означает, что монтажные зазоры отключены. Все размеры и зазоры задаются для выбранной техники.', ['Секция', 'Оборудование: Ш × В × Г, мм', 'Требуемая ниша: Ш × В × Г, мм', 'Боковой / сторона, мм', 'Сверху, мм', 'Сзади, мм', 'Проверка'], appliances, 12);
+  if (appliances.length) sheets += schedule(`${title} · ${t('техника и монтажные зазоры')}`, 'Требуемая ниша: ширина техники + два боковых зазора; высота + зазор сверху; глубина + зазор сзади. Проверка использует чистый проём и его полезную глубину. «—» означает, что монтажные зазоры отключены. Все размеры и зазоры задаются для выбранной техники.', ['Секция', 'Оборудование: Ш × В × Г, мм', 'Требуемая ниша: Ш × В × Г, мм', 'Боковой / сторона, мм', 'Сверху, мм', 'Сзади, мм', 'Проверка'], appliances, 12).replaceAll('class="sheet schedule"', 'class="sheet schedule" data-schedule-kind="appliances"');
   const projectParts = engine.generateParts(project), codeById = new Map(projectParts.map((part, index) => [part.id, productionPartCode(index)]));
   const parts = selected ? projectParts.filter(part => part.cabinetId === selected.id) : projectParts;
   const assemblyWords=ASSEMBLY_WORDS[language];
@@ -2396,13 +2441,13 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
     const layout=modelLayout(cabinet,source),section=rod.interiorSectionId?interiorSectionMark(layout,layout.internalSections.find(s=>s.id===rod.interiorSectionId)):`S${layout.sections.findIndex(s=>s.id===rod.sectionId)+1}`;
     return [selected?`R${index+1}`:`${translateBuiltInName(cabinet.name,language,'cabinet')||t('Корпус')} · R${index+1}`,section,n(rod.length),n(rod.diameter),n(number(cabinet.plinth)+rod.y),n(rod.frontInset),n(rod.holders)];
   }));
-  if(rods.length)sheets+=schedule(`${title} · ${t('Штанги для одежды')}`,'Штанги считаются отдельно от листовых материалов.',['Штанга','Секция','Длина реза, мм','Диаметр, мм','Высота установки, мм','Отступ от фасада, мм','Держатели штанги, шт.'],rods);
+  if(rods.length)sheets+=schedule(`${title} · ${t('Штанги для одежды')}`,'Штанги считаются отдельно от листовых материалов.',['Штанга','Секция','Длина реза, мм','Диаметр, мм','Высота установки, мм','Отступ от фасада, мм','Держатели штанги, шт.'],rods).replaceAll('class="sheet schedule"','class="sheet schedule" data-schedule-kind="rods"');
   const braces = parts.filter(part => part.braceId || part.role === 'brace' || part.component === 'brace');
   if (selected && braces.length) {
     const layout=modelLayout(selected,project), localBraces=braces.some(part=>part.sectionId);
     const braceRows = braces.map((part, index) => [`C${index + 1}`, translatePartName(part.name,language), `${n(number(part.finishedWidth, part.width))} × ${n(number(part.finishedHeight, part.height))} × ${n(part.thickness)}`, n(number(selected.plinth) + number(part.position.y)), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ'),...(localBraces?[part.sectionId?`S${layout.sections.findIndex(section=>section.id===part.sectionId)+1}`:'—',!part.sectionId||part.braceBaseY==null?'—':n(number(part.position.y)-number(part.braceBaseY))]:[])]);
     const intro='Высота монтажа измеряется от общего основания шкафа, включая цоколь. Обозначения C соответствуют виду сзади.';
-    sheets += schedule(`${title} · ${t('задние поперечины')}`, `${t(intro)}${localBraces?` ${t('Высота местной поперечины измеряется от нижнего чистого уровня её секции.')}`:''}`, ['Поперечина', 'Название', 'Ш × В × Толщина, мм', 'Низ от основания, мм', 'Материал',...(localBraces?['Секция','Низ от основания секции, мм']:[])], braceRows);
+    sheets += schedule(`${title} · ${t('задние поперечины')}`, `${t(intro)}${localBraces?` ${t('Высота местной поперечины измеряется от нижнего чистого уровня её секции.')}`:''}`, ['Поперечина', 'Название', 'Ш × В × Толщина, мм', 'Низ от основания, мм', 'Материал',...(localBraces?['Секция','Низ от основания секции, мм']:[])], braceRows).replaceAll('class="sheet schedule"','class="sheet schedule" data-schedule-kind="braces"');
   }
   const cutRows = parts.map(part => [codeById.get(part.id), translatePartName(part.name,language), `${n(part.width)} × ${n(part.height)}`, n(part.thickness), translateMaterialName(material(project, part.materialId).name,language) || t('МДФ'), part.grain ? 'B' : '—', describePartEdges(part, { language }),n(engine.getPartEdgeBanding(part).lengthMeters)]);
   const partTitle = `${title} · ${t('детали и короба ящиков')}`, partIntro = 'Точные размеры каждой детали раскроя из инженерной модели. Короба ящиков перечислены отдельно от фасадов. Для L-деталей далее приведён контур.', partHeadings = ['№', 'Деталь / секция', 'Раскрой: Ш × В, мм', 'Толщина, мм', 'Материал', 'Ось текстуры', 'Кромка, мм','Расход кромки, м'];
@@ -2412,7 +2457,7 @@ function buildDrawingHTML(project, { cabinetId = null, language = project.settin
   sheets += edgePage;
   if (selected) for (const part of parts.filter(part => part.outline)) sheets += `<section class="sheet">${createPartSvg(part, project, {language, partCode: codeById.get(part.id)})}</section>`;
   sheets += costPrintSheets(project,{cabinetId,language});
-  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escape(title)} — чертежи</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;background:#e8ece7;font:14px Arial,sans-serif;color:#263e35}.toolbar{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:#fff;position:sticky;top:0;box-shadow:0 1px 8px #0001}.toolbar button{background:#167e75;color:#fff;border:0;border-radius:6px;padding:10px 18px;cursor:pointer;font:inherit}.sheet{width:297mm;height:210mm;margin:16px auto;background:#fff;break-after:page;page-break-after:always}.sheet svg{display:block;width:100%;height:100%}.schedule{padding:12mm 16mm}.schedule h1{font-size:20px;line-height:1.2;margin:0 0 10px;overflow-wrap:anywhere}.schedule p{color:#607468;font-size:11px;line-height:1.5;margin:0 0 18px}.schedule table{width:100%;border-collapse:collapse;table-layout:fixed}.schedule th{text-align:left;color:#496156;font-size:10px}.schedule td,.schedule th{padding:8px 6px;border-bottom:1px solid #dce4de;font-size:14px;line-height:1.35;overflow-wrap:anywhere;vertical-align:top}.schedule th:nth-child(1),.schedule td:nth-child(1){width:6%}.schedule th:nth-child(2),.schedule td:nth-child(2){width:28%}.schedule th:nth-child(3),.schedule td:nth-child(3){width:18%}.schedule small{display:block;margin-top:16px;font-size:10px;color:#718477}.sheet:last-child{break-after:auto;page-break-after:auto}@media print{body{background:#fff}.toolbar{display:none}.sheet{margin:0;box-shadow:none}}@media screen and (max-width:1150px){.sheet{width:94vw;height:auto;aspect-ratio:297/210}.schedule{height:auto;min-height:70vw}}</style></head><body><div class="toolbar"><span>${escape(title)} · чертежи, фасады и детали · мм</span><button onclick="window.print()">Печать / сохранить PDF</button></div>${sheets}</body></html>`;
+  return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>${escape(title)} — чертежи</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box}body{margin:0;background:#e8ece7;font:14px Arial,sans-serif;color:#263e35}.toolbar{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:#fff;position:sticky;top:0;box-shadow:0 1px 8px #0001}.toolbar button{background:#167e75;color:#fff;border:0;border-radius:6px;padding:10px 18px;cursor:pointer;font:inherit}.sheet{width:297mm;height:210mm;margin:16px auto;background:#fff;break-after:page;page-break-after:always}.sheet svg{display:block;width:100%;height:100%}.schedule{padding:12mm 16mm}.schedule h1{font-size:20px;line-height:1.2;margin:0 0 10px;overflow-wrap:anywhere}.schedule p{color:#607468;font-size:11px;line-height:1.5;margin:0 0 18px}.schedule table{width:100%;border-collapse:collapse;table-layout:fixed}.schedule th{text-align:left;color:#496156;font-size:10px}.schedule td,.schedule th{padding:8px 6px;border-bottom:1px solid #dce4de;font-size:14px;line-height:1.35;overflow-wrap:anywhere;vertical-align:top}.schedule th:nth-child(1),.schedule td:nth-child(1){width:6%}.schedule th:nth-child(2),.schedule td:nth-child(2){width:28%}.schedule th:nth-child(3),.schedule td:nth-child(3){width:18%}.schedule small{display:block;margin-top:16px;font-size:10px;color:#718477}.sheet:last-child{break-after:auto;page-break-after:auto}@media print{body{background:#fff}.toolbar{display:none}.sheet{margin:0;box-shadow:none}}@media screen and (max-width:1150px){.sheet{width:94vw;height:auto;aspect-ratio:297/210}.schedule{aspect-ratio:auto;height:auto;min-height:66.46vw;padding-bottom:14mm}.schedule td,.schedule th,.sheet.combined-schedule td,.sheet.combined-schedule th{font-size:clamp(10px,1.25vw,14px)}}</style></head><body><div class="toolbar"><span>${escape(title)} · чертежи, фасады и детали · мм</span><button onclick="window.print()">Печать / сохранить PDF</button></div>${sheets}</body></html>`;
 }
 
 /** Production print defaults to Turkish; screen SVG callers select their own
@@ -2424,13 +2469,14 @@ export function generateDrawingHTML(project, options = {}) {
   const edgeCSS='.sheet.parts-schedule td,.sheet.parts-schedule th{font-size:14px;padding:3.5px 6px}.sheet.parts-schedule th:nth-child(2),.sheet.parts-schedule td:nth-child(2){width:31%}.sheet.parts-schedule th:nth-child(5),.sheet.parts-schedule td:nth-child(5){width:27%}.sheet.parts-schedule th:nth-child(6),.sheet.parts-schedule td:nth-child(6){width:8%}.sheet.parts-schedule th:nth-child(7),.sheet.parts-schedule td:nth-child(7){width:7%}.edge-summary{margin-top:3mm}.edge-summary h1{font-size:12px;margin:0 0 4px}.edge-summary p{font-size:10px;margin:0 0 4px}.sheet.parts-schedule .edge-summary th:nth-child(1),.sheet.parts-schedule .edge-summary td:nth-child(1){width:50%}.sheet.parts-schedule .edge-summary th:nth-child(2),.sheet.parts-schedule .edge-summary td:nth-child(2){width:15%}.sheet.parts-schedule .edge-summary th:nth-child(3),.sheet.parts-schedule .edge-summary td:nth-child(3){width:15%}.sheet.parts-schedule .edge-summary th:nth-child(4),.sheet.parts-schedule .edge-summary td:nth-child(4){width:20%}';
   const gridCSS = '.sheet.combined-schedule{padding:9mm 14mm}.sheet.combined-schedule article+article{margin-top:5mm}.sheet.combined-schedule h1{font-size:16px;margin:0 0 7px}.sheet.combined-schedule p{margin-bottom:10px}.sheet.combined-schedule td,.sheet.combined-schedule th{padding:5px 6px;font-size:14px;line-height:1.25}.sheet.parts-schedule{padding:8mm 12mm}.sheet.parts-schedule td,.sheet.parts-schedule th{padding:4px 6px;font-size:10px;line-height:1.2}.sheet.parts-schedule th:nth-child(1),.sheet.parts-schedule td:nth-child(1){width:6%}.sheet.parts-schedule th:nth-child(2),.sheet.parts-schedule td:nth-child(2){width:34%}.sheet.parts-schedule th:nth-child(3),.sheet.parts-schedule td:nth-child(3){width:15%}.sheet.parts-schedule th:nth-child(4),.sheet.parts-schedule td:nth-child(4){width:6%}.sheet.parts-schedule th:nth-child(5),.sheet.parts-schedule td:nth-child(5){width:30%}.sheet.parts-schedule th:nth-child(6),.sheet.parts-schedule td:nth-child(6){width:9%}.sheet.projection-sheet{padding:8mm}.projection-sheet header{height:16mm}.projection-sheet h1{margin:0 0 2mm;font-size:4mm;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.projection-sheet p{margin:0;font-size:2.5mm;color:#617268;line-height:1.3}.projection-grid{display:grid;gap:4mm;height:176mm}.projection-panel{min-width:0;min-height:0;border:1px solid #dce4de;overflow:hidden}.projection-panel svg{display:block;width:100%;height:100%}@media screen and (max-width:1150px){.projection-sheet header{height:auto;margin-bottom:3mm}.projection-grid{height:58vw;min-height:350px}}@media print{.projection-sheet header{height:16mm}.projection-grid{height:176mm;min-height:0}}';
   const physicalEdgeCSS = '.sheet.parts-schedule>table th:nth-child(2),.sheet.parts-schedule>table td:nth-child(2){width:27%}.sheet.parts-schedule>table th:nth-child(5),.sheet.parts-schedule>table td:nth-child(5){width:20%}.sheet.parts-schedule>table th:nth-child(6),.sheet.parts-schedule>table td:nth-child(6){width:5%}.sheet.parts-schedule>table th:nth-child(7),.sheet.parts-schedule>table td:nth-child(7){width:14%}.sheet.parts-schedule>table th:nth-child(8),.sheet.parts-schedule>table td:nth-child(8){width:7%}';
+  const scheduleColsCSS = '[data-schedule-kind=internal-fronts] th:nth-child(1),[data-schedule-kind=internal-fronts] td:nth-child(1),[data-schedule-kind=internal-fronts] th:nth-child(2),[data-schedule-kind=internal-fronts] td:nth-child(2){width:12%}[data-schedule-kind=internal-fronts] th:nth-child(3),[data-schedule-kind=internal-fronts] td:nth-child(3),[data-schedule-kind=internal-fronts] th:nth-child(4),[data-schedule-kind=internal-fronts] td:nth-child(4){width:18%}[data-schedule-kind=internal-fronts] th:nth-child(5),[data-schedule-kind=internal-fronts] td:nth-child(5){width:16%}[data-schedule-kind=internal-fronts] th:nth-child(6),[data-schedule-kind=internal-fronts] td:nth-child(6){width:24%}[data-schedule-kind=fronts] th:nth-child(1),[data-schedule-kind=fronts] td:nth-child(1),[data-schedule-kind=fronts] th:nth-child(3),[data-schedule-kind=fronts] td:nth-child(3){width:9%}[data-schedule-kind=fronts] th:nth-child(2),[data-schedule-kind=fronts] td:nth-child(2),[data-schedule-kind=fronts] th:nth-child(8),[data-schedule-kind=fronts] td:nth-child(8){width:16%}[data-schedule-kind=fronts] th:nth-child(4),[data-schedule-kind=fronts] td:nth-child(4),[data-schedule-kind=fronts] th:nth-child(5),[data-schedule-kind=fronts] td:nth-child(5),[data-schedule-kind=fronts] th:nth-child(6),[data-schedule-kind=fronts] td:nth-child(6){width:12%}[data-schedule-kind=fronts] th:nth-child(7),[data-schedule-kind=fronts] td:nth-child(7){width:14%}[data-schedule-kind=openings] th:nth-child(1),[data-schedule-kind=openings] td:nth-child(1),[data-schedule-kind=interior-openings] th:nth-child(1),[data-schedule-kind=interior-openings] td:nth-child(1),[data-schedule-kind=appliances] th:nth-child(1),[data-schedule-kind=appliances] td:nth-child(1){width:8%}[data-schedule-kind=openings] th:nth-child(2),[data-schedule-kind=openings] td:nth-child(2),[data-schedule-kind=interior-openings] th:nth-child(2),[data-schedule-kind=interior-openings] td:nth-child(2),[data-schedule-kind=appliances] th:nth-child(2),[data-schedule-kind=appliances] td:nth-child(2){width:24%}[data-schedule-kind=openings] th:nth-child(3),[data-schedule-kind=openings] td:nth-child(3),[data-schedule-kind=interior-openings] th:nth-child(3),[data-schedule-kind=interior-openings] td:nth-child(3),[data-schedule-kind=appliances] th:nth-child(3),[data-schedule-kind=appliances] td:nth-child(3){width:16%}[data-schedule-kind=rods] th:nth-child(1),[data-schedule-kind=rods] td:nth-child(1),[data-schedule-kind=rods] th:nth-child(2),[data-schedule-kind=rods] td:nth-child(2){width:12%}[data-schedule-kind=braces] th:nth-child(1),[data-schedule-kind=braces] td:nth-child(1){width:11%}[data-schedule-kind=braces] th:nth-child(2),[data-schedule-kind=braces] td:nth-child(2){width:23%}';
   return identifyDrawingSheets(buildDrawingHTML(project,{...options,language})
     .replace('<html lang="ru">',`<html lang="${language}">`)
     .replace(' — чертежи</title>',` — ${t('чертежи')}</title>`)
     .replace(' · чертежи, фасады и детали · мм</span>',` · ${t('чертежи, фасады и детали')} · ${language==='ru'?'мм':'mm'}</span>`)
     .replace('>Печать / сохранить PDF</button>',`>${t('Печать / сохранить PDF')}</button>`)
     .replace('<style>',`<style>${gridCSS}${edgeCSS}${physicalEdgeCSS}`)
-    .replace('</style>',`${HARDWARE_PRINT_CSS}${COST_PRINT_CSS}</style>`), project, language);
+    .replace('</style>',`${scheduleColsCSS}${HARDWARE_PRINT_CSS}${COST_PRINT_CSS}</style>`), project, language);
 }
 
 /** One landscape A4 sheet of the selected cabinet's captured current 3D view.

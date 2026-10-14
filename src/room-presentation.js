@@ -1262,11 +1262,17 @@ export function generateRoomPresentationHTML(project = {}, { language = 'tr', sn
     }
     .data-table thead {
       background: #edf3ee;
+      display: table-header-group;
+    }
+    .data-table tr, .stats-card, .kpi-card {
+      break-inside: avoid;
+      page-break-inside: avoid;
     }
     .data-table th, .data-table td {
       padding: 1.8mm 2.2mm;
       border-bottom: 1px solid #e2ebe4;
       vertical-align: middle;
+      overflow-wrap: anywhere;
     }
     .data-table th {
       font-weight: 700;
